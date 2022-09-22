@@ -20,6 +20,8 @@ gRPC インターフェースを備えて外部より設定を注入できる．
 - [ ] iBGP
 - [ ] 4 byte ASN
 - [ ] IPv4 and IPv6 dual stack
+	- [ ] Multiprotocol Extentions for BGP-4 [RFC 4760](https://www.rfc-editor.org/rfc/rfc4760)
+	- [ ] BGP4+(IPv6 拡張) に関する [RFC 2546](https://datatracker.ietf.org/doc/html/rfc2546)
 - [ ] Route Reflector
 - [ ] BGP unnumbered
 
