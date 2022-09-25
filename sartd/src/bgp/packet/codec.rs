@@ -139,8 +139,10 @@ mod tests {
     use tokio_stream::StreamExt;
     use tokio_util::codec::FramedRead;
     use crate::bgp::packet::message::{Message};
+    use crate::bgp::packet::mock::MockTcpStream;
     use super::Codec;
     use std::env;
+    use std::io::{Read, Write};
     
     #[tokio::test]
     async fn works_message_decode() {
@@ -149,10 +151,14 @@ mod tests {
         let testdata = vec![
             ("testdata/packet/keepalive", Message::Keepalive)
         ];
+
         for (path, expected) in testdata {
-            let mut file = File::open(path).await.unwrap();
+            let mut file = std::fs::File::open(path).unwrap();
+            let mut buf = vec![];
+            let _ = file.read_to_end(&mut buf).unwrap();
+            let mut mock_stream = MockTcpStream::new(buf);
             let codec = Codec::default();
-            let mut reader = FramedRead::new(file, codec);
+            let mut reader = FramedRead::new(mock_stream, codec);
             let msg = reader.next().await.unwrap().unwrap();
             assert_eq!(expected, msg)
 
