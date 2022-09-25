@@ -25,6 +25,7 @@ pub(crate) enum Attribute {
 	ExtendedCommunities(Base, u16, u64),
 	AS4Path(Base, Vec<ASSegment>),
 	AS4Aggregator(Base, u32, IpAddr), // todo
+	Unsupported(Base, Vec<u8>),
 }
 
 impl Attribute {
@@ -161,7 +162,12 @@ impl Attribute {
 					_ => Err(Error::UpdateMessage(UpdateMessageError::OptionalAttributeError)),
 				}
 			},
-			_ => Err(Error::UpdateMessage(UpdateMessageError::OptionalAttributeError)),
+			_ => {
+				let mut taken = data.take(length as usize);
+				let mut d = vec![];
+				d.put(&mut taken);
+				Ok(Self::Unsupported(b, d))
+			},
 		}
 	}
 }
@@ -182,6 +188,7 @@ impl Into<u8> for Attribute {
 			Self::MPUnReachNLRI(_, _, _) => Self::MP_UNREACH_NLRI,
 			Self::AS4Path(_, _) => Self::AS4_PATH,
 			Self::AS4Aggregator(_, _, _) => Self::AS4_AGGREGATOR,
+			Self::Unsupported(b, _) => b.code,
 		}
 	}
 }

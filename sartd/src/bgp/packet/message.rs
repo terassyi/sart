@@ -9,7 +9,7 @@ use std::net::Ipv4Addr;
 pub(crate) struct Builder {}
 
 // https://www.rfc-editor.org/rfc/rfc4271#section-4.1
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Message {
     // https://www.rfc-editor.org/rfc/rfc4271#section-4.2
     Open {
@@ -27,7 +27,7 @@ pub(crate) enum Message {
         nlri: Option<Vec<Prefix>>,
     },
     // https://www.rfc-editor.org/rfc/rfc4271#section-4.4
-    Keepalive {},
+    Keepalive,
     // https://www.rfc-editor.org/rfc/rfc4271#section-4.5
     Notification {
         code: NotificationCode,

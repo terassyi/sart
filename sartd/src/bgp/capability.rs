@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use super::family::AddressFamily;
 use super::packet::capability;
 
-type CapabilitySet = HashMap<u8, Capability>;
+pub(crate) type CapabilitySet = HashMap<u8, Capability>;
 
 #[derive(Debug)]
 pub(crate) enum Capability {

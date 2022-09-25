@@ -1,4 +1,4 @@
-use bytes::{Buf, BytesMut};
+use bytes::{Buf, BytesMut, BufMut};
 
 use crate::bgp::error::*;
 use crate::bgp::family::AddressFamily;
@@ -13,6 +13,7 @@ pub(crate) enum Capability {
     FourOctetASNumber(u32),                             // rfc 6793 // 65
     AddPath(AddressFamily, u8),                         // rfc 7911 // 69
     EnhancedRouteRefresh,                               // rfc 7313 // 70
+    Unsupported(u8, Vec<u8>),
 }
 
 impl Capability {
@@ -75,9 +76,12 @@ impl Capability {
                 Ok(Self::AddPath(family, data.get_u8()))
             }
             Self::ENHANCED_ROUTE_REFRESH => Ok(Self::EnhancedRouteRefresh),
-            _ => Err(Error::OpenMessage(
-                OpenMessageError::UnsupportedOptionalParameter,
-            )),
+            _ => {
+                let mut taken_data = data.take(length as usize);
+                let mut d = vec![];
+                d.put(&mut taken_data);
+                Ok(Self::Unsupported(code, d))
+            },
         }
     }
 }
@@ -93,6 +97,7 @@ impl Into<u8> for Capability {
             Self::FourOctetASNumber(_) => Self::FOUR_OCTET_AS_NUMBER,
             Self::AddPath(_, _) => Self::ADD_PATH,
             Self::EnhancedRouteRefresh => Self::ENHANCED_ROUTE_REFRESH,
+            Self::Unsupported(code, _) => code,
         }
     }
 }
