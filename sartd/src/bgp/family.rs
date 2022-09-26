@@ -1,9 +1,18 @@
 use std::convert::TryFrom;
+use crate::bgp::error::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct AddressFamily {
     pub afi: Afi,
     pub safi: Safi,
+}
+
+impl AddressFamily {
+    pub fn new(afi: u16, safi: u8) -> Result<Self, &'static str> {
+        let afi = Afi::try_from(afi)?;
+        let safi = Safi::try_from(safi)?;
+        Ok(Self { afi, safi })
+    }
 }
 
 impl TryFrom<u32> for AddressFamily {
@@ -15,7 +24,7 @@ impl TryFrom<u32> for AddressFamily {
     }
 }
 
-impl Into<u32> for AddressFamily {
+impl<'a> Into<u32> for &'a AddressFamily {
     fn into(self) -> u32 {
         (((self.afi as u16) as u32) << 16) + ((self.safi as u8) as u32)
     }

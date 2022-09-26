@@ -1,7 +1,10 @@
-use bytes::{Buf, BufMut, BytesMut};
+use std::io;
 
-use crate::bgp::error::*;
-use crate::bgp::family::AddressFamily;
+use bytes::{Buf, BufMut, BytesMut};
+use serde::__private::ser::FlatMapSerializeStruct;
+
+use crate::bgp::{error::*, family};
+use crate::bgp::family::{AddressFamily, Afi, Safi};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Capability {
@@ -9,7 +12,7 @@ pub(crate) enum Capability {
     RouteRefresh,                                       // rfc 2918 // 2
     ExtendedNextHop(Vec<(AddressFamily, u16)>),         // rfc 8950 // 5
     BGPExtendedMessage,                                 // rfc 8654 // 6
-    GracefulRestart(u8, u16, Vec<(AddressFamily, u8)>), // rfc 4274 // 64
+    GracefulRestart(u8, u16, Vec<(AddressFamily, u8)>), // rfc 4724 // 64
     FourOctetASNumber(u32),                             // rfc 6793 // 65
     AddPath(AddressFamily, u8),                         // rfc 7911 // 69
     EnhancedRouteRefresh,                               // rfc 7313 // 70
@@ -26,8 +29,8 @@ impl Capability {
     pub const ADD_PATH: u8 = 69;
     pub const ENHANCED_ROUTE_REFRESH: u8 = 70;
 
-    pub const GRACEFUL_RESTART_R: u8 = 0x10;
-    pub const GRACEFUL_RESTART_B: u8 = 0x01;
+    pub const GRACEFUL_RESTART_R: u8 = 0b1000;
+    pub const GRACEFUL_RESTART_B: u8 = 0b0100;
 
     pub fn decode(code: u8, length: u8, data: &mut BytesMut) -> Result<Self, Error> {
         if data.remaining() < length as usize {
@@ -43,11 +46,8 @@ impl Capability {
             Self::EXTENDED_NEXT_HOP => {
                 let mut values: Vec<(AddressFamily, u16)> = vec![];
                 let remain = data.remaining();
-                loop {
-                    if data.remaining() <= remain - (length as usize) {
-                        break;
-                    }
-                    let family = AddressFamily::try_from(data.get_u32())
+                while data.remaining() > remain - (length as usize) {
+                    let family = AddressFamily::new(data.get_u16(), data.get_u16() as u8)
                         .map_err(|_| Error::OpenMessage(OpenMessageError::Unspecific))?;
                     values.push((family, data.get_u16()));
                 }
@@ -56,14 +56,12 @@ impl Capability {
             Self::BGP_EXTENDED_MESSAGE => Ok(Self::BGPExtendedMessage),
             Self::GRACEFUL_RESTART => {
                 let remain = data.remaining();
-                let flags = data.get_u8();
-                let time = data.get_u16();
+                let flag_time = data.get_u16();
+                let flags = (flag_time >> 12) as u8;
+                let time = flag_time & 0x0fff;
                 let mut values: Vec<(AddressFamily, u8)> = vec![];
-                loop {
-                    if data.remaining() <= remain - (length as usize) {
-                        break;
-                    }
-                    let family = AddressFamily::try_from(data.get_u32())
+                while data.remaining() > remain - (length as usize) {
+                    let family = AddressFamily::new(data.get_u16(), data.get_u8())
                         .map_err(|_| Error::OpenMessage(OpenMessageError::Unspecific))?;
                     values.push((family, data.get_u8()));
                 }
@@ -84,7 +82,90 @@ impl Capability {
             }
         }
     }
+
+    pub fn encode(&self, dst: &mut BytesMut) -> io::Result<()> {
+        match self {
+            Self::MultiProtocol(family) => {
+                dst.put_u8(Self::MULTI_PROTOCOL);
+                dst.put_u8(4);
+                dst.put_u32(family.into());
+                Ok(())
+            },
+            Self::RouteRefresh => {
+                dst.put_u8(Self::ROUTE_REFRESH);
+                dst.put_u8(0);
+                Ok(())
+            },
+            Self::ExtendedNextHop(next_hops) => {
+                dst.put_u8(Self::EXTENDED_NEXT_HOP);
+                dst.put_u8((next_hops.len() * 6) as u8);
+                for (family, afi) in next_hops.iter() {
+                    dst.put_u16(family.afi as u16);
+                    dst.put_u16(family.safi as u16);
+                    dst.put_u16(*afi);
+                }
+                Ok(())
+            },
+            Self::BGPExtendedMessage => {
+                dst.put_u8(Self::BGP_EXTENDED_MESSAGE);
+                dst.put_u8(0);
+                Ok(())
+            },
+            Self::GracefulRestart(flag, time, families) => {
+                dst.put_u8(Self::GRACEFUL_RESTART);
+                dst.put_u8(2 + (families.len() * 4) as u8);
+                dst.put_u16(((*flag as u16) << 12) + *time & 0x0fff);
+                for (family, fa) in families.iter() {
+                    dst.put_u16(family.afi as u16);
+                    dst.put_u8(family.safi as u8);
+                    dst.put_u8(*fa);
+                }
+                Ok(())
+            },
+            Self::FourOctetASNumber(asn) => {
+                dst.put_u8(Self::FOUR_OCTET_AS_NUMBER);
+                dst.put_u8(4);
+                dst.put_u32(*asn);
+                Ok(())
+            },
+            Self::AddPath(family, sr) => {
+                dst.put_u8(Self::ADD_PATH);
+                dst.put_u8(5);
+                dst.put_u32(family.into());
+                dst.put_u8(*sr);
+                Ok(())
+            },
+            Self::EnhancedRouteRefresh => {
+                dst.put_u8(Self::ENHANCED_ROUTE_REFRESH);
+                dst.put_u8(0);
+                Ok(())
+            },
+            Self::Unsupported(code, data) => {
+                dst.put_u8(*code);
+                dst.put_u8(data.len() as u8);
+                dst.put_slice(data);
+                Ok(())
+            },
+            _ => Err(io::Error::from(io::ErrorKind::InvalidData)),
+        }
+    }
 }
+
+// impl From<u8> for Capability {
+//     fn from(code: u8) -> Self {
+//         match code {
+//             Self::MULTI_PROTOCOL => Self::MultiProtocol(AddressFamily { afi: Afi::IPv4, safi: Safi::Unicast }),
+//             Self::ROUTE_REFRESH => Self::RouteRefresh,
+//             Self::EXTENDED_NEXT_HOP => Self::ExtendedNextHop(Vec::new()),
+//             Self::BGP_EXTENDED_MESSAGE => Self::BGPExtendedMessage,
+//             Self::GRACEFUL_RESTART => Self::GracefulRestart(0, 0, Vec::new()),
+//             Self::FOUR_OCTET_AS_NUMBER => Self::FourOctetASNumber(0),
+//             Self::ADD_PATH => Self::AddPath(AddressFamily { afi: Afi::IPv4, safi: Safi::Unicast }, 0)
+//             Self::ENHANCED_ROUTE_REFRESH => Self::EnhancedRouteRefresh,
+//             _ => Self::Unsupported(0, Vec::new()),
+//         }
+//     }
+// }
 
 impl Into<u8> for Capability {
     fn into(self) -> u8 {
@@ -122,9 +203,8 @@ mod tests {
 		case(Capability::EXTENDED_NEXT_HOP, 6, vec![0x00, 0x02, 0x00, 0x01, 0x00, 0x02], Capability::ExtendedNextHop(vec![(AddressFamily{afi: Afi::IPv6, safi: Safi::Unicast}, 0x0002)])),
 		case(Capability::EXTENDED_NEXT_HOP, 12, vec![0x00, 0x01, 0x00, 0x01, 0x00, 0x01, 0x00, 0x02, 0x00, 0x01, 0x00, 0x02], Capability::ExtendedNextHop(vec![(AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast}, 0x0001), (AddressFamily{afi: Afi::IPv6, safi: Safi::Unicast}, 0x0002)])),
 		case(Capability::EXTENDED_NEXT_HOP, 18, vec![0x00, 0x01, 0x00, 0x01, 0x00, 0x01, 0x00, 0x02, 0x00, 0x01, 0x00, 0x02, 0x00, 0x01, 0x00, 0x02, 0x00, 0x01], Capability::ExtendedNextHop(vec![(AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast}, 0x0001), (AddressFamily{afi: Afi::IPv6, safi: Safi::Unicast}, 0x0002), (AddressFamily{afi: Afi::IPv4, safi: Safi::Multicast}, 0x0001)])),
-		case(Capability::GRACEFUL_RESTART, 8, vec![0x10, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x01], Capability::GracefulRestart(Capability::GRACEFUL_RESTART_R, 0x0100, vec![(AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast}, 0x01)])),
-		case(Capability::GRACEFUL_RESTART, 8, vec![0x11, 0xff, 0xff, 0x00, 0x01, 0x00, 0x01, 0x01], Capability::GracefulRestart(Capability::GRACEFUL_RESTART_R + Capability::GRACEFUL_RESTART_B, 0xffff, vec![(AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast}, 0x01)])),
-		case(Capability::GRACEFUL_RESTART, 13, vec![0x11, 0xff, 0xff, 0x00, 0x01, 0x00, 0x01, 0x01, 0x00, 0x02, 0x00, 0x01, 0x02], Capability::GracefulRestart(Capability::GRACEFUL_RESTART_R + Capability::GRACEFUL_RESTART_B, 0xffff, vec![(AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast}, 0x01), (AddressFamily{afi: Afi::IPv6, safi: Safi::Unicast}, 0x02)])),
+		case(Capability::GRACEFUL_RESTART, 2, vec![0x80, 0x78], Capability::GracefulRestart(Capability::GRACEFUL_RESTART_R, 120, vec![])),
+		case(Capability::GRACEFUL_RESTART, 6, vec![0xc0, 0xb4, 0x00, 0x01, 0x01, 0x01], Capability::GracefulRestart(Capability::GRACEFUL_RESTART_R + Capability::GRACEFUL_RESTART_B, 180, vec![(AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast}, 0x01)])),
 		case(Capability::FOUR_OCTET_AS_NUMBER, 4, vec![0x00, 0x00, 0x01, 0x01], Capability::FourOctetASNumber(0x0000_0101)),
         case(Capability::ADD_PATH, 4, vec![0x00, 0x01, 0x00, 0x01, 0x01], Capability::AddPath(AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast}, 0x01)),
         case(Capability::ADD_PATH, 4, vec![0x00, 0x02, 0x00, 0x01, 0x02], Capability::AddPath(AddressFamily{afi: Afi::IPv6, safi: Safi::Unicast}, 0x02)),
