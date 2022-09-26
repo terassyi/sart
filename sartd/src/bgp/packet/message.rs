@@ -45,6 +45,7 @@ impl Message {
     pub const MAX_LENGTH: u16 = 4096;
     pub const EXTENDED_MAX_LENGTH: u16 = 65535;
     pub const MARKER: u128 = 0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ffff;
+    pub const AS_TRANS: u32 = 23456;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

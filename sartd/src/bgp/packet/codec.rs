@@ -149,17 +149,20 @@ mod tests {
     use tokio_stream::StreamExt;
     use tokio_util::codec::FramedRead;
     use tokio_util::codec::{Decoder, Encoder};
-    use crate::bgp::packet::message::{Message};
+    use crate::bgp::packet::message::Message;
+    use crate::bgp::packet::capability::Capability;
+    use crate::bgp::family::{AddressFamily, Afi, Safi};
     use crate::bgp::packet::mock::MockTcpStream;
     use super::Codec;
     use std::env;
     use std::io::{Read, Write};
+    use std::net::Ipv4Addr;
     
     #[tokio::test]
     async fn works_framedred_decode() {
         let path = env::current_dir().unwrap();
         let testdata = vec![
-            ("testdata/packet/keepalive", Message::Keepalive)
+            ("testdata/messages/keepalive", Message::Keepalive)
         ];
         for (path, expected) in testdata {
             let mut file = std::fs::File::open(path).unwrap();
@@ -176,7 +179,20 @@ mod tests {
     #[rstest(
         input,
         expected,
-        case("testdata/packet/keepalive", Message::Keepalive)
+        case("testdata/messages/keepalive", Message::Keepalive),
+        case("testdata/messages/open-4bytes-asn", Message::Open { 
+            version: 4,
+            as_num: Message::AS_TRANS,
+            hold_time: 180,
+            identifier: Ipv4Addr::new(40, 0, 0, 1),
+            capabilities: vec![
+                Capability::MultiProtocol(AddressFamily{ afi: Afi::IPv4, safi: Safi::Unicast }),
+                Capability::Unsupported(0x80, Vec::new()), // Unsupported Route Refresh Cisco
+                Capability::RouteRefresh,
+                Capability::Unsupported(131, vec![0x00]), // Unsupported Multisession BPGP Cisco
+                Capability::FourOctetASNumber(2621441),
+            ]
+        })
     )]
     fn works_codec_decode(input: &str, expected: Message) {
         let mut file = std::fs::File::open(input).unwrap();
