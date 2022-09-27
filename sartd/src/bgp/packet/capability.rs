@@ -114,7 +114,8 @@ impl Capability {
             Self::GracefulRestart(flag, time, families) => {
                 dst.put_u8(Self::GRACEFUL_RESTART);
                 dst.put_u8(2 + (families.len() * 4) as u8);
-                dst.put_u16(((*flag as u16) << 12) + *time & 0x0fff);
+                let a = (*flag as u16) << 12;
+                dst.put_u16(((*flag as u16) << 12) + (*time & 0x0fff));
                 for (family, fa) in families.iter() {
                     dst.put_u16(family.afi as u16);
                     dst.put_u8(family.safi as u8);
@@ -130,8 +131,9 @@ impl Capability {
             },
             Self::AddPath(family, sr) => {
                 dst.put_u8(Self::ADD_PATH);
-                dst.put_u8(5);
-                dst.put_u32(family.into());
+                dst.put_u8(4);
+                dst.put_u16(family.afi as u16);
+                dst.put_u8(family.safi as u8);
                 dst.put_u8(*sr);
                 Ok(())
             },
@@ -235,7 +237,25 @@ mod tests {
         ),
         case(Capability::RouteRefresh, vec![0x02, 0x00]),
         case(Capability::BGPExtendedMessage, vec![0x06, 0x00]),
-        case(Capability::EnhancedRouteRefresh, vec![0x46, 0x00])
+        case(Capability::EnhancedRouteRefresh, vec![0x46, 0x00]),
+        case(
+            Capability::ExtendedNextHop(vec![(AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast}, 0x0001)]),
+            vec![0x05, 0x06, 0x00, 0x01, 0x00, 0x01, 0x00, 0x01],
+        ),
+		case(
+            Capability::ExtendedNextHop(vec![(AddressFamily{afi: Afi::IPv6, safi: Safi::Unicast}, 0x0002)]),
+            vec![0x05, 0x06, 0x00, 0x02, 0x00, 0x01, 0x00, 0x02],
+        ),
+        case(
+            Capability::ExtendedNextHop(vec![(AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast}, 0x0001), (AddressFamily{afi: Afi::IPv6, safi: Safi::Unicast}, 0x0002), (AddressFamily{afi: Afi::IPv4, safi: Safi::Multicast}, 0x0001)]),
+            vec![0x05, 0x12, 0x00, 0x01, 0x00, 0x01, 0x00, 0x01, 0x00, 0x02, 0x00, 0x01, 0x00, 0x02, 0x00, 0x01, 0x00, 0x02, 0x00, 0x01],
+        ),
+        case(Capability::GracefulRestart(Capability::GRACEFUL_RESTART_R, 120, vec![]), vec![0x40, 0x02, 0x80, 0x78]),
+        case(Capability::GracefulRestart(Capability::GRACEFUL_RESTART_R + Capability::GRACEFUL_RESTART_B, 180, vec![(AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast}, 0x01)]), vec![0x40, 0x06, 0xc0, 0xb4, 0x00, 0x01, 0x01, 0x01]),
+		case(Capability::FourOctetASNumber(0x0000_0101), vec![0x41, 0x04, 0x00, 0x00, 0x01, 0x01]),
+        case(Capability::AddPath(AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast}, 0x01), vec![0x45, 0x04, 0x00, 0x01, 0x01, 0x01]),
+        case(Capability::AddPath(AddressFamily{afi: Afi::IPv6, safi: Safi::Unicast}, 0x02), vec![0x45, 0x04, 0x00, 0x02, 0x01, 0x02]),
+        case(Capability::Unsupported(100, Vec::new()), vec![100, 0]),
     )]
     fn works_capability_encode(capability: Capability, expected: Vec<u8>) {
         let mut buf = BytesMut::new();

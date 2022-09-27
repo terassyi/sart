@@ -1,3 +1,4 @@
+use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use bytes::{Buf, BufMut, BytesMut};
@@ -54,6 +55,30 @@ impl Attribute {
 
     pub const AS_SET: u8 = 1;
     pub const AS_SEQUENCE: u8 = 2;
+
+	pub fn is_transitive(&self) -> bool {
+		let base = match self {
+			Self::Origin(b, _) => b,
+			Self::ASPath(b, ) => b,
+			Self::
+		}
+
+	}
+
+	pub fn is_optional(&self) -> bool {
+
+	}
+
+	pub fn is_partial(&self) -> bool {
+
+	}
+
+	pub fn is_extended(&self) -> bool {
+
+	}
+
+	fn get_base(&self) -> &Base {
+	}
 
     pub fn decode(data: &mut BytesMut) -> Result<Self, Error> {
         // packet::capability will be convert to bgp capability.
@@ -198,6 +223,57 @@ impl Attribute {
             }
         }
     }
+
+	pub fn encode(&self, dst: &mut BytesMut) -> io::Result<()> {
+		match self {
+			Self::Origin(base, val) => {
+				dst.put_u16(base.into());
+				if 
+				Ok(())
+			},
+			Self::ASPath(base, segments) => {
+				Ok(())
+			},
+			Self::NextHop(base, next) => {
+				Ok(())
+			},
+			Self::MultiExitDisc(base, val) => {
+				Ok(())
+			},
+			Self::LocalPref(base, pref) => {
+				Ok(())
+			},
+			Self::AtomicAggregate(base) => {
+				Ok(())
+			},
+			Self::Aggregator(base, val, addr) => {
+				Ok(())
+			},
+			Self::Communities(base, val) => {
+				Ok(())
+			},
+			Self::ExtendedCommunities(base, val1, val2) => {
+				Ok(())
+			},
+			Self::MPReachNLRI(base, family, addrs, prefixes) => {
+				Ok(())
+			},
+			Self::MPUnReachNLRI(base, family, prefixes) => {
+				Ok(())
+			},
+			Self::AS4Path(base, segments) => {
+				Ok(())
+			},
+			Self::AS4Aggregator(base, val, addr) => {
+				Ok(())
+			},
+			Self::Unsupported(base, data) => {
+				Ok(())
+			}
+			_ => Err(io::Error::from(io::ErrorKind::InvalidData)),
+
+		}
+	}
 }
 
 impl Into<u8> for Attribute {
@@ -231,6 +307,28 @@ impl Base {
     pub fn new(flag: u8, code: u8) -> Self {
         Self { flag, code }
     }
+
+	fn is_extended(&self) -> bool {
+		(self.flag & Attribute::FLAG_EXTENDED) != 0
+	}
+
+	fn is_transitive(&self) -> bool {
+		(self.flag & Attribute::FLAG_TRANSITIVE) != 0
+	}
+
+	fn is_optional(&self) -> bool {
+		(self.flag & Attribute::FLAG_OPTIONAL) != 0
+	}
+
+	fn is_partial(&self) -> bool {
+		(self.flag & Attribute::FLAG_PARTIAL) != 0
+	}
+}
+
+impl<'a> Into<u16> for &'a Base {
+	fn into(self) -> u16 {
+		((self.code as u16) << 8) + (self.flag as u16)
+	}
 }
 
 #[derive(Debug, Clone, PartialEq)]
