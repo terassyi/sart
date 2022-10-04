@@ -44,7 +44,7 @@ impl Message {
     pub const HEADER_LENGTH: u16 = 19;
     pub const MAX_LENGTH: u16 = 4096;
     pub const EXTENDED_MAX_LENGTH: u16 = 65535;
-    pub const MARKER: u128 = 0xffff_ffff_ffff_ffff;
+    pub const MARKER: u128 = 0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ffff;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -34,16 +34,16 @@ impl Decoder for Codec {
     type Item = Message;
     type Error = Error;
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if src.len() < Message::HEADER_LENGTH as usize {
+        if src.remaining() < Message::HEADER_LENGTH as usize {
             return Err(Error::MessageHeader(MessageHeaderError::BadMessageLength {
-                length: src.len() as u16,
+                length: src.remaining() as u16,
             }));
         }
         let marker = src.get_u128();
         let header_length = src.get_u16();
         if marker != Message::MARKER || header_length < Message::HEADER_LENGTH {
             return Err(Error::MessageHeader(MessageHeaderError::BadMessageLength {
-                length: src.len() as u16,
+                length: header_length,
             }));
         }
         let message_type = MessageType::try_from(src.get_u8())?;
@@ -132,12 +132,23 @@ impl Decoder for Codec {
     }
 }
 
+impl Encoder<&Message> for Codec {
+    type Error = Error;
+    fn encode(&mut self, item: &Message, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        
+        Ok(())
+    }
+
+}
+
 #[cfg(test)]
 mod tests {
+    use bytes::BytesMut;
     use rstest::rstest;
     use tokio::fs::File;
     use tokio_stream::StreamExt;
     use tokio_util::codec::FramedRead;
+    use tokio_util::codec::{Decoder, Encoder};
     use crate::bgp::packet::message::{Message};
     use crate::bgp::packet::mock::MockTcpStream;
     use super::Codec;
@@ -145,13 +156,11 @@ mod tests {
     use std::io::{Read, Write};
     
     #[tokio::test]
-    async fn works_message_decode() {
+    async fn works_framedred_decode() {
         let path = env::current_dir().unwrap();
-        println!("starting dir: {}", path.display());
         let testdata = vec![
             ("testdata/packet/keepalive", Message::Keepalive)
         ];
-
         for (path, expected) in testdata {
             let mut file = std::fs::File::open(path).unwrap();
             let mut buf = vec![];
@@ -161,7 +170,21 @@ mod tests {
             let mut reader = FramedRead::new(mock_stream, codec);
             let msg = reader.next().await.unwrap().unwrap();
             assert_eq!(expected, msg)
-
         }
+    }
+
+    #[rstest(
+        input,
+        expected,
+        case("testdata/packet/keepalive", Message::Keepalive)
+    )]
+    fn works_codec_decode(input: &str, expected: Message) {
+        let mut file = std::fs::File::open(input).unwrap();
+        let mut data = Vec::new();
+        file.read_to_end(&mut data).unwrap();
+        let mut codec = Codec::default();
+        let mut buf = BytesMut::from(data.as_slice());
+        let msg = codec.decode(&mut buf).unwrap().unwrap();
+        assert_eq!(expected, msg);
     }
 }
