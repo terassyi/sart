@@ -5,11 +5,11 @@ use std::sync::{Arc, RwLock};
 use bytes::{Buf, BytesMut};
 use tokio_util::codec::{Decoder, Encoder};
 
-use crate::bgp::{error::*, capability};
 use crate::bgp::family::{AddressFamily, Afi, Safi};
+use crate::bgp::packet::attribute::Attribute;
 use crate::bgp::packet::message::{Message, MessageType, NotificationCode, NotificationSubCode};
 use crate::bgp::packet::prefix::Prefix;
-use crate::bgp::packet::attribute::Attribute;
+use crate::bgp::{capability, error::*};
 
 use super::capability::Capability;
 
@@ -23,10 +23,11 @@ impl Codec {
     pub fn default() -> Self {
         Self {
             family: AddressFamily {
-                afi: Afi::IPv4, 
+                afi: Afi::IPv4,
                 safi: Safi::Unicast,
             },
-            capabilities: Arc::new(RwLock::new(HashMap::new())) }
+            capabilities: Arc::new(RwLock::new(HashMap::new())),
+        }
     }
 }
 
@@ -54,16 +55,29 @@ impl Decoder for Codec {
                 let hold_time = src.get_u16();
                 let router_id = Ipv4Addr::from(src.get_u32());
                 let mut capabilities = vec![];
-                let capability_length = src.get_u16();
-                if capability_length != src.remaining() as u16 {
-                    return Err(Error::MessageHeader(MessageHeaderError::BadMessageLength { length: src.len() as u16}));
+                let capability_length = src.get_u8();
+                if capability_length != src.remaining() as u8 {
+                    return Err(Error::MessageHeader(MessageHeaderError::BadMessageLength {
+                        length: src.len() as u16,
+                    }));
                 }
                 loop {
                     if src.remaining() == 0 {
                         break;
                     }
-                    let cap = Capability::decode(src.get_u8(), src.get_u8(), src)?;
-                    capabilities.push(cap)
+                    let option_type = src.get_u8();
+                    let _option_length = src.get_u8();
+                    match option_type {
+                        Message::OPTION_TYPE_CAPABILITIES => {
+                            let cap = Capability::decode(src.get_u8(), src.get_u8(), src)?;
+                            capabilities.push(cap);
+                        }
+                        _ => {
+                            return Err(Error::OpenMessage(
+                                OpenMessageError::UnsupportedOptionalParameter,
+                            ))
+                        }
+                    }
                 }
 
                 Some(Message::Open {
@@ -135,35 +149,34 @@ impl Decoder for Codec {
 impl Encoder<&Message> for Codec {
     type Error = Error;
     fn encode(&mut self, item: &Message, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        
         Ok(())
     }
-
 }
 
 #[cfg(test)]
 mod tests {
+    use super::Codec;
+    use crate::bgp::family::{AddressFamily, Afi, Safi};
+    use crate::bgp::packet::attribute::{ASSegment, Attribute, Base};
+    use crate::bgp::packet::capability::Capability;
+    use crate::bgp::packet::message::{Message, NotificationCode, NotificationSubCode};
+    use crate::bgp::packet::mock::MockTcpStream;
+    use crate::bgp::packet::prefix::Prefix;
     use bytes::BytesMut;
+    use ipnet::{IpNet, Ipv4Net, Ipv6Net};
     use rstest::rstest;
+    use std::env;
+    use std::io::{Read, Write};
+    use std::net::Ipv4Addr;
     use tokio::fs::File;
     use tokio_stream::StreamExt;
     use tokio_util::codec::FramedRead;
     use tokio_util::codec::{Decoder, Encoder};
-    use crate::bgp::packet::message::Message;
-    use crate::bgp::packet::capability::Capability;
-    use crate::bgp::family::{AddressFamily, Afi, Safi};
-    use crate::bgp::packet::mock::MockTcpStream;
-    use super::Codec;
-    use std::env;
-    use std::io::{Read, Write};
-    use std::net::Ipv4Addr;
-    
+
     #[tokio::test]
     async fn works_framedred_decode() {
         let path = env::current_dir().unwrap();
-        let testdata = vec![
-            ("testdata/messages/keepalive", Message::Keepalive)
-        ];
+        let testdata = vec![("testdata/messages/keepalive", Message::Keepalive)];
         for (path, expected) in testdata {
             let mut file = std::fs::File::open(path).unwrap();
             let mut buf = vec![];
@@ -180,6 +193,16 @@ mod tests {
         input,
         expected,
         case("testdata/messages/keepalive", Message::Keepalive),
+        case("testdata/messages/open-2bytes-asn", Message::Open {
+            version: 4,
+            as_num: 65100,
+            hold_time: 180,
+            identifier: Ipv4Addr::new(10, 10, 3, 1),
+            capabilities: vec![
+                Capability::MultiProtocol(AddressFamily{ afi: Afi::IPv4, safi: Safi::Unicast }),
+                Capability::Unsupported(0x80, Vec::new()), // Unsupported Route Refresh Cisco
+                Capability::RouteRefresh,
+            ] }),
         case("testdata/messages/open-4bytes-asn", Message::Open { 
             version: 4,
             as_num: Message::AS_TRANS,
@@ -192,6 +215,26 @@ mod tests {
                 Capability::Unsupported(131, vec![0x00]), // Unsupported Multisession BPGP Cisco
                 Capability::FourOctetASNumber(2621441),
             ]
+        }),
+        case("testdata/messages/notification-bad-as-peer", Message::Notification {
+            code: NotificationCode::OpenMessage,
+            subcode: Some(NotificationSubCode::BadPeerAS),
+            data: vec![0xfe, 0xb0],
+        }),
+        case("testdata/messages/route-refresh", Message::RouteRefresh { family: AddressFamily{ afi: Afi::IPv4, safi: Safi::Unicast} }),
+        case("testdata/messages/update-nlri", Message::Update {
+            withdrawn_routes: None,
+            attributes: Some(vec![
+                Attribute::Origin(Base::new(Attribute::FLAG_TRANSITIVE, Attribute::ORIGIN), Attribute::ORIGIN_IGP),
+                Attribute::ASPath(Base::new(Attribute::FLAG_TRANSITIVE, Attribute::AS_PATH), vec![ASSegment{ segment_type: Attribute::AS_SEQUENCE, segments: vec![65100]}]),
+                Attribute::NextHop(Base::new(Attribute::FLAG_TRANSITIVE, Attribute::NEXT_HOP), Ipv4Addr::new(1, 1, 1, 1)),
+                Attribute::MultiExitDisc(Base::new(Attribute::FLAG_OPTIONAL, Attribute::MULTI_EXIT_DISC), 0),
+            ]),
+            nlri: Some(vec![
+                Prefix::new(IpNet::V4(Ipv4Net::new(Ipv4Addr::new(10, 10, 3, 0), 24).unwrap()), None),
+                Prefix::new(IpNet::V4(Ipv4Net::new(Ipv4Addr::new(10, 10, 2, 0), 24).unwrap()), None),
+                Prefix::new(IpNet::V4(Ipv4Net::new(Ipv4Addr::new(10, 10, 1, 0), 24).unwrap()), None),
+            ]),
         })
     )]
     fn works_codec_decode(input: &str, expected: Message) {

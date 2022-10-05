@@ -1,4 +1,4 @@
-use bytes::{Buf, BytesMut, BufMut};
+use bytes::{Buf, BufMut, BytesMut};
 
 use crate::bgp::error::*;
 use crate::bgp::family::AddressFamily;
@@ -26,8 +26,8 @@ impl Capability {
     pub const ADD_PATH: u8 = 69;
     pub const ENHANCED_ROUTE_REFRESH: u8 = 70;
 
-	pub const GRACEFUL_RESTART_R: u8 = 0x10;
-	pub const GRACEFUL_RESTART_B: u8 = 0x01;
+    pub const GRACEFUL_RESTART_R: u8 = 0x10;
+    pub const GRACEFUL_RESTART_B: u8 = 0x01;
 
     pub fn decode(code: u8, length: u8, data: &mut BytesMut) -> Result<Self, Error> {
         if data.remaining() < length as usize {
@@ -81,7 +81,7 @@ impl Capability {
                 let mut d = vec![];
                 d.put(&mut taken_data);
                 Ok(Self::Unsupported(code, d))
-            },
+            }
         }
     }
 }
@@ -129,6 +129,7 @@ mod tests {
         case(Capability::ADD_PATH, 4, vec![0x00, 0x01, 0x00, 0x01, 0x01], Capability::AddPath(AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast}, 0x01)),
         case(Capability::ADD_PATH, 4, vec![0x00, 0x02, 0x00, 0x01, 0x02], Capability::AddPath(AddressFamily{afi: Afi::IPv6, safi: Safi::Unicast}, 0x02)),
 		case(Capability::FOUR_OCTET_AS_NUMBER, 4, vec![0x00, 0x00, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00], Capability::FourOctetASNumber(0x0000_0101)),
+        case(100, 0, vec![], Capability::Unsupported(100, Vec::new())),
 	)]
     fn works_capability_decode(code: u8, length: u8, data: Vec<u8>, expected: Capability) {
         let mut buf = BytesMut::from(data.as_slice());
@@ -144,7 +145,6 @@ mod tests {
         length,
 		data,
 		expected,
-        case(100, 0, vec![], OpenMessageError::UnsupportedOptionalParameter),
         case(Capability::ADD_PATH, 4, vec![0x00, 0x01, 0x00], OpenMessageError::Unspecific),
     )]
     fn failed_capability_decode(code: u8, length: u8, data: Vec<u8>, expected: OpenMessageError) {
@@ -153,9 +153,8 @@ mod tests {
             Ok(_) => assert!(false),
             Err(e) => match e {
                 Error::OpenMessage(ee) => assert_eq!(expected, ee),
-                _ => assert!(false)
+                _ => assert!(false),
             },
         }
     }
-
 }
