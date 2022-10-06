@@ -32,8 +32,8 @@ impl<'a> Into<u32> for &'a AddressFamily {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Afi {
-    IPv4,
-    IPv6,
+    IPv4 = 1,
+    IPv6 = 2,
 }
 
 impl TryFrom<u16> for Afi {
@@ -58,8 +58,8 @@ impl Into<u16> for Afi {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Safi {
-    Unicast,
-    Multicast,
+    Unicast = 1,
+    Multicast = 2,
 }
 
 impl TryFrom<u8> for Safi {
@@ -109,5 +109,16 @@ mod tests {
             Ok(_) => assert!(false),
             Err(e) => assert_eq!(e, expected),
         }
+    }
+
+    #[rstest(
+        input,
+        expected,
+        case(&AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast}, 0x00010001),
+        case(&AddressFamily{afi: Afi::IPv6, safi: Safi::Unicast}, 0x00020001),
+        case(&AddressFamily{afi: Afi::IPv6, safi: Safi::Multicast}, 0x00020002),
+    )]
+    fn works_address_family_into(input: &AddressFamily, expected: u32) {
+        assert_eq!(expected, input.into());
     }
 }

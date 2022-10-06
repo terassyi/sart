@@ -151,22 +151,6 @@ impl Capability {
     }
 }
 
-// impl From<u8> for Capability {
-//     fn from(code: u8) -> Self {
-//         match code {
-//             Self::MULTI_PROTOCOL => Self::MultiProtocol(AddressFamily { afi: Afi::IPv4, safi: Safi::Unicast }),
-//             Self::ROUTE_REFRESH => Self::RouteRefresh,
-//             Self::EXTENDED_NEXT_HOP => Self::ExtendedNextHop(Vec::new()),
-//             Self::BGP_EXTENDED_MESSAGE => Self::BGPExtendedMessage,
-//             Self::GRACEFUL_RESTART => Self::GracefulRestart(0, 0, Vec::new()),
-//             Self::FOUR_OCTET_AS_NUMBER => Self::FourOctetASNumber(0),
-//             Self::ADD_PATH => Self::AddPath(AddressFamily { afi: Afi::IPv4, safi: Safi::Unicast }, 0)
-//             Self::ENHANCED_ROUTE_REFRESH => Self::EnhancedRouteRefresh,
-//             _ => Self::Unsupported(0, Vec::new()),
-//         }
-//     }
-// }
-
 impl Into<u8> for Capability {
     fn into(self) -> u8 {
         match self {
@@ -236,5 +220,26 @@ mod tests {
                 _ => assert!(false),
             },
         }
+    }
+
+    #[rstest(
+        capability,
+        expected,
+        case(
+            Capability::MultiProtocol(AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast}),
+            vec![0x01, 0x04, 0x00, 0x01, 0x00, 0x01],
+        ),
+        case(
+            Capability::MultiProtocol(AddressFamily{afi: Afi::IPv6, safi: Safi::Multicast}),
+            vec![0x01, 0x04, 0x00, 0x02, 0x00, 0x02],
+        ),
+        case(Capability::RouteRefresh, vec![0x02, 0x00]),
+        case(Capability::BGPExtendedMessage, vec![0x06, 0x00]),
+        case(Capability::EnhancedRouteRefresh, vec![0x46, 0x00])
+    )]
+    fn works_capability_encode(capability: Capability, expected: Vec<u8>) {
+        let mut buf = BytesMut::new();
+        capability.encode(&mut buf).unwrap();
+        assert_eq!(expected, buf.to_vec())
     }
 }
