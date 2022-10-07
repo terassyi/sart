@@ -57,27 +57,38 @@ impl Attribute {
     pub const AS_SEQUENCE: u8 = 2;
 
 	pub fn is_transitive(&self) -> bool {
-		let base = match self {
-			Self::Origin(b, _) => b,
-			Self::ASPath(b, ) => b,
-			Self::
-		}
-
+		self.get_base().is_transitive()
 	}
 
 	pub fn is_optional(&self) -> bool {
-
+		self.get_base().is_optional()
 	}
 
 	pub fn is_partial(&self) -> bool {
-
+		self.get_base().is_partial()
 	}
 
 	pub fn is_extended(&self) -> bool {
-
+		self.get_base().is_extended()
 	}
 
 	fn get_base(&self) -> &Base {
+        match self {
+            Self::Origin(b, _) => b,
+            Self::ASPath(b, _) => b,
+            Self::NextHop(b, _) => b,
+            Self::MultiExitDisc(b, _) => b,
+            Self::LocalPref(b, _) => b,
+            Self::AtomicAggregate(b) => b,
+            Self::Aggregator(b, _, _) => b,
+            Self::Communities(b, _) => b,
+            Self::ExtendedCommunities(b, _, _) => b,
+            Self::MPReachNLRI(b, _, _, _) => b,
+            Self::MPUnReachNLRI(b, _, _) => b,
+            Self::AS4Path(b, _) => b,
+            Self::AS4Aggregator(b, _, _) => b,
+            Self::Unsupported(b, _) => b,
+        }
 	}
 
     pub fn decode(data: &mut BytesMut) -> Result<Self, Error> {
@@ -225,10 +236,13 @@ impl Attribute {
     }
 
 	pub fn encode(&self, dst: &mut BytesMut) -> io::Result<()> {
+		let put_length = || {
+			if self.is_extended() {
+			} else {}
+		};
+		dst.put_u16(self.get_base().into());
 		match self {
 			Self::Origin(base, val) => {
-				dst.put_u16(base.into());
-				if 
 				Ok(())
 			},
 			Self::ASPath(base, segments) => {
@@ -271,8 +285,38 @@ impl Attribute {
 				Ok(())
 			}
 			_ => Err(io::Error::from(io::ErrorKind::InvalidData)),
-
 		}
+	}
+
+	fn len(&self) -> usize {
+        match self {
+            Self::Origin(_, _) => 1,
+            Self::ASPath(_, _) => {
+				0
+			},
+            Self::NextHop(_, _) => 4,
+            Self::MultiExitDisc(_, _) => 4,
+            Self::LocalPref(_, _) => 4,
+            Self::AtomicAggregate(_) => 0,
+            Self::Aggregator(_, _, _) => {
+				0
+			},
+            Self::Communities(_, _) => 4,
+            Self::ExtendedCommunities(_, _, _) => 10,
+            Self::MPReachNLRI(_, _, _, _) => {
+				0
+			},
+            Self::MPUnReachNLRI(_, _, _) => {
+				0
+			},
+            Self::AS4Path(_, _) => {
+				0
+			},
+            Self::AS4Aggregator(_, _, _) => {
+				0
+			},
+            Self::Unsupported(_, data) => data.len(),
+        }
 	}
 }
 
