@@ -1,9 +1,10 @@
+use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use crate::bgp::error::*;
 use crate::bgp::family::{AddressFamily, Afi};
 
-use bytes::{Buf, BytesMut};
+use bytes::{Buf, BytesMut, BufMut};
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -59,6 +60,39 @@ impl Prefix {
             }
         };
         Ok(Prefix { inner: p, path_id })
+    }
+
+    pub fn encode(&self, dst: &mut BytesMut) -> io::Result<()> {
+        match self.path_id {
+            Some(id) => dst.put_u32(id),
+            None => {},
+        }
+        dst.put_u8(self.inner.prefix_len());
+        match self.inner {
+            IpNet::V4(a) => {
+                let oct = a.addr().octets();
+                let (aa, _) = oct.as_slice().split_at(self.inner.prefix_len() as usize);
+                dst.put_slice(aa);
+            },
+            IpNet::V6(a) => {
+                let oct = a.addr().octets();
+                let (aa, _) = oct.as_slice().split_at(self.inner.prefix_len() as usize);
+                dst.put_slice(aa);
+            }
+        };
+        Ok(())
+    }
+
+    pub fn len(&self) -> usize {
+        let length = match self.path_id {
+            Some(_) => 5,
+            None => 1,
+        };
+        if self.inner.prefix_len() % 8 > 0 {
+            length + 1 + (self.inner.prefix_len() / 8) as usize
+        } else {
+            length + (self.inner.prefix_len() / 8) as usize
+        }
     }
 }
 

@@ -91,7 +91,7 @@ impl Attribute {
         }
 	}
 
-    pub fn decode(data: &mut BytesMut) -> Result<Self, Error> {
+    pub fn decode(data: &mut BytesMut, as4_enabled: bool, add_path_enabled: bool) -> Result<Self, Error> {
         // packet::capability will be convert to bgp capability.
         let b = Base {
             flag: data.get_u8(),
@@ -115,7 +115,11 @@ impl Attribute {
                     let segment_length = data.get_u8() as usize;
                     let mut segs = Vec::with_capacity(segment_length);
                     for _ in 0..segment_length {
-                        segs.push(data.get_u16() as u32);
+                        if as4_enabled {
+                            segs.push(data.get_u32());
+                        } else {
+                            segs.push(data.get_u16() as u32);
+                        }
                     }
                     segments.push(ASSegment {
                         segment_type,
@@ -151,7 +155,7 @@ impl Attribute {
                 Ok(Self::ExtendedCommunities(b, typ, val))
             }
             Self::MP_REACH_NLRI => {
-                let family = AddressFamily::try_from(data.get_u32()).map_err(|_| {
+                let family = AddressFamily::new(data.get_u16(), data.get_u8()).map_err(|_| {
                     Error::UpdateMessage(UpdateMessageError::OptionalAttributeError)
                 })?;
                 let add_path_enabled = false; // TODO: implement capability handling
@@ -171,10 +175,7 @@ impl Attribute {
                 };
                 let _ = data.get_u8();
                 let mut nlri = Vec::new();
-                loop {
-                    if data.remaining() + length <= remain {
-                        break;
-                    }
+                while data.remaining() > remain - length {
                     nlri.push(Prefix::decode(family, add_path_enabled, data)?)
                 }
                 Ok(Self::MPReachNLRI(b, family, next_hops, nlri))
@@ -184,20 +185,14 @@ impl Attribute {
                     Error::UpdateMessage(UpdateMessageError::OptionalAttributeError)
                 })?;
                 let mut withdrawn_routes = Vec::new();
-                loop {
-                    if data.remaining() + length <= remain {
-                        break;
-                    }
+                while data.remaining() > remain - length {
                     withdrawn_routes.push(Prefix::decode(family, false, data)?);
                 }
                 Ok(Self::MPUnReachNLRI(b, family, withdrawn_routes))
             }
             Self::AS4_PATH => {
                 let mut segments = Vec::new();
-                loop {
-                    if data.remaining() + length <= remain {
-                        break;
-                    }
+                while data.remaining() > remain - length {
                     let segment_type = data.get_u8();
                     let segment_length = data.get_u8() as usize;
                     let mut segs = Vec::with_capacity(segment_length);
@@ -235,85 +230,166 @@ impl Attribute {
         }
     }
 
-	pub fn encode(&self, dst: &mut BytesMut) -> io::Result<()> {
-		let put_length = || {
-			if self.is_extended() {
-			} else {}
-		};
+	pub fn encode(&self, dst: &mut BytesMut, as4_enabled: bool, add_path_enabled: bool) -> io::Result<()> {
 		dst.put_u16(self.get_base().into());
+		if self.is_extended() {
+             dst.put_u16(self.len(as4_enabled, add_path_enabled) as u16)
+		} else { dst.put_u8(self.len(as4_enabled, add_path_enabled) as u8) }
 		match self {
-			Self::Origin(base, val) => {
+			Self::Origin(_, val) => {
+                dst.put_u8(*val);
 				Ok(())
 			},
-			Self::ASPath(base, segments) => {
+			Self::ASPath(_, segments) => {
+                for seg in segments.iter() {
+                    dst.put_u8(seg.segment_type);
+                    dst.put_u8(seg.segments.len() as u8);
+                    for asn in seg.segments.iter() {
+                        if as4_enabled { dst.put_u32(*asn) } else { dst.put_u16(*asn as u16) }
+                    }
+                }
 				Ok(())
 			},
-			Self::NextHop(base, next) => {
+			Self::NextHop(_, next) => {
+                dst.put_slice(&next.octets());
 				Ok(())
 			},
-			Self::MultiExitDisc(base, val) => {
+			Self::MultiExitDisc(_, val) => {
+                dst.put_u32(*val);
 				Ok(())
 			},
-			Self::LocalPref(base, pref) => {
+			Self::LocalPref(_, pref) => {
+                dst.put_u32(*pref);
 				Ok(())
 			},
-			Self::AtomicAggregate(base) => {
+			Self::AtomicAggregate(_) => {
 				Ok(())
 			},
-			Self::Aggregator(base, val, addr) => {
+			Self::Aggregator(_, val, addr) => {
+                if as4_enabled { dst.put_u32(*val) } else {dst.put_u16(*val as u16) }
+                match addr {
+                    IpAddr::V4(a) => {
+                        let oct = a.octets();
+                        dst.put_slice(&oct);
+                    },
+                    IpAddr::V6(a) => {
+                        let oct = a.octets();
+                        dst.put_slice(&oct);
+                    },
+                };
 				Ok(())
 			},
-			Self::Communities(base, val) => {
+			Self::Communities(_, val) => {
+                dst.put_u32(*val);
 				Ok(())
 			},
-			Self::ExtendedCommunities(base, val1, val2) => {
+			Self::ExtendedCommunities(_, val1, val2) => {
+                let typ = (*val1 as u64) << 48;
+                dst.put_u64(typ + *val2);
 				Ok(())
 			},
-			Self::MPReachNLRI(base, family, addrs, prefixes) => {
+			Self::MPReachNLRI(_, family, addrs, prefixes) => {
+                dst.put_u16(family.afi as u16);
+                dst.put_u8(family.safi as u8);
+                for addr in addrs.iter() {
+                    match addr {
+                        IpAddr::V4(a) => {
+                            let oct = a.octets();
+                            dst.put_slice(&oct);
+                        },
+                        IpAddr::V6(a) => {
+                            let oct = a.octets();
+                            dst.put_slice(&oct);
+                        }
+                    }
+                }
+                for prefix in prefixes.iter() {
+                    prefix.encode(dst)?;
+                }
 				Ok(())
 			},
-			Self::MPUnReachNLRI(base, family, prefixes) => {
+			Self::MPUnReachNLRI(_, family, prefixes) => {
+                dst.put_u16(family.afi as u16);
+                dst.put_u8(family.safi as u8);
+                for prefix in prefixes.iter() {
+                    prefix.encode(dst)?;
+                }
 				Ok(())
 			},
-			Self::AS4Path(base, segments) => {
+			Self::AS4Path(_, segments) => {
+                for seg in segments.iter() {
+                    dst.put_u8(seg.segment_type);
+                    dst.put_u8(seg.segments.len() as u8);
+                    for asn in seg.segments.iter() {
+                        dst.put_u32(*asn);
+                    }
+                }
 				Ok(())
 			},
-			Self::AS4Aggregator(base, val, addr) => {
+			Self::AS4Aggregator(_, val, addr) => {
+                dst.put_u32(*val);
+                match addr {
+                    IpAddr::V4(a) => {
+                        let oct = a.octets();
+                        dst.put_slice(&oct);
+                    },
+                    IpAddr::V6(a) => {
+                        let oct = a.octets();
+                        dst.put_slice(&oct);
+                    },
+                };
 				Ok(())
 			},
-			Self::Unsupported(base, data) => {
+			Self::Unsupported(_, data) => {
+                dst.put_slice(data);
 				Ok(())
 			}
 			_ => Err(io::Error::from(io::ErrorKind::InvalidData)),
 		}
 	}
 
-	fn len(&self) -> usize {
+	fn len(&self, as4_enabled: bool, add_path_enabled: bool) -> usize {
         match self {
             Self::Origin(_, _) => 1,
-            Self::ASPath(_, _) => {
-				0
+            Self::ASPath(_, segments) => {
+                segments.iter().fold(0, |a, b| {
+                    a + 1 + b.segments.iter().fold(0, |aa: usize, _| aa + if as4_enabled { 4 } else { 2 })
+                })
 			},
             Self::NextHop(_, _) => 4,
             Self::MultiExitDisc(_, _) => 4,
             Self::LocalPref(_, _) => 4,
             Self::AtomicAggregate(_) => 0,
-            Self::Aggregator(_, _, _) => {
-				0
+            Self::Aggregator(_, _, addr) => {
+                match addr {
+                    IpAddr::V4(_) => 8,
+                    IpAddr::V6(_) => 20,
+                }
 			},
             Self::Communities(_, _) => 4,
-            Self::ExtendedCommunities(_, _, _) => 10,
-            Self::MPReachNLRI(_, _, _, _) => {
-				0
+            Self::ExtendedCommunities(_, _, _) => 8,
+            Self::MPReachNLRI(_, family, next_hops, prefixes) => {
+                let length = next_hops.iter().fold(5, |l, next_hop| {
+                    match next_hop {
+                        IpAddr::V4(_) => l + 4,
+                        IpAddr::V6(_) => l + 16,
+                    }
+                });
+                prefixes.iter().fold(length, |l, prefix| l + prefix.len())
 			},
-            Self::MPUnReachNLRI(_, _, _) => {
-				0
+            Self::MPUnReachNLRI(_, _, prefixes) => {
+                prefixes.iter().fold(3, |l, prefix| l + prefix.len())
 			},
-            Self::AS4Path(_, _) => {
-				0
+            Self::AS4Path(_, segments) => {
+                segments.iter().fold(0, |a, b| {
+                    a + 1 + b.segments.iter().fold(0, |aa: usize, _| aa + 4)
+                })
 			},
-            Self::AS4Aggregator(_, _, _) => {
-				0
+            Self::AS4Aggregator(_, _, addr) => {
+                match addr {
+                    IpAddr::V4(_) => 8,
+                    IpAddr::V6(_) => 20,
+                }
 			},
             Self::Unsupported(_, data) => data.len(),
         }
@@ -389,14 +465,16 @@ mod tests {
 
     #[rstest(
 		input,
+        as4_enabled,
+        add_path_enabled,
 		expected,
-		case(vec![0x40, 0x01, 0x01, 0x00], Attribute::Origin(Base{flag: Attribute::FLAG_TRANSITIVE, code: Attribute::ORIGIN}, Attribute::ORIGIN_IGP)),
-		case(vec![0x40, 0x01, 0x01, 0x01], Attribute::Origin(Base{flag: Attribute::FLAG_TRANSITIVE, code: Attribute::ORIGIN}, Attribute::ORIGIN_EGP)),
-		case(vec![0x40, 0x01, 0x01, 0x02], Attribute::Origin(Base{flag: Attribute::FLAG_TRANSITIVE, code: Attribute::ORIGIN}, Attribute::ORIGIN_INCOMPLETE)),
+		case(vec![0x40, 0x01, 0x01, 0x00], false, false, Attribute::Origin(Base{flag: Attribute::FLAG_TRANSITIVE, code: Attribute::ORIGIN}, Attribute::ORIGIN_IGP)),
+		case(vec![0x40, 0x01, 0x01, 0x01], false, false, Attribute::Origin(Base{flag: Attribute::FLAG_TRANSITIVE, code: Attribute::ORIGIN}, Attribute::ORIGIN_EGP)),
+		case(vec![0x40, 0x01, 0x01, 0x02], false, false, Attribute::Origin(Base{flag: Attribute::FLAG_TRANSITIVE, code: Attribute::ORIGIN}, Attribute::ORIGIN_INCOMPLETE)),
 	)]
-    fn works_attribute_decode_origin(input: Vec<u8>, expected: Attribute) {
+    fn works_attribute_decode_origin(input: Vec<u8>, as4_enabled: bool, add_path_enabled: bool, expected: Attribute) {
         let mut buf = BytesMut::from(input.as_slice());
-        match Attribute::decode(&mut buf) {
+        match Attribute::decode(&mut buf, as4_enabled, add_path_enabled) {
             Ok(origin) => assert_eq!(expected, origin),
             Err(_) => assert!(false),
         }
@@ -404,16 +482,18 @@ mod tests {
 
     #[rstest(
 		input,
+        as4_enabled,
+        add_path_enabled,
 		expected,
-		case(vec![0x40, 0x02, 0x04, 0x02, 0x01, 0xfd, 0xe9], Attribute::ASPath(Base{flag: Attribute::FLAG_TRANSITIVE, code: Attribute::AS_PATH}, vec![ASSegment{segment_type: Attribute::AS_SEQUENCE, segments: vec![65001]}])),
-		case(vec![0x40, 0x02, 0x06, 0x02, 0x02, 0x5b, 0xa0, 0x5b, 0xa0], Attribute::ASPath(Base{flag: Attribute::FLAG_TRANSITIVE, code: Attribute::AS_PATH}, vec![ASSegment{segment_type: Attribute::AS_SEQUENCE, segments: vec![23456, 23456]}])),
-		case(vec![0x40, 0x02, 0x0a, 0x02, 0x01, 0x00, 0x1e, 0x01, 0x02, 0x00, 0x0a, 0x00, 0x14], Attribute::ASPath(Base{flag: Attribute::FLAG_TRANSITIVE, code: Attribute::AS_PATH}, 
+		case(vec![0x40, 0x02, 0x04, 0x02, 0x01, 0xfd, 0xe9], false, false, Attribute::ASPath(Base{flag: Attribute::FLAG_TRANSITIVE, code: Attribute::AS_PATH}, vec![ASSegment{segment_type: Attribute::AS_SEQUENCE, segments: vec![65001]}])),
+		case(vec![0x40, 0x02, 0x06, 0x02, 0x02, 0x5b, 0xa0, 0x5b, 0xa0], false, false, Attribute::ASPath(Base{flag: Attribute::FLAG_TRANSITIVE, code: Attribute::AS_PATH}, vec![ASSegment{segment_type: Attribute::AS_SEQUENCE, segments: vec![23456, 23456]}])),
+		case(vec![0x40, 0x02, 0x0a, 0x02, 0x01, 0x00, 0x1e, 0x01, 0x02, 0x00, 0x0a, 0x00, 0x14], false, false, Attribute::ASPath(Base{flag: Attribute::FLAG_TRANSITIVE, code: Attribute::AS_PATH}, 
 			vec![ASSegment{segment_type: Attribute::AS_SEQUENCE, segments: vec![30]}, ASSegment{segment_type: Attribute::AS_SET, segments: vec![10 ,20]}],
 		))
 	)]
-    fn works_attribute_decode_as_path(input: Vec<u8>, expected: Attribute) {
+    fn works_attribute_decode_as_path(input: Vec<u8>, as4_enabled: bool, add_path_enabled: bool, expected: Attribute) {
         let mut buf = BytesMut::from(input.as_slice());
-        match Attribute::decode(&mut buf) {
+        match Attribute::decode(&mut buf, as4_enabled, add_path_enabled) {
             Ok(as_path) => assert_eq!(expected, as_path),
             Err(_) => assert!(false),
         }

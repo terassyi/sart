@@ -105,7 +105,7 @@ impl Decoder for Codec {
                     let mut attributes = Vec::new();
                     let remain = src.remaining();
                     while src.remaining() > remain - (total_path_attribute_length) {
-                        attributes.push(Attribute::decode(src)?);
+                        attributes.push(Attribute::decode(src, false, false)?); // TODO
                     }
                     Some(attributes)
                 } else {
