@@ -582,6 +582,8 @@ mod tests {
             0x01, 0x00, 0x00]),
         case(Attribute::AtomicAggregate(Base{flag: Attribute::FLAG_TRANSITIVE, code: Attribute::ATOMIC_AGGREGATE}), false, false, vec![0x40, 0x06, 0x00]),
         case(Attribute::Aggregator(Base{flag: Attribute::FLAG_TRANSITIVE + Attribute::FLAG_OPTIONAL, code: Attribute::AGGREGATOR}, 23456, IpAddr::V4(Ipv4Addr::new(2,2,2,2))), false, false, vec![0xc0, 0x07, 0x06, 0x5b, 0xa0, 0x02, 0x02, 0x02, 0x02]),
+        case(Attribute::AS4Path(Base{flag: Attribute::FLAG_OPTIONAL + Attribute::FLAG_TRANSITIVE + Attribute::FLAG_EXTENDED, code: Attribute::AS4_PATH}, vec![ASSegment{segment_type: Attribute::AS_SEQUENCE, segments: vec![655200]}]), false, false, vec![0xd0, 0x11, 0x00, 0x06, 0x02, 0x01, 0x00, 0x09, 0xff, 0x60]),
+        case(Attribute::AS4Aggregator(Base{flag: Attribute::FLAG_TRANSITIVE + Attribute::FLAG_OPTIONAL, code: Attribute::AS4_AGGREGATOR}, 655200, IpAddr::V4(Ipv4Addr::new(2,2,2,2))), false, false, vec![0xc0, 0x12, 0x08, 0x00, 0x09, 0xff, 0x60, 0x02,  0x02, 0x02, 0x02]),
     )]
     fn works_attribute_encode(attr: Attribute, as4_enabled: bool, add_path_enabled: bool, expected: Vec<u8>) {
         let mut buf = BytesMut::new();
