@@ -151,6 +151,20 @@ impl Capability {
             _ => Err(io::Error::from(io::ErrorKind::InvalidData)),
         }
     }
+
+    pub fn len(&self) -> usize {
+        match self {
+            Self::MultiProtocol(_) => 4,
+            Self::RouteRefresh => 0,
+            Self::ExtendedNextHop(next_hops) => next_hops.len() * 6,
+            Self::BGPExtendedMessage => 0,
+            Self::GracefulRestart(_, _, families) => 2 + families.len() * 4,
+            Self::FourOctetASNumber(_) => 4,
+            Self::AddPath(_, _) => 4,
+            Self::EnhancedRouteRefresh => 0,
+            Self::Unsupported(_, data) => data.len(),
+        }
+    }
 }
 
 impl Into<u8> for Capability {

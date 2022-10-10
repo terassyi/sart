@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::net::Ipv4Addr;
 use std::sync::{Arc, RwLock};
 
-use bytes::{Buf, BytesMut};
+use bytes::{Buf, BytesMut, BufMut};
+use serde_yaml::with;
 use tokio_util::codec::{Decoder, Encoder};
 
 use crate::bgp::family::{AddressFamily, Afi, Safi};
@@ -12,6 +13,7 @@ use crate::bgp::packet::prefix::Prefix;
 use crate::bgp::{capability, error::*};
 
 use super::capability::Capability;
+use super::prefix;
 
 #[derive(Debug)]
 pub(crate) struct Codec {
@@ -149,6 +151,52 @@ impl Decoder for Codec {
 impl Encoder<&Message> for Codec {
     type Error = Error;
     fn encode(&mut self, item: &Message, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        dst.put_u128(Message::MARKER);
+        dst.put_u16(Message::HEADER_LENGTH);
+        let msg_type: MessageType = item.into();
+        dst.put_u8(msg_type as u8);
+        match item {
+            Message::Open { version, as_num, hold_time, identifier, capabilities } => {
+                dst.put_u8(*version);
+                dst.put_u16(if *as_num > 65535 { Message::AS_TRANS } else { *as_num  } as u16);
+                dst.put_u16(*hold_time);
+                dst.put_slice(&identifier.octets());
+                dst.put_u8(capabilities.iter().fold(0, |l, cap| l + 2 + cap.len()) as u8);
+                for cap in capabilities.iter() {
+                    cap.encode(dst)?;
+                }
+            },
+            Message::Update { withdrawn_routes, attributes, nlri } => {
+                if let Some(withdrawn_routes) = withdrawn_routes {
+                    for route in withdrawn_routes.iter() {
+                        route.encode(dst)?;
+                    }
+                }
+                if let Some(attributes) = attributes {
+                    for attr in attributes.iter() {
+                        attr.encode(dst, false, false)?; // TODO: flag will be set based on enabled capabilities
+                    }
+                }
+                if let Some(nlri) = nlri {
+                    for prefix in nlri.iter() {
+                        prefix.encode(dst)?;
+                    }
+                }
+            },
+            Message::Keepalive => {},
+            Message::Notification { code, subcode, data } => {
+                dst.put_u8(*code as u8);
+                if let Some(subcode) = subcode {
+                    dst.put_u8(*subcode as u8);
+                } else {}
+                if data.len() > 0 {
+                    dst.put_slice(data);
+                }
+            },
+            Message::RouteRefresh { family } => {
+                dst.put_u32(family.into());
+            },
+        }
         Ok(())
     }
 }

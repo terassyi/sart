@@ -41,6 +41,7 @@ pub(crate) enum Message {
 }
 
 impl Message {
+    pub const VERSION: u8 = 4;
     pub const HEADER_LENGTH: u16 = 19;
     pub const MAX_LENGTH: u16 = 4096;
     pub const EXTENDED_MAX_LENGTH: u16 = 65535;
@@ -48,6 +49,18 @@ impl Message {
     pub const AS_TRANS: u32 = 23456;
     pub const OPTION_TYPE_CAPABILITIES: u8 = 2;
     pub const OPTION_TYPE_EXTENDED_LENGTH: u8 = 255;
+}
+
+impl<'a> Into<MessageType> for &'a Message {
+    fn into(self) -> MessageType {
+        match self {
+            Message::Open { .. } => MessageType::Open,
+            Message::Update { .. } => MessageType::Update,
+            Message::Keepalive => MessageType::Keepalive,
+            Message::Notification { .. } => MessageType::Notification,
+            Message::RouteRefresh { .. } => MessageType::RouteRefresh,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
