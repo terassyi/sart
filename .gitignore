@@ -1,2 +1,4 @@
 */target
 *.profraw
+*.pcap
+*.pcaping

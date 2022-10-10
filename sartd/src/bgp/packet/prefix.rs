@@ -71,12 +71,12 @@ impl Prefix {
         match self.inner {
             IpNet::V4(a) => {
                 let oct = a.addr().octets();
-                let (aa, _) = oct.as_slice().split_at(self.inner.prefix_len() as usize);
+                let (aa, _) = oct.as_slice().split_at(self.inner.prefix_len() as usize / 8);
                 dst.put_slice(aa);
             },
             IpNet::V6(a) => {
                 let oct = a.addr().octets();
-                let (aa, _) = oct.as_slice().split_at(self.inner.prefix_len() as usize);
+                let (aa, _) = oct.as_slice().split_at(self.inner.prefix_len() as usize / 8);
                 dst.put_slice(aa);
             }
         };

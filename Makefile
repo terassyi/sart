@@ -17,3 +17,8 @@ fmt:
 .PHONY: test
 test:
 	cd sartd; $(CARGO) test
+
+SPEC = "sartd/testdata/tinet/basic/spec.yaml"
+.PHONY: tinet
+tinet.%:
+	tinet ${@:tinet.%=%} -c $(SPEC) | sudo sh -x

@@ -216,6 +216,17 @@ mod tests {
                 Capability::FourOctetASNumber(2621441),
             ]
         }),
+        case("testdata/messages/open-ipv6", Message::Open {
+            version: 4,
+            as_num: 65002,
+            hold_time: 180,
+            identifier: Ipv4Addr::new(2, 2, 2, 2),
+            capabilities: vec![
+                Capability::MultiProtocol(AddressFamily{ afi: Afi::IPv6, safi: Safi::Unicast }),
+                Capability::Unsupported(0x80, Vec::new()), // Unsupported Route Refresh Cisco
+                Capability::RouteRefresh,
+            ]
+        }),
         case("testdata/messages/notification-bad-as-peer", Message::Notification {
             code: NotificationCode::OpenMessage,
             subcode: Some(NotificationSubCode::BadPeerAS),
