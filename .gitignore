@@ -2,3 +2,4 @@
 *.profraw
 *.pcap
 *.pcaping
+.vscode

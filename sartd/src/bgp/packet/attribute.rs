@@ -198,7 +198,7 @@ impl Attribute {
                         segments: segs,
                     })
                 }
-                Ok(Self::ASPath(b, segments))
+                Ok(Self::AS4Path(b, segments))
             }
             Self::AS4_AGGREGATOR => match length {
                 8 => Ok(Self::AS4Aggregator(

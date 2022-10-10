@@ -1,0 +1,22 @@
+name: ci
+on: push
+
+jobs:
+  build_cache:
+    runs-on: ubuntu-latest
+    env:
+      RUSTC_FORCE_INCREMENTAL: 1
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: checking out
+        uses: actions/checkout@v3
+      - name: setup
+        run: |
+          rustup component add rustfmt --toolchain stable-x86_64-unknown-linux-gnu
+          rustup component add clippy
+      - name: test
+        run: |
+          cd /home/runner/work/sart
+          make test

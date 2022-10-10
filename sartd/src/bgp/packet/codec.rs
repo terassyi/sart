@@ -215,7 +215,7 @@ mod tests {
     use rstest::rstest;
     use std::env;
     use std::io::{Read, Write};
-    use std::net::Ipv4Addr;
+    use std::net::{IpAddr, Ipv4Addr};
     use tokio::fs::File;
     use tokio_stream::StreamExt;
     use tokio_util::codec::FramedRead;
@@ -241,6 +241,11 @@ mod tests {
         input,
         expected,
         case("testdata/messages/keepalive", Message::Keepalive),
+        case("testdata/messages/notification-bad-as-peer", Message::Notification {
+            code: NotificationCode::OpenMessage,
+            subcode: Some(NotificationSubCode::BadPeerAS),
+            data: vec![0xfe, 0xb0],
+        }),
         case("testdata/messages/open-2bytes-asn", Message::Open {
             version: 4,
             as_num: 65100,
@@ -264,6 +269,21 @@ mod tests {
                 Capability::FourOctetASNumber(2621441),
             ]
         }),
+        case("testdata/messages/open-graceful-restart", Message::Open {
+            version: 4,
+            as_num: 100,
+            hold_time: 180,
+            identifier: Ipv4Addr::new(1, 1, 1, 1),
+            capabilities: vec![
+                Capability::MultiProtocol(AddressFamily{ afi: Afi::IPv4, safi: Safi::Unicast }),
+                Capability::Unsupported(0x80, Vec::new()), // Unsupported Route Refresh Cisco
+                Capability::RouteRefresh,
+                Capability::FourOctetASNumber(100),
+                Capability::AddPath(AddressFamily{ afi: Afi::IPv4, safi: Safi::Unicast}, 1),
+                Capability::Unsupported(0x49, vec![0x02, 0x52, 0x30, 0x00]),
+                Capability::GracefulRestart(Capability::GRACEFUL_RESTART_R, 120, vec![]),
+            ]
+        }),
         case("testdata/messages/open-ipv6", Message::Open {
             version: 4,
             as_num: 65002,
@@ -275,12 +295,57 @@ mod tests {
                 Capability::RouteRefresh,
             ]
         }),
-        case("testdata/messages/notification-bad-as-peer", Message::Notification {
-            code: NotificationCode::OpenMessage,
-            subcode: Some(NotificationSubCode::BadPeerAS),
-            data: vec![0xfe, 0xb0],
-        }),
         case("testdata/messages/route-refresh", Message::RouteRefresh { family: AddressFamily{ afi: Afi::IPv4, safi: Safi::Unicast} }),
+        case("testdata/messages/update-as-set", Message::Update {
+            withdrawn_routes: None,
+            attributes: Some(vec![
+                Attribute::Origin(Base::new(Attribute::FLAG_TRANSITIVE, Attribute::ORIGIN), Attribute::ORIGIN_INCOMPLETE),
+                Attribute::ASPath(Base::new(Attribute::FLAG_TRANSITIVE, Attribute::AS_PATH), vec![ASSegment{ segment_type: Attribute::AS_SEQUENCE, segments: vec![30]}, ASSegment{ segment_type: Attribute::AS_SET, segments: vec![10, 20]}]),
+                Attribute::NextHop(Base::new(Attribute::FLAG_TRANSITIVE, Attribute::NEXT_HOP), Ipv4Addr::new(10, 0, 0, 9)),
+                Attribute::MultiExitDisc(Base::new(Attribute::FLAG_OPTIONAL, Attribute::MULTI_EXIT_DISC), 0),
+                Attribute::Aggregator(Base::new(Attribute::FLAG_OPTIONAL + Attribute::FLAG_TRANSITIVE, Attribute::AGGREGATOR), 30, IpAddr::V4(Ipv4Addr::new(10, 0, 0, 9))),
+            ]),
+            nlri: Some(vec![
+                Prefix::new(IpNet::V4(Ipv4Net::new(Ipv4Addr::new(172, 16, 0, 0), 21).unwrap()), None),
+            ]),
+        }),
+        case("testdata/messages/update-as4-path", Message::Update {
+            withdrawn_routes: None,
+            attributes: Some(vec![
+                Attribute::Origin(Base::new(Attribute::FLAG_TRANSITIVE, Attribute::ORIGIN), Attribute::ORIGIN_IGP),
+                Attribute::AS4Path(Base::new(Attribute::FLAG_TRANSITIVE + Attribute::FLAG_OPTIONAL, Attribute::AS4_PATH), vec![ASSegment{ segment_type: Attribute::AS_SEQUENCE, segments: vec![655361, 2621441]}]),
+                Attribute::ASPath(Base::new(Attribute::FLAG_TRANSITIVE, Attribute::AS_PATH), vec![ASSegment{ segment_type: Attribute::AS_SEQUENCE, segments: vec![23456, 23456]}]),
+                Attribute::NextHop(Base::new(Attribute::FLAG_TRANSITIVE, Attribute::NEXT_HOP), Ipv4Addr::new(172, 16, 3, 1)),
+            ]),
+            nlri: Some(vec![
+                Prefix::new(IpNet::V4(Ipv4Net::new(Ipv4Addr::new(40, 0, 0, 0), 8).unwrap()), None),
+            ]),
+        }),
+        case("testdata/messages/update-as4-path-aggregator", Message::Update {
+            withdrawn_routes: None,
+            attributes: Some(vec![
+                Attribute::Origin(Base::new(Attribute::FLAG_TRANSITIVE, Attribute::ORIGIN), Attribute::ORIGIN_IGP),
+                Attribute::ASPath(Base::new(Attribute::FLAG_TRANSITIVE + Attribute::FLAG_EXTENDED, Attribute::AS_PATH), vec![ASSegment{ segment_type: Attribute::AS_SEQUENCE, segments: vec![100, 23456]}]),
+                Attribute::NextHop(Base::new(Attribute::FLAG_TRANSITIVE, Attribute::NEXT_HOP), Ipv4Addr::new(10, 0, 0, 2)),
+                Attribute::MultiExitDisc(Base::new(Attribute::FLAG_OPTIONAL, Attribute::MULTI_EXIT_DISC), 0),
+                Attribute::Aggregator(Base::new(Attribute::FLAG_OPTIONAL + Attribute::FLAG_TRANSITIVE + Attribute::FLAG_PARTIAL, Attribute::AGGREGATOR), 23456, IpAddr::V4(Ipv4Addr::new(2, 2, 2, 2))),
+                Attribute::AS4Path(Base::new(Attribute::FLAG_TRANSITIVE + Attribute::FLAG_OPTIONAL + Attribute::FLAG_PARTIAL + Attribute::FLAG_EXTENDED, Attribute::AS4_PATH), vec![ASSegment{ segment_type: Attribute::AS_SEQUENCE, segments: vec![655200]}]),
+                Attribute::AS4Aggregator(Base::new(Attribute::FLAG_OPTIONAL + Attribute::FLAG_TRANSITIVE + Attribute::FLAG_PARTIAL, Attribute::AS4_AGGREGATOR), 655200, IpAddr::V4(Ipv4Addr::new(2, 2, 2, 2))),
+            ]),
+            nlri: Some(vec![
+                Prefix::new(IpNet::V4(Ipv4Net::new(Ipv4Addr::new(192, 168, 0, 0), 16).unwrap()), None),
+            ]),
+        }),
+        case("testdata/messages/update-mp-reach-nlri", Message::Update {
+            withdrawn_routes: None,
+            attributes: Some(vec![
+                Attribute::Origin(Base::new(Attribute::FLAG_TRANSITIVE, Attribute::ORIGIN), Attribute::ORIGIN_IGP),
+                Attribute::ASPath(Base::new(Attribute::FLAG_TRANSITIVE, Attribute::AS_PATH), vec![ASSegment{ segment_type: Attribute::AS_SEQUENCE, segments: vec![65001]}]),
+                Attribute::MultiExitDisc(Base::new(Attribute::FLAG_OPTIONAL, Attribute::MULTI_EXIT_DISC), 0),
+                Attribute::MPReachNLRI(Base::new(Attribute::FLAG_OPTIONAL, Attribute::MP_REACH_NLRI), AddressFamily{ afi: Afi::IPv6, safi: Safi::Unicast }, vec![IpAddr::V6("2001:db8::1".parse().unwrap()), IpAddr::V6("fe80::c001:bff:fe7e:0".parse().unwrap())], vec![Prefix::new("2001:db8:1:2::/64".parse().unwrap(), None), Prefix::new("2001:db8:1:1::/64".parse().unwrap(), None), Prefix::new("2001:db8:1::/64".parse().unwrap(), None)]),
+            ]),
+            nlri: None,
+        }),
         case("testdata/messages/update-nlri", Message::Update {
             withdrawn_routes: None,
             attributes: Some(vec![
@@ -294,7 +359,7 @@ mod tests {
                 Prefix::new(IpNet::V4(Ipv4Net::new(Ipv4Addr::new(10, 10, 2, 0), 24).unwrap()), None),
                 Prefix::new(IpNet::V4(Ipv4Net::new(Ipv4Addr::new(10, 10, 1, 0), 24).unwrap()), None),
             ]),
-        })
+        }),
     )]
     fn works_codec_decode(input: &str, expected: Message) {
         let mut file = std::fs::File::open(input).unwrap();

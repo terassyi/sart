@@ -69,7 +69,7 @@ impl Capability {
             }
             Self::FOUR_OCTET_AS_NUMBER => Ok(Self::FourOctetASNumber(data.get_u32())),
             Self::ADD_PATH => {
-                let family = AddressFamily::try_from(data.get_u32())
+                let family = AddressFamily::new(data.get_u16(), data.get_u8())
                     .map_err(|_| Error::OpenMessage(OpenMessageError::Unspecific))?;
                 Ok(Self::AddPath(family, data.get_u8()))
             }
