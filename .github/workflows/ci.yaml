@@ -6,6 +6,14 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RUSTC_FORCE_INCREMENTAL: 1
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: ./.github/actions/cache_cargo
+
+      - name: build
+        run: cargo build
+
   build:
     name: build
     runs-on: ubuntu-latest
