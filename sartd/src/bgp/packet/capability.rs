@@ -206,8 +206,8 @@ mod tests {
 		case(Capability::GRACEFUL_RESTART, 2, vec![0x80, 0x78], Capability::GracefulRestart(Capability::GRACEFUL_RESTART_R, 120, vec![])),
 		case(Capability::GRACEFUL_RESTART, 6, vec![0xc0, 0xb4, 0x00, 0x01, 0x01, 0x01], Capability::GracefulRestart(Capability::GRACEFUL_RESTART_R + Capability::GRACEFUL_RESTART_B, 180, vec![(AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast}, 0x01)])),
 		case(Capability::FOUR_OCTET_AS_NUMBER, 4, vec![0x00, 0x00, 0x01, 0x01], Capability::FourOctetASNumber(0x0000_0101)),
-        case(Capability::ADD_PATH, 4, vec![0x00, 0x01, 0x00, 0x01, 0x01], Capability::AddPath(AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast}, 0x01)),
-        case(Capability::ADD_PATH, 4, vec![0x00, 0x02, 0x00, 0x01, 0x02], Capability::AddPath(AddressFamily{afi: Afi::IPv6, safi: Safi::Unicast}, 0x02)),
+        case(Capability::ADD_PATH, 4, vec![0x00, 0x01, 0x01, 0x01], Capability::AddPath(AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast}, 0x01)),
+        case(Capability::ADD_PATH, 4, vec![0x00, 0x02, 0x01, 0x02], Capability::AddPath(AddressFamily{afi: Afi::IPv6, safi: Safi::Unicast}, 0x02)),
 		case(Capability::FOUR_OCTET_AS_NUMBER, 4, vec![0x00, 0x00, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00], Capability::FourOctetASNumber(0x0000_0101)),
         case(100, 0, vec![], Capability::Unsupported(100, Vec::new())),
 	)]
