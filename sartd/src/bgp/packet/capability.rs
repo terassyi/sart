@@ -3,8 +3,8 @@ use std::io;
 use bytes::{Buf, BufMut, BytesMut};
 use serde::__private::ser::FlatMapSerializeStruct;
 
-use crate::bgp::{error::*, family};
 use crate::bgp::family::{AddressFamily, Afi, Safi};
+use crate::bgp::{error::*, family};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Capability {
@@ -90,12 +90,12 @@ impl Capability {
                 dst.put_u8(4);
                 dst.put_u32(family.into());
                 Ok(())
-            },
+            }
             Self::RouteRefresh => {
                 dst.put_u8(Self::ROUTE_REFRESH);
                 dst.put_u8(0);
                 Ok(())
-            },
+            }
             Self::ExtendedNextHop(next_hops) => {
                 dst.put_u8(Self::EXTENDED_NEXT_HOP);
                 dst.put_u8((next_hops.len() * 6) as u8);
@@ -105,12 +105,12 @@ impl Capability {
                     dst.put_u16(*afi);
                 }
                 Ok(())
-            },
+            }
             Self::BGPExtendedMessage => {
                 dst.put_u8(Self::BGP_EXTENDED_MESSAGE);
                 dst.put_u8(0);
                 Ok(())
-            },
+            }
             Self::GracefulRestart(flag, time, families) => {
                 dst.put_u8(Self::GRACEFUL_RESTART);
                 dst.put_u8(2 + (families.len() * 4) as u8);
@@ -122,13 +122,13 @@ impl Capability {
                     dst.put_u8(*fa);
                 }
                 Ok(())
-            },
+            }
             Self::FourOctetASNumber(asn) => {
                 dst.put_u8(Self::FOUR_OCTET_AS_NUMBER);
                 dst.put_u8(4);
                 dst.put_u32(*asn);
                 Ok(())
-            },
+            }
             Self::AddPath(family, sr) => {
                 dst.put_u8(Self::ADD_PATH);
                 dst.put_u8(4);
@@ -136,18 +136,18 @@ impl Capability {
                 dst.put_u8(family.safi as u8);
                 dst.put_u8(*sr);
                 Ok(())
-            },
+            }
             Self::EnhancedRouteRefresh => {
                 dst.put_u8(Self::ENHANCED_ROUTE_REFRESH);
                 dst.put_u8(0);
                 Ok(())
-            },
+            }
             Self::Unsupported(code, data) => {
                 dst.put_u8(*code);
                 dst.put_u8(data.len() as u8);
                 dst.put_slice(data);
                 Ok(())
-            },
+            }
             _ => Err(io::Error::from(io::ErrorKind::InvalidData)),
         }
     }

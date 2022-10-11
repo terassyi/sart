@@ -4,7 +4,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use crate::bgp::error::*;
 use crate::bgp::family::{AddressFamily, Afi};
 
-use bytes::{Buf, BytesMut, BufMut};
+use bytes::{Buf, BufMut, BytesMut};
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -65,18 +65,22 @@ impl Prefix {
     pub fn encode(&self, dst: &mut BytesMut) -> io::Result<()> {
         match self.path_id {
             Some(id) => dst.put_u32(id),
-            None => {},
+            None => {}
         }
         dst.put_u8(self.inner.prefix_len());
         match self.inner {
             IpNet::V4(a) => {
                 let oct = a.addr().octets();
-                let (aa, _) = oct.as_slice().split_at(self.inner.prefix_len() as usize / 8);
+                let (aa, _) = oct
+                    .as_slice()
+                    .split_at(self.inner.prefix_len() as usize / 8);
                 dst.put_slice(aa);
-            },
+            }
             IpNet::V6(a) => {
                 let oct = a.addr().octets();
-                let (aa, _) = oct.as_slice().split_at(self.inner.prefix_len() as usize / 8);
+                let (aa, _) = oct
+                    .as_slice()
+                    .split_at(self.inner.prefix_len() as usize / 8);
                 dst.put_slice(aa);
             }
         };
@@ -123,7 +127,7 @@ mod tests {
     #[rstest(
 		family,
 		add_path_enabled,
-		input, 
+		input,
 		expected,
 		case(AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast}, false, vec![0x18, 0x0a, 0x02, 0x00], Prefix{inner: IpNet::V4(Ipv4Net::new(Ipv4Addr::new(0x0a, 0x02, 0x00, 0x00), 24).unwrap()), path_id: None}),
 		case(AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast}, false, vec![0x08, 0x1e], Prefix{inner: IpNet::V4(Ipv4Net::new(Ipv4Addr::new(0x1e, 0x00, 0x00, 0x00), 8).unwrap()), path_id: None}),

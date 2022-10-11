@@ -1,30 +1,19 @@
 name: ci
 on: [push, pull_request]
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
-  build_cache:
-    runs-on: ubuntu-latest
-    env:
-      RUSTC_FORCE_INCREMENTAL: 1
-    steps:
-      - uses: actions/checkout@v3
-
-      - uses: ./.github/actions/cache_cargo
-
-      - name: build
-        run: cargo build
-
   build:
-    name: build
+
     runs-on: ubuntu-latest
+
     steps:
-      - name: checking out
-        uses: actions/checkout@v3
-      - name: setup
-        run: |
-          rustup component add rustfmt --toolchain stable-x86_64-unknown-linux-gnu
-          rustup component add clippy
-      - name: test
-        run: |
-          cd /home/runner/work/sart
-          make test
+    - uses: actions/checkout@v3
+    - name: Build
+      run: make build 
+    - name: Fmt
+      run: make fmt
+    - name: Run tests
+      run: make test 

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::net::Ipv4Addr;
 use std::sync::{Arc, RwLock};
 
-use bytes::{Buf, BytesMut, BufMut};
+use bytes::{Buf, BufMut, BytesMut};
 use serde_yaml::with;
 use tokio_util::codec::{Decoder, Encoder};
 
@@ -156,17 +156,31 @@ impl Encoder<&Message> for Codec {
         let msg_type: MessageType = item.into();
         dst.put_u8(msg_type as u8);
         match item {
-            Message::Open { version, as_num, hold_time, identifier, capabilities } => {
+            Message::Open {
+                version,
+                as_num,
+                hold_time,
+                identifier,
+                capabilities,
+            } => {
                 dst.put_u8(*version);
-                dst.put_u16(if *as_num > 65535 { Message::AS_TRANS } else { *as_num  } as u16);
+                dst.put_u16(if *as_num > 65535 {
+                    Message::AS_TRANS
+                } else {
+                    *as_num
+                } as u16);
                 dst.put_u16(*hold_time);
                 dst.put_slice(&identifier.octets());
                 dst.put_u8(capabilities.iter().fold(0, |l, cap| l + 2 + cap.len()) as u8);
                 for cap in capabilities.iter() {
                     cap.encode(dst)?;
                 }
-            },
-            Message::Update { withdrawn_routes, attributes, nlri } => {
+            }
+            Message::Update {
+                withdrawn_routes,
+                attributes,
+                nlri,
+            } => {
                 if let Some(withdrawn_routes) = withdrawn_routes {
                     for route in withdrawn_routes.iter() {
                         route.encode(dst)?;
@@ -182,20 +196,25 @@ impl Encoder<&Message> for Codec {
                         prefix.encode(dst)?;
                     }
                 }
-            },
-            Message::Keepalive => {},
-            Message::Notification { code, subcode, data } => {
+            }
+            Message::Keepalive => {}
+            Message::Notification {
+                code,
+                subcode,
+                data,
+            } => {
                 dst.put_u8(*code as u8);
                 if let Some(subcode) = subcode {
                     dst.put_u8(*subcode as u8);
-                } else {}
+                } else {
+                }
                 if data.len() > 0 {
                     dst.put_slice(data);
                 }
-            },
+            }
             Message::RouteRefresh { family } => {
                 dst.put_u32(family.into());
-            },
+            }
         }
         Ok(())
     }
