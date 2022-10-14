@@ -372,7 +372,7 @@ impl Attribute {
         }
     }
 
-    fn len(&self, as4_enabled: bool, add_path_enabled: bool) -> usize {
+    pub fn len(&self, as4_enabled: bool, _add_path_enabled: bool) -> usize {
         match self {
             Self::Origin(_, _) => 1,
             Self::ASPath(_, segments) => segments.iter().fold(0, |a, b| {

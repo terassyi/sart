@@ -73,14 +73,14 @@ impl Prefix {
                 let oct = a.addr().octets();
                 let (aa, _) = oct
                     .as_slice()
-                    .split_at(self.inner.prefix_len() as usize / 8);
+                    .split_at(prefix_bytes_len(self.inner.prefix_len() as usize));
                 dst.put_slice(aa);
             }
             IpNet::V6(a) => {
                 let oct = a.addr().octets();
                 let (aa, _) = oct
                     .as_slice()
-                    .split_at(self.inner.prefix_len() as usize / 8);
+                    .split_at(prefix_bytes_len(self.inner.prefix_len() as usize));
                 dst.put_slice(aa);
             }
         };
@@ -92,11 +92,14 @@ impl Prefix {
             Some(_) => 5,
             None => 1,
         };
-        if self.inner.prefix_len() % 8 > 0 {
-            length + 1 + (self.inner.prefix_len() / 8) as usize
-        } else {
-            length + (self.inner.prefix_len() / 8) as usize
-        }
+        length + prefix_bytes_len(self.inner.prefix_len() as usize)
+    }
+}
+
+fn prefix_bytes_len(prefix_len: usize) -> usize {
+    match prefix_len % 8 {
+        0 => prefix_len / 8,
+        _ => 1 + (prefix_len / 8),
     }
 }
 

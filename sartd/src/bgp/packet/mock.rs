@@ -49,10 +49,10 @@ impl Write for MockTcpStream {
 impl AsyncWrite for MockTcpStream {
     fn poll_write(
         self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
+        _: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize, io::Error>> {
-        todo!()
+        Poll::Ready(Ok(self.data.len()))
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {

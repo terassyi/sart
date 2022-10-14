@@ -65,11 +65,11 @@ impl<'a> Into<MessageType> for &'a Message {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MessageType {
-    Open,
-    Update,
-    Notification,
-    Keepalive,
-    RouteRefresh,
+    Open = 1,
+    Update = 2,
+    Notification = 3,
+    Keepalive = 4,
+    RouteRefresh = 5,
 }
 
 impl TryFrom<u8> for MessageType {
@@ -88,12 +88,12 @@ impl TryFrom<u8> for MessageType {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NotificationCode {
-    MessageHeader,
-    OpenMessage,
-    UpdateMessage,
-    HoldTimerExpired,
-    FiniteStateMachine,
-    Cease,
+    MessageHeader = 1,
+    OpenMessage = 2,
+    UpdateMessage = 3,
+    HoldTimerExpired = 4,
+    FiniteStateMachine = 5,
+    Cease = 6,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -184,27 +184,27 @@ impl NotificationSubCode {
     }
 }
 
-impl Into<u8> for NotificationSubCode {
+impl Into<u8> for &NotificationSubCode {
     fn into(self) -> u8 {
-        match self {
-            Self::ConnectionNotSynchronized => 1,
-            Self::BadMessageLength => 2,
-            Self::BadMessageType => 3,
-            Self::UnsupportedVersionNumber => 1,
-            Self::BadPeerAS => 2,
-            Self::BadBGPIdentifier => 3,
-            Self::UnsupportedOptionalParameter => 4,
-            Self::UnacceptableHoldTime => 6,
-            Self::MalformedAttributeList => 1,
-            Self::UnrecognizedWellknownAttribute => 2,
-            Self::MissingWellknownAttribute => 3,
-            Self::AttributeFlagsError => 4,
-            Self::AttributeLengthError => 5,
-            Self::InvalidOriginAttribute => 6,
-            Self::InvalidNextHopAttribute => 8,
-            Self::OptionalAttributeError => 9,
-            Self::InvalidNetworkField => 10,
-            Self::MalformedASPath => 11,
+        match *self {
+            NotificationSubCode::ConnectionNotSynchronized => 1,
+            NotificationSubCode::BadMessageLength => 2,
+            NotificationSubCode::BadMessageType => 3,
+            NotificationSubCode::UnsupportedVersionNumber => 1,
+            NotificationSubCode::BadPeerAS => 2,
+            NotificationSubCode::BadBGPIdentifier => 3,
+            NotificationSubCode::UnsupportedOptionalParameter => 4,
+            NotificationSubCode::UnacceptableHoldTime => 6,
+            NotificationSubCode::MalformedAttributeList => 1,
+            NotificationSubCode::UnrecognizedWellknownAttribute => 2,
+            NotificationSubCode::MissingWellknownAttribute => 3,
+            NotificationSubCode::AttributeFlagsError => 4,
+            NotificationSubCode::AttributeLengthError => 5,
+            NotificationSubCode::InvalidOriginAttribute => 6,
+            NotificationSubCode::InvalidNextHopAttribute => 8,
+            NotificationSubCode::OptionalAttributeError => 9,
+            NotificationSubCode::InvalidNetworkField => 10,
+            NotificationSubCode::MalformedASPath => 11,
         }
     }
 }
