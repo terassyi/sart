@@ -114,7 +114,7 @@
 
 ### State Diagram
 
-```marmaid
+```mermaid
 stateDiagram-v2
     Idle --> Connect: 1
     Idle --> Idle: others
@@ -128,10 +128,10 @@ stateDiagram-v2
     Active --> Active: 1,14
     Active --> Idle: others
     OpenSent --> OpenSent: 1,14,16,17
-	OpenSent --> Active: 18
-	OpenSent --> OpenConfirm: 19
+    OpenSent --> Active: 18
+    OpenSent --> OpenConfirm: 19
     OpenSent --> Idle: others
-	OpenConfirm --> OpenConfirm: 1,11,14,16,17
+    OpenConfirm --> OpenConfirm: 1,11,14,16,17
     OpenConfirm --> Established: 26
     OpenConfirm --> Idle: others
     Established --> Established: 1,11,26,27
