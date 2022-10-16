@@ -4,11 +4,7 @@ Sart は自作のルーティングソフトウェア
 
 ## Concept
 
-## sartd
-
-Sart を構成するデーモンプログラム
-
-### BGP
+## sartd-bgp
 
 BGP の実装は [RFC 4271](https://www.rfc-editor.org/rfc/rfc4271)に基づく．
 gRPC インターフェースを備えて外部より設定を注入できる．
@@ -24,14 +20,4 @@ gRPC インターフェースを備えて外部より設定を注入できる．
 	- [ ] BGP4+(IPv6 拡張) に関する [RFC 2546](https://datatracker.ietf.org/doc/html/rfc2546)
 - [ ] Route Reflector
 - [ ] BGP unnumbered
-
-##### スレッドモデル
-
-### Netlink
-
-
-
-## sart
-
-Sart デーモンを制御する CLI ツール．
 
