@@ -1,25 +1,27 @@
-use crate::bgp::event::{Event, AdministrativeEvent, TimerEvent, TcpConnectionEvent, BgpMessageEvent};
 use crate::bgp::error::Error;
+use crate::bgp::event::{
+    AdministrativeEvent, BgpMessageEvent, Event, TcpConnectionEvent, TimerEvent,
+};
 
 #[derive(Debug)]
 pub(crate) struct FiniteStateMachine {
-	state: State,
+    state: State,
 }
 
 impl FiniteStateMachine {
-	pub fn get_state(&self)	-> State {
-		self.state
-	}
+    pub fn get_state(&self) -> State {
+        self.state
+    }
 
-	// https://www.rfc-editor.org/rfc/rfc4271#section-8.2.2
-	pub fn mv(&mut self, event: Event) {
-		match self.state {
+    // https://www.rfc-editor.org/rfc/rfc4271#section-8.2.2
+    pub fn mv(&mut self, event: Event) {
+        match self.state {
 			State::Idle => {
 				match event {
 					Event::Admin(e) => {
 						match e {
 							AdministrativeEvent::ManualStart | AdministrativeEvent::AutomaticStart => self.state = State::Connect,
-							AdministrativeEvent::ManualStop | AdministrativeEvent::AutomaticStop => {},	
+							AdministrativeEvent::ManualStop | AdministrativeEvent::AutomaticStop => {},
 							AdministrativeEvent::ManualStartWithPassiveTcpEstablishment | AdministrativeEvent::AutomaticStartWithPassiveTcpEstablishment |
 							AdministrativeEvent::AutomaticStartWithDampPeerOscillations | AdministrativeEvent::AutomaticStartWithDampPeerOscillationsAndPassiveTcpEstablishment => self.state = State::Active,
 						}
@@ -44,7 +46,7 @@ impl FiniteStateMachine {
 					},
 					Event::Connection(e) => {
 						match e {
-							TcpConnectionEvent::TcpConnectionValid | TcpConnectionEvent::TcpCRInvalid => self.state = State::Idle,
+							TcpConnectionEvent::TcpConnectionValid | TcpConnectionEvent::TcpCRInvalid => {},
 							TcpConnectionEvent::TcpCRAcked | TcpConnectionEvent::TcpConnectionConfirmed => self.state = State::OpenSent,
 							TcpConnectionEvent::TcpConnectionFail => self.state = State::Active,
 						}
@@ -167,27 +169,28 @@ impl FiniteStateMachine {
 				}
 			},
 		}
-	}
+    }
 }
 
 // https://www.rfc-editor.org/rfc/rfc4271#section-8.2.2
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub(crate) enum State {
-	Idle,
-	Connect,
-	Active,
-	OpenSent,
-	OpenConfirm,
-	Established,
+    Idle,
+    Connect,
+    Active,
+    OpenSent,
+    OpenConfirm,
+    Established,
 }
-
 
 #[cfg(test)]
 mod tests {
-	use rstest::rstest;
-	use super::*;
-	use crate::bgp::event::{Event, BgpMessageEvent, TcpConnectionEvent, TimerEvent, AdministrativeEvent};
-	#[rstest(
+    use super::*;
+    use crate::bgp::event::{
+        AdministrativeEvent, BgpMessageEvent, Event, TcpConnectionEvent, TimerEvent,
+    };
+    use rstest::rstest;
+    #[rstest(
 		init,
 		input,
 		expected,
@@ -201,11 +204,11 @@ mod tests {
 		case(State::Active, vec![Event::Timer(TimerEvent::ConnectRetryTimerExpire)], State::Connect),
 
 	)]
-	fn works_fsm_mv(init: State, input: Vec<Event>, expected: State) {
-		let mut fsm = FiniteStateMachine{ state: init };
-		for e in input.iter() {
-			fsm.mv(*e);
-		}
-		assert_eq!(expected, fsm.get_state())
-	}
+    fn works_fsm_mv(init: State, input: Vec<Event>, expected: State) {
+        let mut fsm = FiniteStateMachine { state: init };
+        for e in input.iter() {
+            fsm.mv(*e);
+        }
+        assert_eq!(expected, fsm.get_state())
+    }
 }

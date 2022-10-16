@@ -27,7 +27,7 @@ pub(crate) enum Error {
     #[error("config error")]
     Config(#[from] ConfigError),
     #[error("Invalid event {val:?}")]
-    InvalidEvent{val: u8},
+    InvalidEvent { val: u8 },
 }
 
 // https://www.rfc-editor.org/rfc/rfc1771#section-6.1

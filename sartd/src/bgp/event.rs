@@ -2,19 +2,18 @@ use crate::bgp::error::Error;
 use std::convert::TryFrom;
 use std::convert::TryInto;
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Event {
-	Admin(AdministrativeEvent),
-	Timer(TimerEvent),
-	Connection(TcpConnectionEvent),
-	Message(BgpMessageEvent),
+    Admin(AdministrativeEvent),
+    Timer(TimerEvent),
+    Connection(TcpConnectionEvent),
+    Message(BgpMessageEvent),
 }
 
 impl TryFrom<u8> for Event {
-	type Error = Error; 
-	fn try_from(val: u8) -> Result<Self, Self::Error> {
-		match val {
+    type Error = Error;
+    fn try_from(val: u8) -> Result<Self, Self::Error> {
+        match val {
 			1 => Ok(Self::Admin(AdministrativeEvent::ManualStart)),
 			2 => Ok(Self::Admin(AdministrativeEvent::ManualStop)),
 			3 => Ok(Self::Admin(AdministrativeEvent::AutomaticStart)),
@@ -44,13 +43,13 @@ impl TryFrom<u8> for Event {
 			27 => Ok(Self::Message(BgpMessageEvent::UpdateMsg)),
 			28 => Ok(Self::Message(BgpMessageEvent::UpdateMsgErr)),
 			_ => Err(Error::InvalidEvent { val })
-		}	
-	}
+		}
+    }
 }
 
 impl Into<u8> for Event {
-	fn into(self) -> u8 {
-		match self {
+    fn into(self) -> u8 {
+        match self {
 			Self::Admin(AdministrativeEvent::ManualStart) => 1,
 			Self::Admin(AdministrativeEvent::ManualStop) => 2,
 			Self::Admin(AdministrativeEvent::AutomaticStart) => 3,
@@ -80,62 +79,62 @@ impl Into<u8> for Event {
 			Self::Message(BgpMessageEvent::UpdateMsg) => 27,
 			Self::Message(BgpMessageEvent::UpdateMsgErr) => 28,
 		}
-	}
+    }
 }
 
 // https://www.rfc-editor.org/rfc/rfc4271#section-8.1.2
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum AdministrativeEvent {
-	ManualStart = 1,
-	ManualStop = 2,
-	#[allow(unused)]
-	AutomaticStart = 3,
-	#[allow(unused)]
-	ManualStartWithPassiveTcpEstablishment = 4,
-	#[allow(unused)]
-	AutomaticStartWithPassiveTcpEstablishment = 5,
-	#[allow(unused)]
-	AutomaticStartWithDampPeerOscillations = 6,
-	#[allow(unused)]
-	AutomaticStartWithDampPeerOscillationsAndPassiveTcpEstablishment = 7,
-	#[allow(unused)]
-	AutomaticStop = 8,
+    ManualStart = 1,
+    ManualStop = 2,
+    #[allow(unused)]
+    AutomaticStart = 3,
+    #[allow(unused)]
+    ManualStartWithPassiveTcpEstablishment = 4,
+    #[allow(unused)]
+    AutomaticStartWithPassiveTcpEstablishment = 5,
+    #[allow(unused)]
+    AutomaticStartWithDampPeerOscillations = 6,
+    #[allow(unused)]
+    AutomaticStartWithDampPeerOscillationsAndPassiveTcpEstablishment = 7,
+    #[allow(unused)]
+    AutomaticStop = 8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum TimerEvent {
-	ConnectRetryTimerExpire = 9,
-	HoldTimerExpire = 10,
-	KeepaliveTimerExpire = 11,
-	#[allow(unused)]
-	DelayOpenTimerExpire = 12,
-	#[allow(unused)]
-	IdleHoldTimerExpire = 13,
+    ConnectRetryTimerExpire = 9,
+    HoldTimerExpire = 10,
+    KeepaliveTimerExpire = 11,
+    #[allow(unused)]
+    DelayOpenTimerExpire = 12,
+    #[allow(unused)]
+    IdleHoldTimerExpire = 13,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum TcpConnectionEvent {
-	#[allow(unused)]
-	TcpConnectionValid = 14,
-	#[allow(unused)]
-	TcpCRInvalid = 15,
-	TcpCRAcked = 16,
-	TcpConnectionConfirmed = 17,
-	TcpConnectionFail = 18,
+    #[allow(unused)]
+    TcpConnectionValid = 14,
+    #[allow(unused)]
+    TcpCRInvalid = 15,
+    TcpCRAcked = 16,
+    TcpConnectionConfirmed = 17,
+    TcpConnectionFail = 18,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum BgpMessageEvent {
-	BgpOpen = 19,
-	#[allow(unused)]
-	BgpOpenWithDelayOpenTimerRunning = 20,
-	BgpHeaderError = 21,
-	BgpOpenMsgErr = 22,
-	#[allow(unused)]
-	OpenCollisionDump = 23,
-	NotifMsgVerErr = 24,
-	NotifMsg = 25,
-	KeepAliveMsg = 26,
-	UpdateMsg = 27,
-	UpdateMsgErr = 28,
+    BgpOpen = 19,
+    #[allow(unused)]
+    BgpOpenWithDelayOpenTimerRunning = 20,
+    BgpHeaderError = 21,
+    BgpOpenMsgErr = 22,
+    #[allow(unused)]
+    OpenCollisionDump = 23,
+    NotifMsgVerErr = 24,
+    NotifMsg = 25,
+    KeepAliveMsg = 26,
+    UpdateMsg = 27,
+    UpdateMsgErr = 28,
 }

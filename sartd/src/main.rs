@@ -1,5 +1,4 @@
 pub(crate) mod bgp;
-pub(crate) mod parser;
 
 use std::{net::Ipv4Addr, str::FromStr};
 
