@@ -1,5 +1,7 @@
 use std::sync::{Arc, Mutex};
-use tokio_stream::{self, wrappers::TcpListenerStream, StreamExt};
+use tokio::net::{TcpListener, TcpStream};
+use tokio_stream::{wrappers::TcpListenerStream, StreamExt};
+use futures::{stream::{Stream, FuturesUnordered}, StreamExt};
 
 use crate::bgp::config::Config;
 #[derive(Debug)]
@@ -19,19 +21,34 @@ impl Bgp {
         let server = Self::new(conf);
 
         let ipv4_listener = {
-            tokio::net::TcpListener::bind(format!(":{}", server.config.lock().unwrap().port))
+            TcpListener::bind(format!("0.0.0.0:{}", server.config.lock().unwrap().port))
                 .await
                 .expect("cannot bind Ipv4 tcp listener")
         };
         let ipv6_listener = {
-            tokio::net::TcpListener::bind(format!("[::]:{}", server.config.lock().unwrap().port))
+            TcpListener::bind(format!("[::]:{}", server.config.lock().unwrap().port))
                 .await
                 .expect("cannot bind ipv6 listener")
         };
-        let mut listeners = tokio_stream::wrappers::TcpListenerStream::new(ipv4_listener).merge(
-            tokio_stream::wrappers::TcpListenerStream::new(ipv6_listener),
-        );
+        let mut s = TcpListenerStream::new(ipv4_listener).merge(TcpListenerStream::new(ipv6_listener));
+        // let listeners = vec![ipv4_listener, ipv6_listener];
+        // let mut listener_streams = listeners.into_iter().map(|l| TcpListenerStream::new(l))
+        //         .collect::<Vec<TcpListenerStream>>();
+        loop {
+            futures::select_biased! {
+                stream = s.next() => {
+                    if let Some(stream) = stream {
+                        let sock = stream.peer_addr().unwrap();
+                        println!("{:?}", sock);
+                    }
+                }
+            }
+        }
     }
+}
+
+fn create_tcp_listener(addr: String, port: u16) -> io::Result<TcpListener> {
+
 }
 
 pub(crate) fn start(conf: Config) {
@@ -42,4 +59,6 @@ pub(crate) fn start(conf: Config) {
         .block_on(Bgp::serve(conf));
 
     println!("sartd bgp server is now starting!");
+
+    loop {}
 }

@@ -29,7 +29,7 @@ fn main() -> Result<(), std::io::Error> {
             Arg::with_name("port")
                 .short('p')
                 .long("port")
-                .takes_value(false)
+                .takes_value(true)
                 .required(false)
                 .help("port for daemon"),
         )
