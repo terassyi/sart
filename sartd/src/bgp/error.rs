@@ -28,6 +28,8 @@ pub(crate) enum Error {
     Config(#[from] ConfigError),
     #[error("Invalid event {val:?}")]
     InvalidEvent { val: u8 },
+    #[error("control error")]
+    Control(#[from] ControlError),
 }
 
 // https://www.rfc-editor.org/rfc/rfc1771#section-6.1
@@ -81,4 +83,12 @@ pub(crate) enum UpdateMessageError {
 pub(crate) enum ConfigError {
     #[error("failed to load")]
     FailedToLoad,
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum ControlError {
+    #[error("peer already exists")]
+    PeerAlreadyExists,
+    #[error("invalid data")]
+    InvalidData,
 }

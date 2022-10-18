@@ -1,0 +1,10 @@
+port: 9999
+as_number: 6550
+router_id: 1.1.1.1
+neighbors:
+  - as_number: 100
+    router_id: 2.2.2.2
+    address: 2.2.2.2
+  - as_number: 200
+    router_id: 3.3.3.3
+    address: '::1'

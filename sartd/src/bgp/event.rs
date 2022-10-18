@@ -4,12 +4,13 @@ use std::convert::TryInto;
 
 use super::config::NeighborConfig;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Event {
     Admin(AdministrativeEvent),
     Timer(TimerEvent),
     Connection(TcpConnectionEvent),
     Message(BgpMessageEvent),
+    Control(ControlEvent),
 }
 
 impl TryFrom<u8> for Event {
@@ -81,6 +82,7 @@ impl Into<u8> for Event {
 			Self::Message(BgpMessageEvent::UpdateMsg) => 27,
 			Self::Message(BgpMessageEvent::UpdateMsgErr) => 28,
 			Self::Admin(RegisterPeer) => 100,
+			_ => 0,
 		}
     }
 }
@@ -142,7 +144,8 @@ pub(crate) enum BgpMessageEvent {
     UpdateMsgErr,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum ControlEvent {
-    RegisterPeer(NeighborConfig),
+    AddPeer(NeighborConfig),
+    Health,
 }

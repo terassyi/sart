@@ -9,6 +9,10 @@ pub(crate) struct FiniteStateMachine {
 }
 
 impl FiniteStateMachine {
+    pub fn new() -> Self {
+        Self { state: State::Idle }
+    }
+
     pub fn get_state(&self) -> State {
         self.state
     }
@@ -82,6 +86,7 @@ impl FiniteStateMachine {
 							_ => self.state = State::Idle,
 						}
 					},
+					_ => self.state = State::Idle,
 				}
 			},
 			State::OpenSent => {
@@ -136,6 +141,7 @@ impl FiniteStateMachine {
 							_ => self.state = State::Idle,
 						}
 					},
+					_ => self.state = State::Idle,
 				}
 			},
 			State::Established => {
@@ -165,7 +171,8 @@ impl FiniteStateMachine {
 							BgpMessageEvent::KeepAliveMsg | BgpMessageEvent::UpdateMsg => {},
 							_ => self.state = State::Idle,
 						}
-					}
+					},
+					_ => self.state = State::Idle,
 				}
 			},
 		}
@@ -206,8 +213,8 @@ mod tests {
 	)]
     fn works_fsm_mv(init: State, input: Vec<Event>, expected: State) {
         let mut fsm = FiniteStateMachine { state: init };
-        for e in input.iter() {
-            fsm.mv(*e);
+        for e in input.into_iter() {
+            fsm.mv(e);
         }
         assert_eq!(expected, fsm.get_state())
     }

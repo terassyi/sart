@@ -6,6 +6,8 @@ use std::net::{IpAddr, Ipv4Addr};
 use crate::bgp::error::*;
 use crate::bgp::server::Bgp;
 
+use super::event::ControlEvent;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Config {
     pub port: u16,
@@ -37,6 +39,20 @@ impl Config {
     }
     pub fn set_local_port(&mut self, port: u16) {
         self.port = port;
+    }
+
+    pub fn get_control_event(&self) -> Vec<ControlEvent> {
+        self.into()
+    }
+}
+
+impl Into<Vec<ControlEvent>> for &Config {
+    fn into(self) -> Vec<ControlEvent> {
+        let mut events = Vec::new();
+        for neighbor in self.neighbors.iter() {
+            events.push(ControlEvent::AddPeer(neighbor.clone()));
+        }
+        events
     }
 }
 

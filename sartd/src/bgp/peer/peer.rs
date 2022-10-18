@@ -1,48 +1,65 @@
-use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::net::IpAddr;
+use std::sync::Mutex;
 
-use futures::future;
-use tokio::net::TcpStream;
-use tokio_stream::wrappers::TcpListenerStream;
-use tokio_stream::StreamExt;
-use tokio_util::codec::Framed;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-use crate::bgp::{error::Error, packet::codec::Codec};
+use crate::bgp::config::NeighborConfig;
+use crate::bgp::event::{AdministrativeEvent, Event};
 
 use super::{fsm::FiniteStateMachine, neighbor::Neighbor};
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub struct PeerKey {
+    addr: IpAddr,
+    asn: u32,
+}
+
+impl PeerKey {
+    pub fn new(addr: IpAddr, asn: u32) -> Self {
+        Self { addr, asn }
+    }
+}
 
 #[derive(Debug)]
 pub(crate) struct Peer {
     neighbor: Neighbor,
     fsm: Mutex<FiniteStateMachine>,
+    admin_rx: UnboundedReceiver<Event>,
 }
 
 impl Peer {
-    pub async fn poll(&self) -> Result<(), Error> {
-        loop {
-            // let msg = self.codec.next().await
+    pub fn new(neighbor: NeighborConfig, rx: UnboundedReceiver<Event>) -> Self {
+        Self {
+            neighbor: Neighbor::from(neighbor),
+            fsm: Mutex::new(FiniteStateMachine::new()),
+            admin_rx: rx,
         }
+    }
 
-        Ok(())
+    pub async fn handle(&mut self) {
+        // handle event
+        while let Some(event) = self.admin_rx.recv().await {
+            match event {
+                Event::Admin(event) => match event {
+                    AdministrativeEvent::ManualStart => {
+                        println!("AdminEvent::ManualStart");
+                        self.fsm.lock().unwrap().mv(Event::Admin(event));
+                    }
+                    _ => unimplemented!(),
+                },
+                _ => panic!("unimplemented"),
+            }
+        }
     }
 }
 
 #[derive(Debug)]
-pub(crate) struct PeerManager {}
-
-#[derive(Debug)]
-pub(crate) struct PeerBuilder {
-    remote_asn: u32,
-    // remote_addr: SocketAddr,
-    // local_addr: SocketAddr,
+pub(crate) struct PeerManager {
+    pub event_queue: UnboundedSender<Event>,
 }
 
-impl PeerBuilder {
-    pub fn new(remote_asn: u32) -> Self {
-        Self { remote_asn }
-    }
-
-    pub fn build(&self) -> Result<(), Error> {
-        Ok(())
+impl PeerManager {
+    pub fn new(queue: UnboundedSender<Event>) -> Self {
+        Self { event_queue: queue }
     }
 }
