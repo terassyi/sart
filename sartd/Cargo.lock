@@ -403,6 +403,7 @@ dependencies = [
  "rstest",
  "serde",
  "serde_yaml",
+ "socket2",
  "thiserror",
  "tokio",
  "tokio-io",

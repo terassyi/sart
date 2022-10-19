@@ -1,15 +1,17 @@
+use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, IpAddr};
 
 use crate::bgp::error::*;
 use crate::bgp::server::Bgp;
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Config {
     pub port: u16,
     pub as_number: u32,
     pub router_id: Ipv4Addr,
+    pub neighbors: Vec<NeighborConfig>,
 }
 
 impl Config {
@@ -18,6 +20,7 @@ impl Config {
             port: Bgp::BGP_PORT,
             as_number: 0,
             router_id: Ipv4Addr::new(1, 1, 1, 1),
+            neighbors: Vec::new(),
         }
     }
 
@@ -37,6 +40,13 @@ impl Config {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct NeighborConfig {
+    pub as_number: u32,
+    pub address: IpAddr,
+    pub router_id: Ipv4Addr,
+}
+
 #[cfg(test)]
 mod tests {
     use super::Config;
@@ -46,6 +56,13 @@ mod tests {
         let yaml_str = r"port: 179
 as_number: 6550
 router_id: 1.1.1.1
+neighbors:
+  - as_number: 100
+    router_id: 2.2.2.2
+    address: 2.2.2.2
+  - as_number: 200
+    router_id: 3.3.3.3
+    address: '::1'
 ";
         let conf: Config = serde_yaml::from_str(yaml_str).unwrap();
         assert_eq!(179, conf.port);

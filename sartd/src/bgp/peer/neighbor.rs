@@ -1,6 +1,6 @@
-use std::net::{IpAddr, Ipv4Addr};
-
-use crate::bgp::capability::Capability;
+use std::{net::{IpAddr, Ipv4Addr}, str::FromStr};
+use ipnet::{IpNet, Ipv4Net, Ipv6Net};
+use crate::bgp::{capability::Capability, config::NeighborConfig};
 
 #[derive(Debug)]
 pub(crate) struct Neighbor {
@@ -51,5 +51,17 @@ impl Neighbor {
     pub fn hold_time(&mut self, t: u16) -> &mut Self {
         self.hold_time = t;
         self
+    }
+}
+
+impl From<NeighborConfig> for Neighbor {
+    fn from(conf: NeighborConfig) -> Self {
+        Self {
+            asn: conf.as_number,
+            router_id: conf.router_id,
+            addr: conf.address,
+            acceptable_capabilities: Vec::new(),
+            hold_time: 180, // default
+        }
     }
 }
