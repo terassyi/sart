@@ -1,0 +1,94 @@
+syntax = "proto3";
+
+package sart;
+
+import "google/protobuf/empty.proto";
+
+service BgpApi {
+	rpc Health(HealthRequest) returns (google.protobuf.Empty);
+
+	// rpc Show(BgpShowRequest) returns (BgpShowResponse);
+	// rpc ShowRoute(BgpShowRouteRequest) returns (BgpShowRouteResponse);
+	// rpc GetNeighbor(GetNeighborRequest) returns (GetNeighborResponse);
+	// rpc ListNeighbor(ListNeighborRequest) returns (ListNeighborResponse);
+
+	// rpc SetAS(SetASRequest) returns (google.protobuf.Empty);
+	// rpc RouterId(RouterIdRequest) returns (google.protobuf.Empty);
+
+	// rpc RemoteAS(RemoteASRequest) returns (google.protobuf.Empty);
+	// rpc Network(NetworkRequest) returns (google.protobuf.Empty);
+	// rpc DeleteNetwork(NetworkRequest) returns (google.protobuf.Empty);
+}
+
+enum ResultCode {
+	Ok = 0;
+	Error = 1;
+}
+
+message HealthRequest {}
+
+
+message BgpShowRequest {}
+
+message BgpShowResponse {
+	int32 as = 1;
+	int32 port = 2;
+	string routerId = 3;
+}
+
+message BgpShowRouteRequest {}
+
+message BgpShowRouteResponse {
+	repeated BgpRoute routes = 1;
+}
+
+message BgpRoute {
+	string network = 1;
+	string nexthop = 2;
+	int32 metric = 3;
+	int32 local_pref = 4;
+	// optional int32 weight = 5;
+	repeated int32 path = 5;
+	bool best = 6;
+	string reason = 7;
+}
+
+message NeighborInfo {
+	uint32 as = 1;
+	string address = 2;
+	uint32 port = 3;
+	string routerId =4;
+}
+
+message GetNeighborRequest {
+	uint32 as = 1; 
+	string peerAddress = 2;
+	string routerId = 3;
+}
+
+message GetNeighborResponse {
+	NeighborInfo neighbor = 1;
+}
+
+message ListNeighborRequest {}
+
+message ListNeighborResponse {
+	repeated NeighborInfo neighbors = 1;
+}
+
+message SetASRequest {
+	int32 as = 1;
+}
+
+message RemoteASRequest {
+	string addr = 1;
+	int32 as = 2;
+}
+
+message RouterIdRequest {
+	string routerId = 1;
+}
+
+message NetworkRequest {
+	string prefix = 1;
+}

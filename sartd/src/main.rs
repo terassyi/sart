@@ -1,4 +1,5 @@
 pub(crate) mod bgp;
+pub(crate) mod proto;
 
 use std::{net::Ipv4Addr, str::FromStr};
 

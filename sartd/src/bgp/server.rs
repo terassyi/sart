@@ -1,33 +1,39 @@
+use futures::stream::{FuturesUnordered, Stream};
+use futures::StreamExt;
+use socket2::{Domain, Socket, Type};
 use std::collections::HashMap;
 use std::fmt::format;
 use std::hash::Hash;
 use std::io;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
-use std::net::{SocketAddr, Ipv4Addr};
-use futures::StreamExt;
-use socket2::{Socket, Domain, Type};
 use tokio::net::{TcpListener, TcpStream};
-use tokio_stream::{wrappers::TcpListenerStream};
-use futures::stream::{Stream, FuturesUnordered};
+use tokio::sync::mpsc::unbounded_channel;
+use tokio_stream::wrappers::TcpListenerStream;
 
 use crate::bgp::config::Config;
-use crate::bgp::family::Afi;
 use crate::bgp::error::Error;
+use crate::bgp::family::Afi;
 
+use super::api_server;
+use super::event::ControlEvent;
 use super::peer::peer::PeerManager;
 
 #[derive(Debug)]
 pub(crate) struct Bgp {
     config: Arc<Mutex<Config>>,
+    api_server_port: u16,
     peer_managers: HashMap<Ipv4Addr, PeerManager>,
 }
 
 impl Bgp {
     pub const BGP_PORT: u16 = 179;
+    const API_SERVER_PORT: u16 = 5000;
 
     pub fn new(conf: Config) -> Self {
         Self {
             config: Arc::new(Mutex::new(conf)),
+            api_server_port: Self::API_SERVER_PORT,
             peer_managers: HashMap::new(),
         }
     }
@@ -35,17 +41,37 @@ impl Bgp {
     pub async fn serve(conf: Config) {
         let server = Self::new(conf);
 
+        let (ctl_tx, ctl_rx) = tokio::sync::mpsc::unbounded_channel::<ControlEvent>();
+
+        let api_server = api_server::ApiServer::new(server.api_server_port);
+
+        tokio::spawn(async move {
+            api_server.serve().await.unwrap();
+        });
+
+        println!("api_server start.");
+
         let ipv4_listener = {
-            create_tcp_listener("0.0.0.0".to_string(), server.config.lock().unwrap().port, Afi::IPv4)
-                .expect("cannot bind Ipv4 tcp listener")
+            create_tcp_listener(
+                "0.0.0.0".to_string(),
+                server.config.lock().unwrap().port,
+                Afi::IPv4,
+            )
+            .expect("cannot bind Ipv4 tcp listener")
         };
         let ipv6_listener = {
-            create_tcp_listener("[::]".to_string(), server.config.lock().unwrap().port, Afi::IPv6)
-                .expect("cannot bind ipv6 listener")
+            create_tcp_listener(
+                "[::]".to_string(),
+                server.config.lock().unwrap().port,
+                Afi::IPv6,
+            )
+            .expect("cannot bind ipv6 listener")
         };
         let listeners = vec![ipv4_listener, ipv6_listener];
-        let mut listener_streams = listeners.into_iter().map(|l| TcpListenerStream::new(TcpListener::from_std(l).unwrap()))
-                .collect::<Vec<TcpListenerStream>>();
+        let mut listener_streams = listeners
+            .into_iter()
+            .map(|l| TcpListenerStream::new(TcpListener::from_std(l).unwrap()))
+            .collect::<Vec<TcpListenerStream>>();
         loop {
             let mut future_streams = FuturesUnordered::new();
             for stream in &mut listener_streams {
@@ -63,7 +89,6 @@ impl Bgp {
     }
 
     fn prepare_peer(&self) -> Result<(), Error> {
-
         Ok(())
     }
 }
@@ -74,6 +99,7 @@ impl TryFrom<Config> for Bgp {
         Ok(Self {
             config: Arc::new(Mutex::new(conf)),
             peer_managers: HashMap::new(),
+            api_server_port: Self::API_SERVER_PORT,
         })
     }
 }
@@ -82,10 +108,14 @@ fn create_tcp_listener(addr: String, port: u16, proto: Afi) -> io::Result<std::n
     println!("{}", addr);
     // let sock_addr = SocketAddr::new(addr.parse().unwrap(), port);
     let sock_addr: SocketAddr = format!("{}:{}", addr, port).parse().unwrap();
-    let sock = Socket::new(match proto {
-        Afi::IPv4 => Domain::IPV4,
-        Afi::IPv6 => Domain::IPV6,
-    }, Type::STREAM, None)?;
+    let sock = Socket::new(
+        match proto {
+            Afi::IPv4 => Domain::IPV4,
+            Afi::IPv6 => Domain::IPV6,
+        },
+        Type::STREAM,
+        None,
+    )?;
 
     if sock_addr.is_ipv6() {
         sock.set_only_v6(true)?;

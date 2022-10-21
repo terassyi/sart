@@ -1,3 +1,4 @@
+mod api_server;
 pub(crate) mod capability;
 pub(crate) mod config;
 pub(crate) mod error;

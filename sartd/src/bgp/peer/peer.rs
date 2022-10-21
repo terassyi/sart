@@ -1,5 +1,5 @@
-use std::sync::{Arc, Mutex};
 use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
 
 use futures::future;
 use tokio::net::TcpStream;
@@ -19,7 +19,6 @@ pub(crate) struct Peer {
 
 impl Peer {
     pub async fn poll(&self) -> Result<(), Error> {
-        
         loop {
             // let msg = self.codec.next().await
         }
@@ -29,9 +28,7 @@ impl Peer {
 }
 
 #[derive(Debug)]
-pub(crate) struct PeerManager {
-
-}
+pub(crate) struct PeerManager {}
 
 #[derive(Debug)]
 pub(crate) struct PeerBuilder {
@@ -42,9 +39,7 @@ pub(crate) struct PeerBuilder {
 
 impl PeerBuilder {
     pub fn new(remote_asn: u32) -> Self {
-        Self {
-            remote_asn,
-        }
+        Self { remote_asn }
     }
 
     pub fn build(&self) -> Result<(), Error> {

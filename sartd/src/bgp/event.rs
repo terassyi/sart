@@ -2,6 +2,8 @@ use crate::bgp::error::Error;
 use std::convert::TryFrom;
 use std::convert::TryInto;
 
+use super::config::NeighborConfig;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Event {
     Admin(AdministrativeEvent),
@@ -78,6 +80,7 @@ impl Into<u8> for Event {
 			Self::Message(BgpMessageEvent::KeepAliveMsg) => 26,
 			Self::Message(BgpMessageEvent::UpdateMsg) => 27,
 			Self::Message(BgpMessageEvent::UpdateMsgErr) => 28,
+			Self::Admin(RegisterPeer) => 100,
 		}
     }
 }
@@ -85,56 +88,61 @@ impl Into<u8> for Event {
 // https://www.rfc-editor.org/rfc/rfc4271#section-8.1.2
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum AdministrativeEvent {
-    ManualStart = 1,
-    ManualStop = 2,
+    ManualStart,
+    ManualStop,
     #[allow(unused)]
-    AutomaticStart = 3,
+    AutomaticStart,
     #[allow(unused)]
-    ManualStartWithPassiveTcpEstablishment = 4,
+    ManualStartWithPassiveTcpEstablishment,
     #[allow(unused)]
-    AutomaticStartWithPassiveTcpEstablishment = 5,
+    AutomaticStartWithPassiveTcpEstablishment,
     #[allow(unused)]
-    AutomaticStartWithDampPeerOscillations = 6,
+    AutomaticStartWithDampPeerOscillations,
     #[allow(unused)]
-    AutomaticStartWithDampPeerOscillationsAndPassiveTcpEstablishment = 7,
+    AutomaticStartWithDampPeerOscillationsAndPassiveTcpEstablishment,
     #[allow(unused)]
-    AutomaticStop = 8,
+    AutomaticStop,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum TimerEvent {
-    ConnectRetryTimerExpire = 9,
-    HoldTimerExpire = 10,
-    KeepaliveTimerExpire = 11,
+    ConnectRetryTimerExpire,
+    HoldTimerExpire,
+    KeepaliveTimerExpire,
     #[allow(unused)]
-    DelayOpenTimerExpire = 12,
+    DelayOpenTimerExpire,
     #[allow(unused)]
-    IdleHoldTimerExpire = 13,
+    IdleHoldTimerExpire,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum TcpConnectionEvent {
     #[allow(unused)]
-    TcpConnectionValid = 14,
+    TcpConnectionValid,
     #[allow(unused)]
-    TcpCRInvalid = 15,
-    TcpCRAcked = 16,
-    TcpConnectionConfirmed = 17,
-    TcpConnectionFail = 18,
+    TcpCRInvalid,
+    TcpCRAcked,
+    TcpConnectionConfirmed,
+    TcpConnectionFail,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum BgpMessageEvent {
-    BgpOpen = 19,
+    BgpOpen,
     #[allow(unused)]
-    BgpOpenWithDelayOpenTimerRunning = 20,
-    BgpHeaderError = 21,
-    BgpOpenMsgErr = 22,
+    BgpOpenWithDelayOpenTimerRunning,
+    BgpHeaderError,
+    BgpOpenMsgErr,
     #[allow(unused)]
-    OpenCollisionDump = 23,
-    NotifMsgVerErr = 24,
-    NotifMsg = 25,
-    KeepAliveMsg = 26,
-    UpdateMsg = 27,
-    UpdateMsgErr = 28,
+    OpenCollisionDump,
+    NotifMsgVerErr,
+    NotifMsg,
+    KeepAliveMsg,
+    UpdateMsg,
+    UpdateMsgErr,
+}
+
+#[derive(Debug)]
+pub(crate) enum ControlEvent {
+    RegisterPeer(NeighborConfig),
 }

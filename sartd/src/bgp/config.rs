@@ -1,7 +1,7 @@
 use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::net::{Ipv4Addr, IpAddr};
+use std::net::{IpAddr, Ipv4Addr};
 
 use crate::bgp::error::*;
 use crate::bgp::server::Bgp;
@@ -40,7 +40,7 @@ impl Config {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub(crate) struct NeighborConfig {
     pub as_number: u32,
     pub address: IpAddr,

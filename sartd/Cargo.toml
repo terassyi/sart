@@ -20,3 +20,9 @@ bytes = "1.2"
 byteorder = "1.4"
 ipnet = "2.5.0"
 socket2 = "0.4.7"
+tonic = "0.8.2"
+prost = "*"
+tonic-reflection = "0.5.0"
+
+[build-dependencies]
+tonic-build = {version = "0.8.2", features = ["prost"]}

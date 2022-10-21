@@ -1,6 +1,9 @@
-use std::{net::{IpAddr, Ipv4Addr}, str::FromStr};
-use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 use crate::bgp::{capability::Capability, config::NeighborConfig};
+use ipnet::{IpNet, Ipv4Net, Ipv6Net};
+use std::{
+    net::{IpAddr, Ipv4Addr},
+    str::FromStr,
+};
 
 #[derive(Debug)]
 pub(crate) struct Neighbor {
