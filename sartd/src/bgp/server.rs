@@ -20,6 +20,7 @@ use crate::bgp::api_server::api;
 use crate::bgp::api_server::ApiServer;
 use crate::bgp::config::Config;
 use crate::bgp::error::Error;
+use crate::bgp::event::TcpConnectionEvent;
 use crate::bgp::family::Afi;
 use crate::proto::sart::bgp_api_server::BgpApiServer;
 
@@ -129,12 +130,18 @@ impl Bgp {
                     if let Some(Some(Ok(stream))) = stream {
                         let sock = stream.peer_addr().unwrap();
                         println!("passive stream {:?}", sock);
+                        if let Some(manager) = server.peer_managers.get(&sock.ip()) {
+                            manager.event_tx.send(Event::Connection(TcpConnectionEvent::TcpConnectionConfirmed(stream))).unwrap();
+                        }
                     }
                 }
                 stream = server.active_conn_rx.recv().fuse() => {
                     if let Some(Ok(stream)) = stream {
                         let sock = stream.peer_addr().unwrap();
                         println!("active stream {:?}", sock);
+                        if let Some(manager) = server.peer_managers.get(&sock.ip()) {
+                            manager.event_tx.send(Event::Connection(TcpConnectionEvent::TcpCRAcked(stream))).unwrap();
+                        }
                     }
                 }
                 event = ctrl_rx.recv().fuse() => {

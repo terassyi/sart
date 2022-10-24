@@ -15,6 +15,7 @@ use crate::bgp::error::Error;
 use crate::bgp::event::{AdministrativeEvent, Event, TcpConnectionEvent};
 use crate::bgp::server::Bgp;
 
+use super::fsm::State;
 use super::neighbor;
 use super::{fsm::FiniteStateMachine, neighbor::Neighbor};
 
@@ -73,6 +74,10 @@ impl Peer {
         }
     }
 
+    fn state(&self) -> State {
+        self.fsm.lock().unwrap().get_state()
+    }
+
     pub async fn handle(&mut self) {
         // handle event
 
@@ -87,19 +92,7 @@ impl Peer {
                 // event handling
                 event = self.admin_rx.recv().fuse() => {
                     if let Some(event) = event {
-                        match event {
-                            Event::Admin(event) => match event {
-                                AdministrativeEvent::ManualStart => self.admin_manual_start(event).unwrap(),
-                                _ => unimplemented!(),
-                            },
-                            Event::Connection(event) => match event {
-                                TcpConnectionEvent::TcpCRAcked => {},
-                                TcpConnectionEvent::TcpConnectionConfirmed => {},
-                                TcpConnectionEvent::TcpConnectionFail => {},
-                                _ => unimplemented!(),
-                            }
-                            _ => panic!("unimplemented"),
-                        }
+                        self.handle_event(event).unwrap();
                     }
                 }
                 // message handling
@@ -107,12 +100,44 @@ impl Peer {
         }
     }
 
-    fn admin_manual_start(&mut self, event: AdministrativeEvent) -> Result<(), Error> {
-        println!("AdminEvent::ManualStart");
-        self.connect_retry_timer.reset();
-        self.fsm.lock().unwrap().mv(Event::Admin(event));
+    fn handle_event(&mut self, event: Event) -> Result<(), Error> {
+        println!("{:?}", event);
+        match event {
+            Event::Admin(event) => match event {
+                AdministrativeEvent::ManualStart => self.admin_manual_start().unwrap(),
+                _ => unimplemented!(),
+            },
+            Event::Connection(event) => match event {
+                TcpConnectionEvent::TcpCRAcked(stream) => {
+                    println!("  {:?}", stream.peer_addr());
+                },
+                TcpConnectionEvent::TcpConnectionConfirmed(stream) => {
+                    println!("  {:?}", stream.peer_addr());
+                },
+                TcpConnectionEvent::TcpConnectionFail => {},
+                _ => unimplemented!(),
+            }
+            _ => panic!("unimplemented"),
+        }
         Ok(())
     }
+
+    fn admin_manual_start(&mut self) -> Result<(), Error> {
+        match self.state() {
+            State::Idle => {
+                self.connect_retry_timer.reset();
+                self.fsm.lock().unwrap().mv(Event::AMDIN_MANUAL_START);
+            },
+            _ => {},
+        }
+        Ok(())
+    }
+
+    fn tcp_connection_acked(&self, event: TcpConnectionEvent) -> Result<(), Error> {
+
+        Ok(())
+    }
+
 }
 
 #[derive(Debug)]

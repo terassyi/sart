@@ -10,6 +10,9 @@ setup-rust-tools:
 	$(RUSTUP) component add rustfmt
 	$(CARGO) install rustfilt
 
+.PHONY: setup-protoc
+	apt install -y protobuf-compiler libprotobuf-dev
+
 .PHONY: build
 build:
 	cd sartd; $(CARGO) build --verbose

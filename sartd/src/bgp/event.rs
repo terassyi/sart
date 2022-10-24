@@ -1,10 +1,12 @@
+use tokio::net::TcpStream;
+
 use crate::bgp::error::Error;
 use std::convert::TryFrom;
 use std::convert::TryInto;
 
 use super::config::NeighborConfig;
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug)]
 pub(crate) enum Event {
     Admin(AdministrativeEvent),
     Timer(TimerEvent),
@@ -13,77 +15,78 @@ pub(crate) enum Event {
     Control(ControlEvent),
 }
 
-impl TryFrom<u8> for Event {
-    type Error = Error;
-    fn try_from(val: u8) -> Result<Self, Self::Error> {
-        match val {
-			1 => Ok(Self::Admin(AdministrativeEvent::ManualStart)),
-			2 => Ok(Self::Admin(AdministrativeEvent::ManualStop)),
-			3 => Ok(Self::Admin(AdministrativeEvent::AutomaticStart)),
-			4 => Ok(Self::Admin(AdministrativeEvent::ManualStartWithPassiveTcpEstablishment)),
-			5 => Ok(Self::Admin(AdministrativeEvent::AutomaticStartWithPassiveTcpEstablishment)),
-			6 => Ok(Self::Admin(AdministrativeEvent::AutomaticStartWithDampPeerOscillations)),
-			7 => Ok(Self::Admin(AdministrativeEvent::AutomaticStartWithDampPeerOscillationsAndPassiveTcpEstablishment)),
-			8 => Ok(Self::Admin(AdministrativeEvent::AutomaticStop)),
-			9 => Ok(Self::Timer(TimerEvent::ConnectRetryTimerExpire)),
-			10 => Ok(Self::Timer(TimerEvent::HoldTimerExpire)),
-			11 => Ok(Self::Timer(TimerEvent::KeepaliveTimerExpire)),
-			12 => Ok(Self::Timer(TimerEvent::DelayOpenTimerExpire)),
-			13 => Ok(Self::Timer(TimerEvent::IdleHoldTimerExpire)),
-			14 => Ok(Self::Connection(TcpConnectionEvent::TcpConnectionValid)),
-			15 => Ok(Self::Connection(TcpConnectionEvent::TcpCRInvalid)),
-			16 => Ok(Self::Connection(TcpConnectionEvent::TcpCRAcked)),
-			17 => Ok(Self::Connection(TcpConnectionEvent::TcpConnectionConfirmed)),
-			18 => Ok(Self::Connection(TcpConnectionEvent::TcpConnectionFail)),
-			19 => Ok(Self::Message(BgpMessageEvent::BgpOpen)),
-			20 => Ok(Self::Message(BgpMessageEvent::BgpOpenWithDelayOpenTimerRunning)),
-			21 => Ok(Self::Message(BgpMessageEvent::BgpHeaderError)),
-			22 => Ok(Self::Message(BgpMessageEvent::BgpOpenMsgErr)),
-			23 => Ok(Self::Message(BgpMessageEvent::OpenCollisionDump)),
-			24 => Ok(Self::Message(BgpMessageEvent::NotifMsgVerErr)),
-			25 => Ok(Self::Message(BgpMessageEvent::NotifMsg)),
-			26 => Ok(Self::Message(BgpMessageEvent::KeepAliveMsg)),
-			27 => Ok(Self::Message(BgpMessageEvent::UpdateMsg)),
-			28 => Ok(Self::Message(BgpMessageEvent::UpdateMsgErr)),
-			_ => Err(Error::InvalidEvent { val })
+impl Event {
+	pub const AMDIN_MANUAL_START: u8 = 1;
+	pub const ADMIN_MANUAL_STOP: u8 = 2;
+	pub const ADMIN_AUTOMATIC_START: u8 = 3;
+	pub const ADMIN_MANUAL_START_WITH_PASSIVE_TCP_ESTABLISHMENT: u8 = 4;
+	pub const ADMIN_AUTOMATIC_START_WITH_PASSIVE_TCP_ESTABLISHMENT: u8 = 5;
+	pub const ADMIN_AUTOMATIC_START_WITH_DAMP_PEER_OSCILLATIONS: u8 = 6;
+	pub const ADMIN_AUTOMATIC_START_WITH_DAMP_PEER_OSCILLATIONS_AND_PASSIVE_TCP_ESTABLISHMENT: u8 = 7;
+	pub const ADMIN_AUTOMATIC_STOP: u8 = 8;
+	pub const TIMER_CONNECT_RETRY_TIMER_EXPIRE: u8 = 9;
+	pub const TIMER_HOLD_TIMER_EXPIRE: u8 = 10;
+	pub const TIMER_KEEPALIVE_TIMER_EXPIRE: u8 = 11;
+	pub const TIMER_DELAY_OPEN_TIMER_EXPIRE: u8 = 12;
+	pub const TIMER_IDLE_HOLD_TIMER_EXPIRE: u8 = 13;
+	pub const CONNECTION_TCP_CONNECTION_VALID: u8 = 14;
+	pub const CONNECTION_TCP_CR_INVALID: u8 = 15;
+	pub const CONNECTION_TCP_CR_ACKED: u8 = 16;
+	pub const CONNECTION_TCP_CONNECTION_CONFIRMED: u8 = 17;
+	pub const CONNECTION_TCP_CONNECTION_FAIL: u8 = 18;
+	pub const MESSAGE_BGP_OPEN: u8 = 19;
+	pub const MESSAGE_BGP_OPEN_WITH_DELAY_OPEN_TIMER_RUNNING: u8 = 20;
+	pub const MESSAGE_BGP_HEADER_ERROR: u8 = 21;
+	pub const MESSAGE_BGP_OPEN_MSG_ERROR: u8 = 22;
+	pub const MESSAGE_OPEN_COLLISION_DUMP: u8 = 23;
+	pub const MESSAGE_NOTIF_MSG_ERROR: u8 = 24;
+	pub const MESSAGE_NOTIF_MSG: u8 = 25;
+	pub const MESSAGE_KEEPALIVE_MSG: u8 = 26;
+	pub const MESSAGE_UPDATE_MSG: u8 = 27;
+	pub const MESSAGE_UPDATE_MSG_ERROR: u8 = 28;
+
+}
+
+impl Into<u8> for &Event {
+    fn into(self) -> u8 {
+        match *self {
+			Event::Admin(AdministrativeEvent::ManualStart) => 1,
+			Event::Admin(AdministrativeEvent::ManualStop) => 2,
+			Event::Admin(AdministrativeEvent::AutomaticStart) => 3,
+			Event::Admin(AdministrativeEvent::ManualStartWithPassiveTcpEstablishment) => 4,
+			Event::Admin(AdministrativeEvent::AutomaticStartWithPassiveTcpEstablishment) => 5,
+			Event::Admin(AdministrativeEvent::AutomaticStartWithDampPeerOscillations) => 6,
+			Event::Admin(AdministrativeEvent::AutomaticStartWithDampPeerOscillationsAndPassiveTcpEstablishment) => 7,
+			Event::Admin(AdministrativeEvent::AutomaticStop) => 8,
+			Event::Timer(TimerEvent::ConnectRetryTimerExpire) => 9,
+			Event::Timer(TimerEvent::HoldTimerExpire) => 10,
+			Event::Timer(TimerEvent::KeepaliveTimerExpire) => 11,
+			Event::Timer(TimerEvent::DelayOpenTimerExpire) => 12,
+			Event::Timer(TimerEvent::IdleHoldTimerExpire) => 13,
+			Event::Connection(TcpConnectionEvent::TcpConnectionValid) => 14,
+			Event::Connection(TcpConnectionEvent::TcpCRInvalid) => 15,
+			Event::Connection(TcpConnectionEvent::TcpCRAcked(_)) => 16,
+			Event::Connection(TcpConnectionEvent::TcpConnectionConfirmed(_)) => 17,
+			Event::Connection(TcpConnectionEvent::TcpConnectionFail) => 18,
+			Event::Message(BgpMessageEvent::BgpOpen) => 19,
+			Event::Message(BgpMessageEvent::BgpOpenWithDelayOpenTimerRunning) => 20,
+			Event::Message(BgpMessageEvent::BgpHeaderError) => 21,
+			Event::Message(BgpMessageEvent::BgpOpenMsgErr) => 22,
+			Event::Message(BgpMessageEvent::OpenCollisionDump) => 23,
+			Event::Message(BgpMessageEvent::NotifMsgVerErr) => 24,
+			Event::Message(BgpMessageEvent::NotifMsg) => 25,
+			Event::Message(BgpMessageEvent::KeepAliveMsg) => 26,
+			Event::Message(BgpMessageEvent::UpdateMsg) => 27,
+			Event::Message(BgpMessageEvent::UpdateMsgErr) => 28,
+			_ => 0,
 		}
     }
 }
 
-impl Into<u8> for Event {
-    fn into(self) -> u8 {
-        match self {
-			Self::Admin(AdministrativeEvent::ManualStart) => 1,
-			Self::Admin(AdministrativeEvent::ManualStop) => 2,
-			Self::Admin(AdministrativeEvent::AutomaticStart) => 3,
-			Self::Admin(AdministrativeEvent::ManualStartWithPassiveTcpEstablishment) => 4,
-			Self::Admin(AdministrativeEvent::AutomaticStartWithPassiveTcpEstablishment) => 5,
-			Self::Admin(AdministrativeEvent::AutomaticStartWithDampPeerOscillations) => 6,
-			Self::Admin(AdministrativeEvent::AutomaticStartWithDampPeerOscillationsAndPassiveTcpEstablishment) => 7,
-			Self::Admin(AdministrativeEvent::AutomaticStop) => 8,
-			Self::Timer(TimerEvent::ConnectRetryTimerExpire) => 9,
-			Self::Timer(TimerEvent::HoldTimerExpire) => 10,
-			Self::Timer(TimerEvent::KeepaliveTimerExpire) => 11,
-			Self::Timer(TimerEvent::DelayOpenTimerExpire) => 12,
-			Self::Timer(TimerEvent::IdleHoldTimerExpire) => 13,
-			Self::Connection(TcpConnectionEvent::TcpConnectionValid) => 14,
-			Self::Connection(TcpConnectionEvent::TcpCRInvalid) => 15,
-			Self::Connection(TcpConnectionEvent::TcpCRAcked) => 16,
-			Self::Connection(TcpConnectionEvent::TcpConnectionConfirmed) => 17,
-			Self::Connection(TcpConnectionEvent::TcpConnectionFail) => 18,
-			Self::Message(BgpMessageEvent::BgpOpen) => 19,
-			Self::Message(BgpMessageEvent::BgpOpenWithDelayOpenTimerRunning) => 20,
-			Self::Message(BgpMessageEvent::BgpHeaderError) => 21,
-			Self::Message(BgpMessageEvent::BgpOpenMsgErr) => 22,
-			Self::Message(BgpMessageEvent::OpenCollisionDump) => 23,
-			Self::Message(BgpMessageEvent::NotifMsgVerErr) => 24,
-			Self::Message(BgpMessageEvent::NotifMsg) => 25,
-			Self::Message(BgpMessageEvent::KeepAliveMsg) => 26,
-			Self::Message(BgpMessageEvent::UpdateMsg) => 27,
-			Self::Message(BgpMessageEvent::UpdateMsgErr) => 28,
-			_ => 0,
-		}
-    }
+impl From<u8> for Event {
+	fn from(_: u8) -> Self {
+		Self::Admin(AdministrativeEvent::ManualStart)
+	}
 }
 
 // https://www.rfc-editor.org/rfc/rfc4271#section-8.1.2
@@ -116,14 +119,14 @@ pub(crate) enum TimerEvent {
     IdleHoldTimerExpire,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug)]
 pub(crate) enum TcpConnectionEvent {
     #[allow(unused)]
     TcpConnectionValid,
     #[allow(unused)]
     TcpCRInvalid,
-    TcpCRAcked,
-    TcpConnectionConfirmed,
+    TcpCRAcked(TcpStream),
+    TcpConnectionConfirmed(TcpStream),
     TcpConnectionFail,
 }
 

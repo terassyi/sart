@@ -18,161 +18,57 @@ impl FiniteStateMachine {
     }
 
     // https://www.rfc-editor.org/rfc/rfc4271#section-8.2.2
-    pub fn mv(&mut self, event: Event) {
+    pub fn mv(&mut self, event: u8) {
         let current = self.get_state();
         match self.state {
 			State::Idle => {
 				match event {
-					Event::Admin(e) => {
-						match e {
-							AdministrativeEvent::ManualStart | AdministrativeEvent::AutomaticStart => self.state = State::Connect,
-							AdministrativeEvent::ManualStop | AdministrativeEvent::AutomaticStop => {},
-							AdministrativeEvent::ManualStartWithPassiveTcpEstablishment | AdministrativeEvent::AutomaticStartWithPassiveTcpEstablishment |
-							AdministrativeEvent::AutomaticStartWithDampPeerOscillations | AdministrativeEvent::AutomaticStartWithDampPeerOscillationsAndPassiveTcpEstablishment => self.state = State::Active,
-						}
-					}
+					Event::AMDIN_MANUAL_START | Event::ADMIN_AUTOMATIC_START => self.state = State::Connect,
+					Event::ADMIN_AUTOMATIC_START_WITH_PASSIVE_TCP_ESTABLISHMENT |
+					Event::ADMIN_AUTOMATIC_START_WITH_DAMP_PEER_OSCILLATIONS | 
+					Event::ADMIN_AUTOMATIC_START_WITH_DAMP_PEER_OSCILLATIONS_AND_PASSIVE_TCP_ESTABLISHMENT => self.state = State::Active,
 					_ => {},
 				}
 			},
 			State::Connect => {
 				match event {
-					Event::Admin(e) => {
-						match e {
-							AdministrativeEvent::ManualStop | AdministrativeEvent::AutomaticStop => self.state = State::Idle,
-							_ => {},
-						}
-					},
-					Event::Timer(e) => {
-						match e {
-							TimerEvent::ConnectRetryTimerExpire => {},
-							TimerEvent::DelayOpenTimerExpire => self.state = State::OpenSent,
-							_ => self.state = State::Idle,
-						}
-					},
-					Event::Connection(e) => {
-						match e {
-							TcpConnectionEvent::TcpConnectionValid | TcpConnectionEvent::TcpCRInvalid => {},
-							TcpConnectionEvent::TcpCRAcked | TcpConnectionEvent::TcpConnectionConfirmed => self.state = State::OpenSent,
-							TcpConnectionEvent::TcpConnectionFail => self.state = State::Active,
-						}
-					},
+					Event::TIMER_DELAY_OPEN_TIMER_EXPIRE |
+					Event::CONNECTION_TCP_CR_ACKED | Event::CONNECTION_TCP_CONNECTION_CONFIRMED => self.state = State::OpenSent,
+					Event::CONNECTION_TCP_CONNECTION_FAIL => self.state = State::Active,
+					1 | 3 | 4 | 5 | 6 | 7 | 9 | 14 | 15 => {},
 					_ => self.state = State::Idle,
 				}
 			},
 			State::Active => {
 				match event {
-					Event::Admin(e) => {
-						match e {
-							AdministrativeEvent::ManualStop | AdministrativeEvent::AutomaticStop => self.state = State::Idle,
-							_ => {},
-						}
-					},
-					Event::Timer(e) => {
-						match e {
-							TimerEvent::ConnectRetryTimerExpire => self.state = State::Connect,
-							TimerEvent::DelayOpenTimerExpire => self.state = State::OpenSent,
-							_ => self.state = State::Idle,
-						}
-					},
-					Event::Connection(e) => {
-						match e {
-							TcpConnectionEvent::TcpCRAcked | TcpConnectionEvent::TcpConnectionConfirmed => self.state = State::OpenSent,
-							TcpConnectionEvent::TcpConnectionFail => self.state = State::Idle,
-							_ => {},
-						}
-					},
-					Event::Message(e) => {
-						match e {
-							BgpMessageEvent::BgpOpen => self.state = State::OpenConfirm,
-							_ => self.state = State::Idle,
-						}
-					},
+					Event::TIMER_CONNECT_RETRY_TIMER_EXPIRE => self.state = State::Connect,
+					Event::TIMER_DELAY_OPEN_TIMER_EXPIRE |
+					Event::CONNECTION_TCP_CR_ACKED | Event::CONNECTION_TCP_CONNECTION_CONFIRMED => self.state = State::OpenSent,
+					Event::MESSAGE_BGP_OPEN => self.state = State::OpenConfirm,	
+					1 | 3 | 4 | 5 | 6 | 7 | 14 | 15 => {},
 					_ => self.state = State::Idle,
 				}
 			},
 			State::OpenSent => {
 				match event {
-					Event::Admin(e) => {
-						match e {
-							AdministrativeEvent::ManualStop | AdministrativeEvent::AutomaticStop => self.state = State::Idle,
-							_ => {},
-						}
-					},
-					Event::Connection(e) => {
-						match e {
-							TcpConnectionEvent::TcpCRInvalid => {},
-							TcpConnectionEvent::TcpConnectionFail => self.state = State::Active,
-							_ => {}, // tcp connection collision processing
-						}
-					},
-					Event::Message(e) => {
-						match e {
-							BgpMessageEvent::BgpOpen => self.state = State::OpenConfirm,
-							_ => self.state = State::Idle,
-						}
-					},
+					Event::CONNECTION_TCP_CONNECTION_FAIL => self.state = State::Active,
+					Event::MESSAGE_BGP_OPEN => self.state = State::OpenConfirm,
+					1 | 3 | 4 | 5 | 6 | 7 | 14 | 15 => {},
 					_ => self.state = State::Idle,
 				}
 			},
 			State::OpenConfirm => {
 				match event {
-					Event::Admin(e) => {
-						match e {
-							AdministrativeEvent::ManualStop | AdministrativeEvent::AutomaticStop => self.state = State::Idle,
-							_ => {},
-						}
-					},
-					Event::Timer(e) => {
-						match e {
-							TimerEvent::KeepaliveTimerExpire => {},
-							_ => self.state = State::Idle,
-						}
-					},
-					Event::Connection(e) => {
-						match e {
-							TcpConnectionEvent::TcpConnectionFail => self.state = State::Idle,
-							TcpConnectionEvent::TcpCRInvalid => {}, // ignore the second connection tracking
-							_ => {}, // track the second connection
-						}
-					},
-					Event::Message(e) => {
-						match e {
-							BgpMessageEvent::BgpOpen => self.state = State::Idle, // collision detection
-							BgpMessageEvent::KeepAliveMsg => self.state = State::Established,
-							_ => self.state = State::Idle,
-						}
-					},
+					Event::MESSAGE_BGP_OPEN => self.state = State::Idle,
+					Event::MESSAGE_KEEPALIVE_MSG => self.state = State::Established,
+					1 | 3 | 4 | 5 | 6 | 7 | 14 | 15 | Event::TIMER_KEEPALIVE_TIMER_EXPIRE => {},
 					_ => self.state = State::Idle,
 				}
 			},
 			State::Established => {
 				match event {
-					Event::Admin(e) => {
-						match e {
-							AdministrativeEvent::ManualStop | AdministrativeEvent::AutomaticStop => self.state = State::Idle,
-							_ => {},
-						}
-					},
-					Event::Timer(e) => {
-						match e {
-							TimerEvent::HoldTimerExpire => self.state = State::Idle,
-							TimerEvent::KeepaliveTimerExpire => {},
-							_ => self.state = State::Idle,
-						}
-					},
-					Event::Connection(e) => {
-						match e {
-							TcpConnectionEvent::TcpConnectionValid => {}, // track the second connection
-							TcpConnectionEvent::TcpCRInvalid => {},
-							_ => self.state = State::Idle,
-						}
-					},
-					Event::Message(e) => {
-						match e {
-							BgpMessageEvent::KeepAliveMsg | BgpMessageEvent::UpdateMsg => {},
-							_ => self.state = State::Idle,
-						}
-					},
+					Event::MESSAGE_KEEPALIVE_MSG | Event::MESSAGE_UPDATE_MSG => {},
+					1 | 3 | 4 | 5 | 6 | 7 | 14 | 15 | Event::TIMER_KEEPALIVE_TIMER_EXPIRE => {},
 					_ => self.state = State::Idle,
 				}
 			},
@@ -205,17 +101,17 @@ mod tests {
 		init,
 		input,
 		expected,
-		case(State::Idle, vec![Event::Message(BgpMessageEvent::UpdateMsg)], State::Idle),
-		case(State::Idle, vec![Event::Admin(AdministrativeEvent::ManualStart), Event::Connection(TcpConnectionEvent::TcpCRAcked), Event::Message(BgpMessageEvent::BgpOpen), Event::Message(BgpMessageEvent::KeepAliveMsg)], State::Established),
-		case(State::Idle, vec![Event::Admin(AdministrativeEvent::ManualStart), Event::Connection(TcpConnectionEvent::TcpCRAcked), Event::Message(BgpMessageEvent::BgpOpen), Event::Message(BgpMessageEvent::KeepAliveMsg), Event::Message(BgpMessageEvent::KeepAliveMsg)], State::Established),
-		case(State::Idle, vec![Event::Admin(AdministrativeEvent::ManualStart), Event::Connection(TcpConnectionEvent::TcpCRAcked), Event::Message(BgpMessageEvent::BgpOpen), Event::Message(BgpMessageEvent::KeepAliveMsg), Event::Message(BgpMessageEvent::KeepAliveMsg), Event::Message(BgpMessageEvent::UpdateMsg)], State::Established),
-		case(State::Idle, vec![Event::Admin(AdministrativeEvent::ManualStart), Event::Connection(TcpConnectionEvent::TcpCRAcked), Event::Message(BgpMessageEvent::BgpOpen), Event::Message(BgpMessageEvent::KeepAliveMsg), Event::Message(BgpMessageEvent::NotifMsg)], State::Idle),
-		case(State::Idle, vec![Event::Admin(AdministrativeEvent::ManualStart), Event::Connection(TcpConnectionEvent::TcpCRAcked), Event::Admin(AdministrativeEvent::ManualStop)], State::Idle),
-		case(State::Idle, vec![Event::Admin(AdministrativeEvent::ManualStart), Event::Connection(TcpConnectionEvent::TcpConnectionConfirmed), Event::Connection(TcpConnectionEvent::TcpConnectionFail)], State::Active),
-		case(State::Active, vec![Event::Timer(TimerEvent::ConnectRetryTimerExpire)], State::Connect),
+		case(State::Idle, vec![Event::MESSAGE_UPDATE_MSG], State::Idle),
+		case(State::Idle, vec![Event::AMDIN_MANUAL_START, Event::CONNECTION_TCP_CR_ACKED, Event::MESSAGE_BGP_OPEN, Event::MESSAGE_KEEPALIVE_MSG], State::Established),
+		case(State::Idle, vec![Event::AMDIN_MANUAL_START, Event::CONNECTION_TCP_CR_ACKED, Event::MESSAGE_BGP_OPEN, Event::MESSAGE_KEEPALIVE_MSG, Event::MESSAGE_KEEPALIVE_MSG], State::Established),
+		case(State::Idle, vec![Event::AMDIN_MANUAL_START, Event::CONNECTION_TCP_CR_ACKED, Event::MESSAGE_BGP_OPEN, Event::MESSAGE_KEEPALIVE_MSG, Event::MESSAGE_KEEPALIVE_MSG, Event::MESSAGE_UPDATE_MSG], State::Established),
+		case(State::Idle, vec![Event::AMDIN_MANUAL_START, Event::CONNECTION_TCP_CR_ACKED, Event::MESSAGE_BGP_OPEN, Event::MESSAGE_KEEPALIVE_MSG, Event::MESSAGE_NOTIF_MSG], State::Idle),
+		case(State::Idle, vec![Event::AMDIN_MANUAL_START, Event::CONNECTION_TCP_CR_ACKED, Event::ADMIN_MANUAL_STOP], State::Idle),
+		case(State::Idle, vec![Event::AMDIN_MANUAL_START, Event::CONNECTION_TCP_CONNECTION_CONFIRMED, Event::CONNECTION_TCP_CONNECTION_FAIL], State::Active),
+		case(State::Active, vec![Event::TIMER_CONNECT_RETRY_TIMER_EXPIRE], State::Connect),
 
 	)]
-    fn works_fsm_mv(init: State, input: Vec<Event>, expected: State) {
+    fn works_fsm_mv(init: State, input: Vec<u8>, expected: State) {
         let mut fsm = FiniteStateMachine { state: init };
         for e in input.into_iter() {
             fsm.mv(e);
