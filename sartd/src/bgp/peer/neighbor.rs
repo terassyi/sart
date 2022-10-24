@@ -1,11 +1,9 @@
 use crate::bgp::{capability::Capability, config::NeighborConfig};
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
-use std::{
-    net::{IpAddr, Ipv4Addr},
-    str::FromStr,
-};
+use std::net::{IpAddr, Ipv4Addr};
+use std::sync::{Arc, Mutex};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct Neighbor {
     asn: u32,
     router_id: Ipv4Addr,

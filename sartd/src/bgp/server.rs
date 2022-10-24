@@ -5,10 +5,10 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::io;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::mpsc::{channel, Receiver};
+use tokio::sync::mpsc::{channel, Receiver, UnboundedSender};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tokio::sync::oneshot;
 use tokio::sync::Notify;
@@ -26,26 +26,35 @@ use crate::proto::sart::bgp_api_server::BgpApiServer;
 use super::config::NeighborConfig;
 use super::error::ControlError;
 use super::event::{AdministrativeEvent, ControlEvent, Event};
-use super::peer::peer::{Peer, PeerKey, PeerManager};
+use super::peer::peer::{Peer, PeerConfig, PeerManager};
 
 #[derive(Debug)]
 pub(crate) struct Bgp {
     pub config: Arc<Mutex<Config>>,
-    pub peer_managers: HashMap<PeerKey, PeerManager>,
+    pub peer_managers: HashMap<IpAddr, PeerManager>,
     api_server_port: u16,
+    active_conn_rx: UnboundedReceiver<io::Result<TcpStream>>,
+    active_conn_tx: UnboundedSender<io::Result<TcpStream>>,
     event_signal: Arc<Notify>,
 }
 
 impl Bgp {
     pub const BGP_PORT: u16 = 179;
+    pub const DEFAULT_HOLD_TIME: u64 = 180;
+    pub const DEFAULT_CONNECT_RETRY_TIME: u64 = 120;
+    pub const DEFAULT_KEEPALIVE_TIME: u64 = 60;
     const API_SERVER_PORT: u16 = 5000;
 
     pub fn new(conf: Config) -> Self {
+        let (active_conn_tx, mut active_conn_rx) =
+            tokio::sync::mpsc::unbounded_channel::<io::Result<TcpStream>>();
         Self {
             config: Arc::new(Mutex::new(conf)),
             api_server_port: Self::API_SERVER_PORT,
             peer_managers: HashMap::new(),
             event_signal: Arc::new(Notify::new()),
+            active_conn_rx,
+            active_conn_tx,
         }
     }
 
@@ -61,7 +70,6 @@ impl Bgp {
         let api_server_port = server.api_server_port;
         println!("--");
         tokio::spawn(async move {
-            println!("hogehoge");
             let sock_addr = format!("0.0.0.0:{}", api_server_port).parse().unwrap();
 
             let reflection_server = Builder::configure()
@@ -107,12 +115,6 @@ impl Bgp {
         );
         let init_event: Vec<ControlEvent> = { server.config.lock().unwrap().get_control_event() };
 
-        tokio::spawn(async move {
-            while let Some(event) = ctrl_rx.recv().await {
-                server.handle_event(event);
-            }
-        });
-
         for e in init_event.into_iter() {
             init_tx.send(e).await.unwrap();
         }
@@ -126,7 +128,18 @@ impl Bgp {
                 stream = future_streams.next() => {
                     if let Some(Some(Ok(stream))) = stream {
                         let sock = stream.peer_addr().unwrap();
-                        println!("{:?}", sock);
+                        println!("passive stream {:?}", sock);
+                    }
+                }
+                stream = server.active_conn_rx.recv().fuse() => {
+                    if let Some(Ok(stream)) = stream {
+                        let sock = stream.peer_addr().unwrap();
+                        println!("active stream {:?}", sock);
+                    }
+                }
+                event = ctrl_rx.recv().fuse() => {
+                    if let Some(event) = event {
+                        server.handle_event(event);
                     }
                 }
             }
@@ -146,24 +159,33 @@ impl Bgp {
     }
 
     fn add_peer(&mut self, neighbor: NeighborConfig) -> Result<(), Error> {
-        let key = PeerKey::new(neighbor.address, neighbor.as_number);
-        if let Some(_) = self.peer_managers.get(&key) {
+        if let Some(_) = self.peer_managers.get(&neighbor.address) {
             return Err(Error::Control(ControlError::PeerAlreadyExists));
         }
         let (tx, rx) = unbounded_channel::<Event>();
-        let mut peer = Peer::new(neighbor, rx);
+        let config = Arc::new(Mutex::new(PeerConfig::new(neighbor)));
+        let mut peer = Peer::new(config, rx);
         let manager = PeerManager::new(tx);
-        self.peer_managers
-            .insert(PeerKey::new(neighbor.address, neighbor.as_number), manager);
+        self.peer_managers.insert(neighbor.address, manager);
+
+        // start to handle peer event.
         tokio::spawn(async move {
             peer.handle().await;
         });
 
-        if let Some(manager) = self.peer_managers.get(&key) {
+        if let Some(manager) = self.peer_managers.get(&neighbor.address) {
             manager
-                .event_queue
+                .event_tx
                 .send(Event::Admin(AdministrativeEvent::ManualStart))
                 .unwrap();
+
+            // start to connect to the remote peer
+            let active_conn_tx = self.active_conn_tx.clone();
+            tokio::spawn(async move {
+                println!("start to connect to remote peer");
+                let stream_result = TcpStream::connect(format!("{}:179", neighbor.address)).await;
+                active_conn_tx.send(stream_result).unwrap();
+            });
         }
         // .map_err(|_| Err(Error::InvalidEvent { val: 0 }));
         Ok(())
@@ -173,18 +195,20 @@ impl Bgp {
 impl TryFrom<Config> for Bgp {
     type Error = Error;
     fn try_from(conf: Config) -> Result<Self, Self::Error> {
+        let (active_conn_tx, mut active_conn_rx) =
+            tokio::sync::mpsc::unbounded_channel::<io::Result<TcpStream>>();
         Ok(Self {
             config: Arc::new(Mutex::new(conf)),
             peer_managers: HashMap::new(),
             api_server_port: Self::API_SERVER_PORT,
             event_signal: Arc::new(Notify::new()),
+            active_conn_rx,
+            active_conn_tx,
         })
     }
 }
 
 fn create_tcp_listener(addr: String, port: u16, proto: Afi) -> io::Result<std::net::TcpListener> {
-    println!("{}", addr);
-    // let sock_addr = SocketAddr::new(addr.parse().unwrap(), port);
     let sock_addr: SocketAddr = format!("{}:{}", addr, port).parse().unwrap();
     let sock = Socket::new(
         match proto {

@@ -5,7 +5,7 @@ use super::packet::capability;
 
 pub(crate) type CapabilitySet = HashMap<u8, Capability>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) enum Capability {
     MultiProtocol(MultiProtocol),
     RouteRefresh,
@@ -17,12 +17,12 @@ pub(crate) enum Capability {
     EnhancedRouteRefresh,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct MultiProtocol {
     family: AddressFamily,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct ExtendedNextHop {
     values: Vec<(AddressFamily, u16)>,
 }
@@ -32,7 +32,7 @@ pub(crate) struct FourOctetASNumber {
     inner: u32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct GracefulRestart {
     flag: u8,
     time: u16,
@@ -48,7 +48,7 @@ pub(crate) struct EnhancedRouteRefresh {}
 #[derive(Debug)]
 pub(crate) struct BGPExtendedMessage {}
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct AddPath {
     family: AddressFamily,
     flag: u8,

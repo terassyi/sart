@@ -81,7 +81,6 @@ impl Into<u8> for Event {
 			Self::Message(BgpMessageEvent::KeepAliveMsg) => 26,
 			Self::Message(BgpMessageEvent::UpdateMsg) => 27,
 			Self::Message(BgpMessageEvent::UpdateMsgErr) => 28,
-			Self::Admin(RegisterPeer) => 100,
 			_ => 0,
 		}
     }

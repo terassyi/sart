@@ -19,6 +19,7 @@ impl FiniteStateMachine {
 
     // https://www.rfc-editor.org/rfc/rfc4271#section-8.2.2
     pub fn mv(&mut self, event: Event) {
+        let current = self.get_state();
         match self.state {
 			State::Idle => {
 				match event {
@@ -176,6 +177,9 @@ impl FiniteStateMachine {
 				}
 			},
 		}
+        if current != self.get_state() {
+            println!("{:?}", self.get_state());
+        }
     }
 }
 
