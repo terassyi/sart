@@ -161,14 +161,14 @@ impl Decoder for Codec {
     }
 }
 
-impl Encoder<&Message> for Codec {
+impl Encoder<Message> for Codec {
     type Error = Error;
-    fn encode(&mut self, item: &Message, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(&mut self, item: Message, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let msg_head = dst.len();
         dst.put_u128(Message::MARKER);
         let header_length_head = dst.len();
         dst.put_u16(Message::HEADER_LENGTH);
-        let msg_type: MessageType = item.into();
+        let msg_type: MessageType = (&item).into();
         dst.put_u8(msg_type as u8);
         match item {
             Message::Open {
@@ -178,13 +178,13 @@ impl Encoder<&Message> for Codec {
                 identifier,
                 capabilities,
             } => {
-                dst.put_u8(*version);
-                dst.put_u16(if *as_num > 65535 {
+                dst.put_u8(version);
+                dst.put_u16(if as_num > 65535 {
                     Message::AS_TRANS
                 } else {
-                    *as_num
+                    as_num
                 } as u16);
-                dst.put_u16(*hold_time);
+                dst.put_u16(hold_time);
                 dst.put_slice(&identifier.octets());
                 dst.put_u8(capabilities.iter().fold(0, |l, cap| l + 2 + 2 + cap.len()) as u8);
                 for cap in capabilities.iter() {
@@ -229,13 +229,13 @@ impl Encoder<&Message> for Codec {
                 subcode,
                 data,
             } => {
-                dst.put_u8(*code as u8);
+                dst.put_u8(code as u8);
                 if let Some(subcode) = subcode {
                     dst.put_u8(subcode.into());
                 } else {
                 }
                 if data.len() > 0 {
-                    dst.put_slice(data);
+                    dst.put_slice(&data);
                 }
             }
             Message::RouteRefresh { family } => {
@@ -559,7 +559,7 @@ mod tests {
         let mut codec = Codec::new(as4_enabled, path_id_enabled);
         let mut b: Vec<u8> = Vec::new();
         let mut buf = BytesMut::from(b.as_slice());
-        codec.encode(&msg, &mut buf).unwrap();
+        codec.encode(msg, &mut buf).unwrap();
         assert_eq!(expected_data, buf.to_vec());
     }
 }

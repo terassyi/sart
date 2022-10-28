@@ -16,35 +16,35 @@ pub(crate) enum Event {
 }
 
 impl Event {
-	pub const AMDIN_MANUAL_START: u8 = 1;
-	pub const ADMIN_MANUAL_STOP: u8 = 2;
-	pub const ADMIN_AUTOMATIC_START: u8 = 3;
-	pub const ADMIN_MANUAL_START_WITH_PASSIVE_TCP_ESTABLISHMENT: u8 = 4;
-	pub const ADMIN_AUTOMATIC_START_WITH_PASSIVE_TCP_ESTABLISHMENT: u8 = 5;
-	pub const ADMIN_AUTOMATIC_START_WITH_DAMP_PEER_OSCILLATIONS: u8 = 6;
-	pub const ADMIN_AUTOMATIC_START_WITH_DAMP_PEER_OSCILLATIONS_AND_PASSIVE_TCP_ESTABLISHMENT: u8 = 7;
-	pub const ADMIN_AUTOMATIC_STOP: u8 = 8;
-	pub const TIMER_CONNECT_RETRY_TIMER_EXPIRE: u8 = 9;
-	pub const TIMER_HOLD_TIMER_EXPIRE: u8 = 10;
-	pub const TIMER_KEEPALIVE_TIMER_EXPIRE: u8 = 11;
-	pub const TIMER_DELAY_OPEN_TIMER_EXPIRE: u8 = 12;
-	pub const TIMER_IDLE_HOLD_TIMER_EXPIRE: u8 = 13;
-	pub const CONNECTION_TCP_CONNECTION_VALID: u8 = 14;
-	pub const CONNECTION_TCP_CR_INVALID: u8 = 15;
-	pub const CONNECTION_TCP_CR_ACKED: u8 = 16;
-	pub const CONNECTION_TCP_CONNECTION_CONFIRMED: u8 = 17;
-	pub const CONNECTION_TCP_CONNECTION_FAIL: u8 = 18;
-	pub const MESSAGE_BGP_OPEN: u8 = 19;
-	pub const MESSAGE_BGP_OPEN_WITH_DELAY_OPEN_TIMER_RUNNING: u8 = 20;
-	pub const MESSAGE_BGP_HEADER_ERROR: u8 = 21;
-	pub const MESSAGE_BGP_OPEN_MSG_ERROR: u8 = 22;
-	pub const MESSAGE_OPEN_COLLISION_DUMP: u8 = 23;
-	pub const MESSAGE_NOTIF_MSG_ERROR: u8 = 24;
-	pub const MESSAGE_NOTIF_MSG: u8 = 25;
-	pub const MESSAGE_KEEPALIVE_MSG: u8 = 26;
-	pub const MESSAGE_UPDATE_MSG: u8 = 27;
-	pub const MESSAGE_UPDATE_MSG_ERROR: u8 = 28;
-
+    pub const AMDIN_MANUAL_START: u8 = 1;
+    pub const ADMIN_MANUAL_STOP: u8 = 2;
+    pub const ADMIN_AUTOMATIC_START: u8 = 3;
+    pub const ADMIN_MANUAL_START_WITH_PASSIVE_TCP_ESTABLISHMENT: u8 = 4;
+    pub const ADMIN_AUTOMATIC_START_WITH_PASSIVE_TCP_ESTABLISHMENT: u8 = 5;
+    pub const ADMIN_AUTOMATIC_START_WITH_DAMP_PEER_OSCILLATIONS: u8 = 6;
+    pub const ADMIN_AUTOMATIC_START_WITH_DAMP_PEER_OSCILLATIONS_AND_PASSIVE_TCP_ESTABLISHMENT: u8 =
+        7;
+    pub const ADMIN_AUTOMATIC_STOP: u8 = 8;
+    pub const TIMER_CONNECT_RETRY_TIMER_EXPIRE: u8 = 9;
+    pub const TIMER_HOLD_TIMER_EXPIRE: u8 = 10;
+    pub const TIMER_KEEPALIVE_TIMER_EXPIRE: u8 = 11;
+    pub const TIMER_DELAY_OPEN_TIMER_EXPIRE: u8 = 12;
+    pub const TIMER_IDLE_HOLD_TIMER_EXPIRE: u8 = 13;
+    pub const CONNECTION_TCP_CONNECTION_VALID: u8 = 14;
+    pub const CONNECTION_TCP_CR_INVALID: u8 = 15;
+    pub const CONNECTION_TCP_CR_ACKED: u8 = 16;
+    pub const CONNECTION_TCP_CONNECTION_CONFIRMED: u8 = 17;
+    pub const CONNECTION_TCP_CONNECTION_FAIL: u8 = 18;
+    pub const MESSAGE_BGP_OPEN: u8 = 19;
+    pub const MESSAGE_BGP_OPEN_WITH_DELAY_OPEN_TIMER_RUNNING: u8 = 20;
+    pub const MESSAGE_BGP_HEADER_ERROR: u8 = 21;
+    pub const MESSAGE_BGP_OPEN_MSG_ERROR: u8 = 22;
+    pub const MESSAGE_OPEN_COLLISION_DUMP: u8 = 23;
+    pub const MESSAGE_NOTIF_MSG_ERROR: u8 = 24;
+    pub const MESSAGE_NOTIF_MSG: u8 = 25;
+    pub const MESSAGE_KEEPALIVE_MSG: u8 = 26;
+    pub const MESSAGE_UPDATE_MSG: u8 = 27;
+    pub const MESSAGE_UPDATE_MSG_ERROR: u8 = 28;
 }
 
 impl Into<u8> for &Event {
@@ -84,9 +84,9 @@ impl Into<u8> for &Event {
 }
 
 impl From<u8> for Event {
-	fn from(_: u8) -> Self {
-		Self::Admin(AdministrativeEvent::ManualStart)
-	}
+    fn from(_: u8) -> Self {
+        Self::Admin(AdministrativeEvent::ManualStart)
+    }
 }
 
 // https://www.rfc-editor.org/rfc/rfc4271#section-8.1.2

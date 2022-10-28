@@ -30,6 +30,10 @@ pub(crate) enum Error {
     InvalidEvent { val: u8 },
     #[error("control error")]
     Control(#[from] ControlError),
+    #[error("missing message fields")]
+    MissingMessageField,
+    #[error("invalid message field")]
+    InvalidMessageField,
 }
 
 // https://www.rfc-editor.org/rfc/rfc1771#section-6.1

@@ -2,7 +2,7 @@ RUSTUP := rustup
 CARGO := cargo
 
 .PHONY: setup
-setup: setup-rust-tools
+setup: setup-rust-tools setup-protoc
 
 .PHONY: setup-rust-tools
 setup-rust-tools:
@@ -11,7 +11,8 @@ setup-rust-tools:
 	$(CARGO) install rustfilt
 
 .PHONY: setup-protoc
-	apt install -y protobuf-compiler libprotobuf-dev
+setup-protoc:
+	sudo apt install -y protobuf-compiler libprotobuf-dev
 
 .PHONY: build
 build:

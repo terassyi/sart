@@ -7,11 +7,12 @@ use std::hash::{Hash, Hasher};
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc::{channel, Receiver, UnboundedSender};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
-use tokio::sync::oneshot;
 use tokio::sync::Notify;
+use tokio::time::{sleep, timeout};
 use tokio_stream::wrappers::TcpListenerStream;
 use tonic::transport::Server;
 use tonic_reflection::server::Builder;
@@ -20,7 +21,7 @@ use crate::bgp::api_server::api;
 use crate::bgp::api_server::ApiServer;
 use crate::bgp::config::Config;
 use crate::bgp::error::Error;
-use crate::bgp::event::TcpConnectionEvent;
+use crate::bgp::event::{TcpConnectionEvent, TimerEvent};
 use crate::bgp::family::Afi;
 use crate::proto::sart::bgp_api_server::BgpApiServer;
 
@@ -34,25 +35,27 @@ pub(crate) struct Bgp {
     pub config: Arc<Mutex<Config>>,
     pub peer_managers: HashMap<IpAddr, PeerManager>,
     api_server_port: u16,
-    active_conn_rx: UnboundedReceiver<io::Result<TcpStream>>,
-    active_conn_tx: UnboundedSender<io::Result<TcpStream>>,
+    connect_retry_time: u64,
+    active_conn_rx: UnboundedReceiver<TcpStream>,
+    active_conn_tx: UnboundedSender<TcpStream>,
     event_signal: Arc<Notify>,
 }
 
 impl Bgp {
     pub const BGP_PORT: u16 = 179;
     pub const DEFAULT_HOLD_TIME: u64 = 180;
-    pub const DEFAULT_CONNECT_RETRY_TIME: u64 = 120;
+    pub const DEFAULT_CONNECT_RETRY_TIME: u64 = 10;
     pub const DEFAULT_KEEPALIVE_TIME: u64 = 60;
     const API_SERVER_PORT: u16 = 5000;
 
     pub fn new(conf: Config) -> Self {
         let (active_conn_tx, mut active_conn_rx) =
-            tokio::sync::mpsc::unbounded_channel::<io::Result<TcpStream>>();
+            tokio::sync::mpsc::unbounded_channel::<TcpStream>();
         Self {
             config: Arc::new(Mutex::new(conf)),
-            api_server_port: Self::API_SERVER_PORT,
             peer_managers: HashMap::new(),
+            connect_retry_time: Self::DEFAULT_CONNECT_RETRY_TIME,
+            api_server_port: Self::API_SERVER_PORT,
             event_signal: Arc::new(Notify::new()),
             active_conn_rx,
             active_conn_tx,
@@ -127,21 +130,31 @@ impl Bgp {
             }
             futures::select_biased! {
                 stream = future_streams.next() => {
-                    if let Some(Some(Ok(stream))) = stream {
-                        let sock = stream.peer_addr().unwrap();
-                        println!("passive stream {:?}", sock);
-                        if let Some(manager) = server.peer_managers.get(&sock.ip()) {
-                            manager.event_tx.send(Event::Connection(TcpConnectionEvent::TcpConnectionConfirmed(stream))).unwrap();
-                        }
+                    if let Some(Some(stream)) = stream {
+                        match stream {
+                            Ok(stream) => {
+                                let sock = stream.peer_addr().unwrap();
+                                println!("passive stream {:?}", sock);
+                                if let Some(manager) = server.peer_managers.get(&sock.ip()) {
+                                    manager.event_tx.send(Event::Connection(TcpConnectionEvent::TcpConnectionConfirmed(stream))).unwrap();
+                                }
+                            },
+                            Err(e) => {
+                                println!("{:?}", e);
+
+                            }
+                        };
                     }
                 }
                 stream = server.active_conn_rx.recv().fuse() => {
-                    if let Some(Ok(stream)) = stream {
+                    if let Some(stream) = stream {
                         let sock = stream.peer_addr().unwrap();
                         println!("active stream {:?}", sock);
                         if let Some(manager) = server.peer_managers.get(&sock.ip()) {
                             manager.event_tx.send(Event::Connection(TcpConnectionEvent::TcpCRAcked(stream))).unwrap();
                         }
+                    } else {
+                        println!("active_conn err = {:?}", stream);
                     }
                 }
                 event = ctrl_rx.recv().fuse() => {
@@ -188,13 +201,29 @@ impl Bgp {
 
             // start to connect to the remote peer
             let active_conn_tx = self.active_conn_tx.clone();
+            let event_tx = manager.event_tx.clone();
+            let connect_retry_time = self.connect_retry_time;
             tokio::spawn(async move {
                 println!("start to connect to remote peer");
-                let stream_result = TcpStream::connect(format!("{}:179", neighbor.address)).await;
-                active_conn_tx.send(stream_result).unwrap();
+                loop {
+                    if let Ok(Ok(stream)) = timeout(
+                        Duration::from_secs(connect_retry_time / 2),
+                        TcpStream::connect(format!("{}:179", neighbor.address)),
+                    )
+                    .await
+                    {
+                        active_conn_tx.send(stream).unwrap();
+                        return;
+                    } else {
+                        println!("timeout !");
+                    }
+                    sleep(Duration::from_secs(connect_retry_time / 2)).await;
+                    event_tx
+                        .send(Event::Timer(TimerEvent::ConnectRetryTimerExpire))
+                        .expect("event channel is not worked.");
+                }
             });
         }
-        // .map_err(|_| Err(Error::InvalidEvent { val: 0 }));
         Ok(())
     }
 }
@@ -203,10 +232,11 @@ impl TryFrom<Config> for Bgp {
     type Error = Error;
     fn try_from(conf: Config) -> Result<Self, Self::Error> {
         let (active_conn_tx, mut active_conn_rx) =
-            tokio::sync::mpsc::unbounded_channel::<io::Result<TcpStream>>();
+            tokio::sync::mpsc::unbounded_channel::<TcpStream>();
         Ok(Self {
             config: Arc::new(Mutex::new(conf)),
             peer_managers: HashMap::new(),
+            connect_retry_time: Self::DEFAULT_CONNECT_RETRY_TIME,
             api_server_port: Self::API_SERVER_PORT,
             event_signal: Arc::new(Notify::new()),
             active_conn_rx,

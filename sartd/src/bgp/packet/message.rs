@@ -1,8 +1,10 @@
+use crate::bgp::capability;
 use crate::bgp::error::{Error, MessageHeaderError};
-use crate::bgp::family::AddressFamily;
+use crate::bgp::family::{AddressFamily, Afi, Safi};
 use crate::bgp::packet::attribute::Attribute;
 use crate::bgp::packet::capability::Capability;
 use crate::bgp::packet::prefix::Prefix;
+use crate::bgp::server::Bgp;
 use std::convert::TryFrom;
 use std::net::Ipv4Addr;
 
@@ -52,6 +54,18 @@ impl Message {
 }
 
 impl<'a> Into<MessageType> for &'a Message {
+    fn into(self) -> MessageType {
+        match self {
+            Message::Open { .. } => MessageType::Open,
+            Message::Update { .. } => MessageType::Update,
+            Message::Keepalive => MessageType::Keepalive,
+            Message::Notification { .. } => MessageType::Notification,
+            Message::RouteRefresh { .. } => MessageType::RouteRefresh,
+        }
+    }
+}
+
+impl Into<MessageType> for Message {
     fn into(self) -> MessageType {
         match self {
             Message::Open { .. } => MessageType::Open,
@@ -184,9 +198,9 @@ impl NotificationSubCode {
     }
 }
 
-impl Into<u8> for &NotificationSubCode {
+impl Into<u8> for NotificationSubCode {
     fn into(self) -> u8 {
-        match *self {
+        match self {
             NotificationSubCode::ConnectionNotSynchronized => 1,
             NotificationSubCode::BadMessageLength => 2,
             NotificationSubCode::BadMessageType => 3,
@@ -209,11 +223,146 @@ impl Into<u8> for &NotificationSubCode {
     }
 }
 
+pub(crate) struct MessageBuilder {
+    msg_type: MessageType,
+    // open
+    version: u8,
+    asn: u32,
+    hold_time: u16,
+    router_id: Ipv4Addr,
+    capabilities: Vec<Capability>,
+    // update
+    withdrawn_routes: Vec<Prefix>,
+    attributes: Vec<Attribute>,
+    nlri: Vec<Prefix>,
+    // notification
+    code: NotificationCode,
+    subcode: Option<NotificationSubCode>,
+    data: Vec<u8>,
+    // routerefresh
+    family: AddressFamily,
+}
+
+impl MessageBuilder {
+    pub fn builder(msg_type: MessageType) -> Self {
+        Self {
+            msg_type,
+            version: Message::VERSION,
+            asn: Message::AS_TRANS,
+            hold_time: Bgp::DEFAULT_HOLD_TIME as u16,
+            router_id: Ipv4Addr::new(0, 0, 0, 0),
+            capabilities: Vec::new(),
+            withdrawn_routes: Vec::new(),
+            attributes: Vec::new(),
+            nlri: Vec::new(),
+            code: NotificationCode::FiniteStateMachine, // default
+            subcode: None,
+            data: Vec::new(),
+            family: AddressFamily {
+                afi: Afi::IPv4,
+                safi: Safi::Unicast,
+            },
+        }
+    }
+
+    pub fn build(&self) -> Result<Message, Error> {
+        match self.msg_type {
+            MessageType::Open => Ok(Message::Open {
+                version: self.version,
+                as_num: self.asn,
+                hold_time: self.hold_time,
+                identifier: self.router_id,
+                capabilities: self.capabilities.clone(),
+            }),
+            // MessageType::Update => {
+            //     Ok(Message::Update {
+            //         withdrawn_routes: self.withdrawn_routes.clone(),
+            //         attributes: self.attributes.clone(),
+            //         nlri: self.nlri.clone(),
+            //     })
+            // },
+            MessageType::Keepalive => Ok(Message::Keepalive),
+            // MessageType::Notification => {
+            //     let code = match self.code {
+            //         Some(code) => code,
+            //         None => return Err(Error::MissingMessageField),
+            //     };
+            //     match &self.data {
+            //         Some(data) => Ok(Message::Notification { code, subcode: self.subcode, data: data.clone() }),
+            //         None => Ok(Message::Notification { code, subcode: self.subcode, data: Vec::new() }),
+            //     }
+            // },
+            // MessageType::RouteRefresh => {
+            //     let family = match self.family {
+            //         Some(family) => family,
+            //         None => return Err(Error::MissingMessageField),
+            //     };
+            //     Ok(Message::RouteRefresh { family })
+            // },
+            _ => Ok(Message::Keepalive),
+        }
+    }
+
+    pub fn version(&mut self, version: u8) -> Result<&mut Self, Error> {
+        if self.msg_type != MessageType::Open {
+            return Err(Error::InvalidMessageField);
+        }
+        self.version = version;
+        Ok(self)
+    }
+
+    pub fn asn(&mut self, asn: u32) -> Result<&mut Self, Error> {
+        if self.msg_type != MessageType::Open {
+            return Err(Error::InvalidMessageField);
+        }
+        self.asn = asn;
+        Ok(self)
+    }
+
+    pub fn hold_time(&mut self, hold_time: u16) -> Result<&mut Self, Error> {
+        if self.msg_type != MessageType::Open {
+            return Err(Error::InvalidMessageField);
+        }
+        self.hold_time = hold_time;
+        Ok(self)
+    }
+
+    pub fn identifier(&mut self, router_id: Ipv4Addr) -> Result<&mut Self, Error> {
+        if self.msg_type != MessageType::Open {
+            return Err(Error::InvalidMessageField);
+        }
+        self.router_id = router_id;
+        Ok(self)
+    }
+
+    pub fn capability(&mut self, capability: &capability::Capability) -> Result<&mut Self, Error> {
+        if self.msg_type != MessageType::Open {
+            return Err(Error::InvalidMessageField);
+        }
+        self.capabilities.push(capability.into());
+        Ok(self)
+    }
+
+    pub fn withdrawn_routes(&mut self, prefixes: Vec<Prefix>) -> Result<&mut Self, Error> {
+        if self.msg_type != MessageType::Update {
+            return Err(Error::InvalidMessageField);
+        }
+        Ok(self)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::Capability;
+    use super::Message;
+    use super::MessageBuilder;
     use super::MessageType;
+    use super::*;
+    use crate::bgp::capability;
     use crate::bgp::error::MessageHeaderError;
+    use crate::bgp::family::{AddressFamily, Afi, Safi};
     use rstest::rstest;
+    use std::net::Ipv4Addr;
 
     #[rstest(
         input,
@@ -238,5 +387,63 @@ mod tests {
             Ok(_) => assert!(false),
             Err(e) => assert_eq!(expected, e),
         }
+    }
+
+    #[rstest(
+        asn,
+        hold_time,
+        router_id,
+        capabilities,
+        expected,
+        case(
+            65100,
+            180,
+            Ipv4Addr::new(10, 10, 3, 1),
+            vec![],
+            Message::Open{version:4, as_num: 65100, hold_time:180, identifier:Ipv4Addr::new(10,10,3,1), capabilities: vec![] }
+        ),
+        case(
+            65100,
+            180,
+            Ipv4Addr::new(10, 10, 3, 1),
+            vec![
+                capability::Capability::MultiProtocol(capability::MultiProtocol::new(AddressFamily{ afi: Afi::IPv4, safi: Safi::Unicast })),
+            ],
+            Message::Open{version:4, as_num: 65100, hold_time:180, identifier:Ipv4Addr::new(10,10,3,1), capabilities: vec![
+                Capability::MultiProtocol(AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast}),
+            ] }
+        ),
+        // case(
+        //     2621441,
+        //     180,
+        //     Ipv4Addr::new(1, 1, 1, 1),
+        //     vec![
+        //         capability::Capability::MultiProtocol(capability::MultiProtocol::new(AddressFamily{ afi: Afi::IPv4, safi: Safi::Unicast })),
+        //     ],
+        //     Message::Open{version:4, as_num: 65100, hold_time:180, identifier:Ipv4Addr::new(10,10,3,1), capabilities: vec![
+        //         Capability::MultiProtocol(AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast}),
+        //     ] }
+        // ),
+    )]
+    fn works_message_builder_open(
+        asn: u32,
+        hold_time: u16,
+        router_id: Ipv4Addr,
+        capabilities: Vec<capability::Capability>,
+        expected: Message,
+    ) {
+        let mut builder = MessageBuilder::builder(MessageType::Open);
+        let mut builder = builder
+            .asn(asn)
+            .unwrap()
+            .hold_time(hold_time)
+            .unwrap()
+            .identifier(router_id)
+            .unwrap();
+        for cap in capabilities.iter() {
+            builder.capability(cap).unwrap();
+        }
+        let msg = builder.build().unwrap();
+        assert_eq!(expected, msg);
     }
 }

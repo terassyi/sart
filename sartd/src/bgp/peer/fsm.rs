@@ -25,7 +25,7 @@ impl FiniteStateMachine {
 				match event {
 					Event::AMDIN_MANUAL_START | Event::ADMIN_AUTOMATIC_START => self.state = State::Connect,
 					Event::ADMIN_AUTOMATIC_START_WITH_PASSIVE_TCP_ESTABLISHMENT |
-					Event::ADMIN_AUTOMATIC_START_WITH_DAMP_PEER_OSCILLATIONS | 
+					Event::ADMIN_AUTOMATIC_START_WITH_DAMP_PEER_OSCILLATIONS |
 					Event::ADMIN_AUTOMATIC_START_WITH_DAMP_PEER_OSCILLATIONS_AND_PASSIVE_TCP_ESTABLISHMENT => self.state = State::Active,
 					_ => {},
 				}
@@ -44,7 +44,7 @@ impl FiniteStateMachine {
 					Event::TIMER_CONNECT_RETRY_TIMER_EXPIRE => self.state = State::Connect,
 					Event::TIMER_DELAY_OPEN_TIMER_EXPIRE |
 					Event::CONNECTION_TCP_CR_ACKED | Event::CONNECTION_TCP_CONNECTION_CONFIRMED => self.state = State::OpenSent,
-					Event::MESSAGE_BGP_OPEN => self.state = State::OpenConfirm,	
+					Event::MESSAGE_BGP_OPEN => self.state = State::OpenConfirm,
 					1 | 3 | 4 | 5 | 6 | 7 | 14 | 15 => {},
 					_ => self.state = State::Idle,
 				}
