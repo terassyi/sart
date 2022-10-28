@@ -267,39 +267,59 @@ impl MessageBuilder {
 
     pub fn build(&self) -> Result<Message, Error> {
         match self.msg_type {
-            MessageType::Open => Ok(Message::Open {
-                version: self.version,
-                as_num: self.asn,
-                hold_time: self.hold_time,
-                identifier: self.router_id,
-                capabilities: self.capabilities.clone(),
+            MessageType::Open => {
+                let asn = if self
+                    .capabilities
+                    .iter()
+                    .filter(|cap| match cap {
+                        Capability::FourOctetASNumber(_) => true,
+                        _ => false,
+                    })
+                    .count()
+                    == 0
+                {
+                    self.asn
+                } else {
+                    if self.asn > 65535 {
+                        Message::AS_TRANS
+                    } else {
+                        self.asn
+                    }
+                };
+                Ok(Message::Open {
+                    version: self.version,
+                    as_num: asn,
+                    hold_time: self.hold_time,
+                    identifier: self.router_id,
+                    capabilities: self.capabilities.clone(),
+                })
+            }
+            MessageType::Update => Ok(Message::Update {
+                withdrawn_routes: if self.withdrawn_routes.is_empty() {
+                    Some(self.withdrawn_routes.clone())
+                } else {
+                    None
+                },
+                attributes: if self.attributes.is_empty() {
+                    Some(self.attributes.clone())
+                } else {
+                    None
+                },
+                nlri: if self.nlri.is_empty() {
+                    Some(self.nlri.clone())
+                } else {
+                    None
+                },
             }),
-            // MessageType::Update => {
-            //     Ok(Message::Update {
-            //         withdrawn_routes: self.withdrawn_routes.clone(),
-            //         attributes: self.attributes.clone(),
-            //         nlri: self.nlri.clone(),
-            //     })
-            // },
             MessageType::Keepalive => Ok(Message::Keepalive),
-            // MessageType::Notification => {
-            //     let code = match self.code {
-            //         Some(code) => code,
-            //         None => return Err(Error::MissingMessageField),
-            //     };
-            //     match &self.data {
-            //         Some(data) => Ok(Message::Notification { code, subcode: self.subcode, data: data.clone() }),
-            //         None => Ok(Message::Notification { code, subcode: self.subcode, data: Vec::new() }),
-            //     }
-            // },
-            // MessageType::RouteRefresh => {
-            //     let family = match self.family {
-            //         Some(family) => family,
-            //         None => return Err(Error::MissingMessageField),
-            //     };
-            //     Ok(Message::RouteRefresh { family })
-            // },
-            _ => Ok(Message::Keepalive),
+            MessageType::Notification => Ok(Message::Notification {
+                code: self.code,
+                subcode: self.subcode,
+                data: self.data.clone(),
+            }),
+            MessageType::RouteRefresh => Ok(Message::RouteRefresh {
+                family: self.family,
+            }),
         }
     }
 
@@ -349,6 +369,38 @@ impl MessageBuilder {
         }
         Ok(self)
     }
+
+    pub fn code(&mut self, code: NotificationCode) -> Result<&mut Self, Error> {
+        if self.msg_type != MessageType::Notification {
+            return Err(Error::InvalidMessageField);
+        }
+        self.code = code;
+        Ok(self)
+    }
+
+    pub fn subcode(&mut self, subcode: NotificationSubCode) -> Result<&mut Self, Error> {
+        if self.msg_type != MessageType::Notification {
+            return Err(Error::InvalidMessageField);
+        }
+        self.subcode = Some(subcode);
+        Ok(self)
+    }
+
+    pub fn data(&mut self, mut data: Vec<u8>) -> Result<&mut Self, Error> {
+        if self.msg_type != MessageType::Notification {
+            return Err(Error::InvalidMessageField);
+        }
+        self.data.append(&mut data);
+        Ok(self)
+    }
+
+    pub fn family(&mut self, family: AddressFamily) -> Result<&mut Self, Error> {
+        if self.msg_type != MessageType::RouteRefresh {
+            return Err(Error::InvalidMessageField);
+        }
+        self.family = family;
+        Ok(self)
+    }
 }
 
 #[cfg(test)]
@@ -357,10 +409,12 @@ mod tests {
     use super::Message;
     use super::MessageBuilder;
     use super::MessageType;
-    use super::*;
+    use super::NotificationCode;
+    use super::NotificationSubCode;
     use crate::bgp::capability;
     use crate::bgp::error::MessageHeaderError;
     use crate::bgp::family::{AddressFamily, Afi, Safi};
+    use clap::builder;
     use rstest::rstest;
     use std::net::Ipv4Addr;
 
@@ -413,17 +467,21 @@ mod tests {
                 Capability::MultiProtocol(AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast}),
             ] }
         ),
-        // case(
-        //     2621441,
-        //     180,
-        //     Ipv4Addr::new(1, 1, 1, 1),
-        //     vec![
-        //         capability::Capability::MultiProtocol(capability::MultiProtocol::new(AddressFamily{ afi: Afi::IPv4, safi: Safi::Unicast })),
-        //     ],
-        //     Message::Open{version:4, as_num: 65100, hold_time:180, identifier:Ipv4Addr::new(10,10,3,1), capabilities: vec![
-        //         Capability::MultiProtocol(AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast}),
-        //     ] }
-        // ),
+        case(
+            2621441,
+            180,
+            Ipv4Addr::new(1, 1, 1, 1),
+            vec![
+                capability::Capability::MultiProtocol(capability::MultiProtocol::new(AddressFamily{ afi: Afi::IPv4, safi: Safi::Unicast })),
+                capability::Capability::FourOctetASNumber(capability::FourOctetASNumber::new(2621441)),
+                capability::Capability::RouteRefresh,
+            ],
+            Message::Open{version:4, as_num: Message::AS_TRANS, hold_time:180, identifier:Ipv4Addr::new(1,1,1,1), capabilities: vec![
+                Capability::MultiProtocol(AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast}),
+                Capability::FourOctetASNumber(2621441),
+                Capability::RouteRefresh,
+            ] }
+        ),
     )]
     fn works_message_builder_open(
         asn: u32,
@@ -433,7 +491,7 @@ mod tests {
         expected: Message,
     ) {
         let mut builder = MessageBuilder::builder(MessageType::Open);
-        let mut builder = builder
+        builder
             .asn(asn)
             .unwrap()
             .hold_time(hold_time)
@@ -443,6 +501,64 @@ mod tests {
         for cap in capabilities.iter() {
             builder.capability(cap).unwrap();
         }
+        let msg = builder.build().unwrap();
+        assert_eq!(expected, msg);
+    }
+
+    #[rstest(
+        code,
+        subcode,
+        data,
+        expected,
+        case(
+            NotificationCode::OpenMessage,
+            Some(NotificationSubCode::BadPeerAS),
+            vec![0xfe, 0xb0],
+            Message::Notification{
+                code: NotificationCode::OpenMessage,
+                subcode: Some(NotificationSubCode::BadPeerAS),
+                data: vec![0xfe, 0xb0],
+            }
+        ),
+        case(
+            NotificationCode::FiniteStateMachine,
+            None,
+            vec![],
+            Message::Notification{
+                code: NotificationCode::FiniteStateMachine,
+                subcode: None,
+                data: vec![],
+            }
+        ),
+    )]
+    fn works_message_builder_notification(
+        code: NotificationCode,
+        subcode: Option<NotificationSubCode>,
+        data: Vec<u8>,
+        expected: Message,
+    ) {
+        let mut builder = MessageBuilder::builder(MessageType::Notification);
+        builder.code(code).unwrap();
+        match subcode {
+            Some(subcode) => builder.subcode(subcode).unwrap(),
+            None => &mut builder,
+        };
+        builder.data(data).unwrap();
+        let msg = builder.build().unwrap();
+        assert_eq!(expected, msg);
+    }
+
+    #[rstest(
+        family,
+        expected,
+        case(
+            AddressFamily{ afi: Afi::IPv4, safi: Safi::Unicast },
+            Message::RouteRefresh{ family: AddressFamily{ afi: Afi::IPv4, safi: Safi::Unicast }},
+        ),
+    )]
+    fn works_message_builder_route_refresh(family: AddressFamily, expected: Message) {
+        let mut builder = MessageBuilder::builder(MessageType::RouteRefresh);
+        builder.family(family).unwrap();
         let msg = builder.build().unwrap();
         assert_eq!(expected, msg);
     }
