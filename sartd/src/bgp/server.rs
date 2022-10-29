@@ -12,7 +12,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc::{channel, Receiver, UnboundedSender};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tokio::sync::Notify;
-use tokio::time::{sleep, timeout};
+use tokio::time::{sleep, timeout, Instant};
 use tokio_stream::wrappers::TcpListenerStream;
 use tonic::transport::Server;
 use tonic_reflection::server::Builder;
@@ -25,6 +25,7 @@ use crate::bgp::event::{TcpConnectionEvent, TimerEvent};
 use crate::bgp::family::Afi;
 use crate::proto::sart::bgp_api_server::BgpApiServer;
 
+use super::capability::{Capability, CapabilitySet};
 use super::config::NeighborConfig;
 use super::error::ControlError;
 use super::event::{AdministrativeEvent, ControlEvent, Event};
@@ -34,6 +35,7 @@ use super::peer::peer::{Peer, PeerConfig, PeerManager};
 pub(crate) struct Bgp {
     pub config: Arc<Mutex<Config>>,
     pub peer_managers: HashMap<IpAddr, PeerManager>,
+    global_capabilities: CapabilitySet,
     api_server_port: u16,
     connect_retry_time: u64,
     active_conn_rx: UnboundedReceiver<TcpStream>,
@@ -51,9 +53,11 @@ impl Bgp {
     pub fn new(conf: Config) -> Self {
         let (active_conn_tx, mut active_conn_rx) =
             tokio::sync::mpsc::unbounded_channel::<TcpStream>();
+        let asn = conf.asn;
         Self {
             config: Arc::new(Mutex::new(conf)),
             peer_managers: HashMap::new(),
+            global_capabilities: CapabilitySet::default(asn),
             connect_retry_time: Self::DEFAULT_CONNECT_RETRY_TIME,
             api_server_port: Self::API_SERVER_PORT,
             event_signal: Arc::new(Notify::new()),
@@ -183,9 +187,18 @@ impl Bgp {
             return Err(Error::Control(ControlError::PeerAlreadyExists));
         }
         let (tx, rx) = unbounded_channel::<Event>();
-        let config = Arc::new(Mutex::new(PeerConfig::new(neighbor)));
-        let mut peer = Peer::new(config, rx);
-        let manager = PeerManager::new(tx);
+        let (local_as, local_router_id) = {
+            let conf = self.config.lock().unwrap();
+            (conf.asn, conf.router_id)
+        };
+        let config = Arc::new(Mutex::new(PeerConfig::new(
+            local_as,
+            local_router_id,
+            neighbor,
+            self.global_capabilities.clone(),
+        )));
+        let mut peer = Peer::new(config.clone(), rx);
+        let manager = PeerManager::new(config, tx);
         self.peer_managers.insert(neighbor.address, manager);
 
         // start to handle peer event.
@@ -233,9 +246,11 @@ impl TryFrom<Config> for Bgp {
     fn try_from(conf: Config) -> Result<Self, Self::Error> {
         let (active_conn_tx, mut active_conn_rx) =
             tokio::sync::mpsc::unbounded_channel::<TcpStream>();
+        let asn = conf.asn;
         Ok(Self {
             config: Arc::new(Mutex::new(conf)),
             peer_managers: HashMap::new(),
+            global_capabilities: CapabilitySet::default(asn),
             connect_retry_time: Self::DEFAULT_CONNECT_RETRY_TIME,
             api_server_port: Self::API_SERVER_PORT,
             event_signal: Arc::new(Notify::new()),

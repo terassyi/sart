@@ -34,6 +34,8 @@ pub(crate) enum Error {
     MissingMessageField,
     #[error("invalid message field")]
     InvalidMessageField,
+    #[error("peer error")]
+    Peer(#[from] PeerError),
 }
 
 // https://www.rfc-editor.org/rfc/rfc1771#section-6.1
@@ -95,4 +97,12 @@ pub(crate) enum ControlError {
     PeerAlreadyExists,
     #[error("invalid data")]
     InvalidData,
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum PeerError {
+    #[error("connection is not established")]
+    ConnectionNotEstablished,
+    #[error("failed to send message")]
+    FailedToSendMessage,
 }

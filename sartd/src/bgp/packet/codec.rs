@@ -6,6 +6,7 @@ use byteorder::{NetworkEndian, WriteBytesExt};
 use bytes::{Buf, BufMut, BytesMut};
 use tokio_util::codec::{Decoder, Encoder};
 
+use crate::bgp::capability::CapabilitySet;
 use crate::bgp::family::{AddressFamily, Afi, Safi};
 use crate::bgp::packet::attribute::Attribute;
 use crate::bgp::packet::message::{Message, MessageType, NotificationCode, NotificationSubCode};
@@ -29,7 +30,7 @@ impl Codec {
                 afi: Afi::IPv4,
                 safi: Safi::Unicast,
             },
-            capabilities: Arc::new(RwLock::new(HashMap::new())),
+            capabilities: Arc::new(RwLock::new(CapabilitySet::with_empty())),
             as4_enabled,
             path_id_enabled,
         }
@@ -41,7 +42,7 @@ impl Codec {
                 afi: Afi::IPv4,
                 safi: Safi::Unicast,
             },
-            capabilities: Arc::new(RwLock::new(HashMap::new())),
+            capabilities: Arc::new(RwLock::new(CapabilitySet::with_empty())),
             as4_enabled: true,
             path_id_enabled: false,
         }

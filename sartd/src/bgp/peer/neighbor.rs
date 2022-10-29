@@ -58,7 +58,7 @@ impl Neighbor {
 impl From<NeighborConfig> for Neighbor {
     fn from(conf: NeighborConfig) -> Self {
         Self {
-            asn: conf.as_number,
+            asn: conf.asn,
             router_id: conf.router_id,
             addr: conf.address,
             acceptable_capabilities: Vec::new(),

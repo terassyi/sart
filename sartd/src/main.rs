@@ -55,7 +55,7 @@ fn main() -> Result<(), std::io::Error> {
         let mut conf = Config::load(file).expect("failed to load config");
         match app.value_of("as_number") {
             Some(asn) => {
-                conf.as_number = asn.parse::<u32>().unwrap();
+                conf.asn = asn.parse::<u32>().unwrap();
             }
             None => {}
         }

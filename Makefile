@@ -14,6 +14,10 @@ setup-rust-tools:
 setup-protoc:
 	sudo apt install -y protobuf-compiler libprotobuf-dev
 
+.PHONY: setup-dev
+setup-dev:
+	sudo apt install -y frr gobgpd
+
 .PHONY: build
 build:
 	cd sartd; $(CARGO) build --verbose

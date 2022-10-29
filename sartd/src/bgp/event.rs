@@ -108,6 +108,21 @@ pub(crate) enum AdministrativeEvent {
     AutomaticStop,
 }
 
+impl Into<u8> for AdministrativeEvent {
+    fn into(self) -> u8 {
+        match self {
+			AdministrativeEvent::ManualStart => 1,
+			AdministrativeEvent::ManualStop => 2,
+			AdministrativeEvent::AutomaticStart => 3,
+			AdministrativeEvent::ManualStartWithPassiveTcpEstablishment => 4,
+			AdministrativeEvent::AutomaticStartWithPassiveTcpEstablishment => 5,
+			AdministrativeEvent::AutomaticStartWithDampPeerOscillations => 6,
+			AdministrativeEvent::AutomaticStartWithDampPeerOscillationsAndPassiveTcpEstablishment => 7,
+			AdministrativeEvent::AutomaticStop => 8,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum TimerEvent {
     ConnectRetryTimerExpire,
@@ -119,6 +134,18 @@ pub(crate) enum TimerEvent {
     IdleHoldTimerExpire,
 }
 
+impl Into<u8> for TimerEvent {
+    fn into(self) -> u8 {
+        match self {
+            TimerEvent::ConnectRetryTimerExpire => 9,
+            TimerEvent::HoldTimerExpire => 10,
+            TimerEvent::KeepaliveTimerExpire => 11,
+            TimerEvent::DelayOpenTimerExpire => 12,
+            TimerEvent::IdleHoldTimerExpire => 13,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(crate) enum TcpConnectionEvent {
     #[allow(unused)]
@@ -128,6 +155,18 @@ pub(crate) enum TcpConnectionEvent {
     TcpCRAcked(TcpStream),
     TcpConnectionConfirmed(TcpStream),
     TcpConnectionFail,
+}
+
+impl Into<u8> for TcpConnectionEvent {
+    fn into(self) -> u8 {
+        match self {
+            TcpConnectionEvent::TcpConnectionValid => 14,
+            TcpConnectionEvent::TcpCRInvalid => 15,
+            TcpConnectionEvent::TcpCRAcked(_) => 16,
+            TcpConnectionEvent::TcpConnectionConfirmed(_) => 17,
+            TcpConnectionEvent::TcpConnectionFail => 18,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -144,6 +183,23 @@ pub(crate) enum BgpMessageEvent {
     KeepAliveMsg,
     UpdateMsg,
     UpdateMsgErr,
+}
+
+impl Into<u8> for BgpMessageEvent {
+    fn into(self) -> u8 {
+        match self {
+            BgpMessageEvent::BgpOpen => 19,
+            BgpMessageEvent::BgpOpenWithDelayOpenTimerRunning => 20,
+            BgpMessageEvent::BgpHeaderError => 21,
+            BgpMessageEvent::BgpOpenMsgErr => 22,
+            BgpMessageEvent::OpenCollisionDump => 23,
+            BgpMessageEvent::NotifMsgVerErr => 24,
+            BgpMessageEvent::NotifMsg => 25,
+            BgpMessageEvent::KeepAliveMsg => 26,
+            BgpMessageEvent::UpdateMsg => 27,
+            BgpMessageEvent::UpdateMsgErr => 28,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]

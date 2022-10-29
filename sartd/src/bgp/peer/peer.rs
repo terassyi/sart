@@ -1,44 +1,71 @@
 use std::fmt::format;
 use std::io;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr};
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
 use std::time::Duration;
 
-use futures::{FutureExt, SinkExt, StreamExt};
+use futures::stream::{FuturesUnordered, Next};
+use futures::{FutureExt, SinkExt, Stream, StreamExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::sync::{oneshot, Notify};
-use tokio::time::{interval_at, Instant, Interval};
+use tokio::time::{interval_at, sleep, Instant, Interval, Sleep};
 use tokio_util::codec::{Framed, FramedRead};
 
+use crate::bgp::capability::{Capability, CapabilitySet};
 use crate::bgp::config::NeighborConfig;
-use crate::bgp::error::Error;
+use crate::bgp::error::{Error, PeerError};
 use crate::bgp::event::{
     AdministrativeEvent, BgpMessageEvent, Event, TcpConnectionEvent, TimerEvent,
 };
 use crate::bgp::packet::codec::Codec;
-use crate::bgp::packet::message::Message;
+use crate::bgp::packet::message::{Message, MessageBuilder, MessageType};
 use crate::bgp::server::Bgp;
 
 use super::fsm::State;
 use super::neighbor;
 use super::{fsm::FiniteStateMachine, neighbor::Neighbor};
 
+#[derive(Debug)]
+pub(crate) struct PeerManager {
+    config: Arc<Mutex<PeerConfig>>,
+    pub event_tx: UnboundedSender<Event>,
+}
+
+impl PeerManager {
+    pub fn new(config: Arc<Mutex<PeerConfig>>, event_tx: UnboundedSender<Event>) -> Self {
+        Self { config, event_tx }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct PeerConfig {
     neighbor: Neighbor,
+    asn: u32,
+    router_id: Ipv4Addr,
     hold_time: u64,
     keepalive_time: u64,
     connect_retry_time: u64,
+    local_capabilities: CapabilitySet,
 }
 
 impl PeerConfig {
-    pub fn new(neighbor: NeighborConfig) -> Self {
+    pub fn new(
+        local_as: u32,
+        local_router_id: Ipv4Addr,
+        neighbor: NeighborConfig,
+        local_capabilities: CapabilitySet,
+    ) -> Self {
         Self {
             neighbor: Neighbor::from(neighbor),
+            asn: local_as,
+            router_id: local_router_id,
             hold_time: Bgp::DEFAULT_HOLD_TIME,
             keepalive_time: Bgp::DEFAULT_KEEPALIVE_TIME,
             connect_retry_time: Bgp::DEFAULT_CONNECT_RETRY_TIME,
+            local_capabilities,
         }
     }
 }
@@ -51,8 +78,9 @@ pub(crate) struct Peer {
     msg_tx: Option<UnboundedSender<Message>>,
     msg_event_rx: Option<UnboundedReceiver<BgpMessageEvent>>,
     keepalive_timer: Interval,
-    hold_timer: Interval,
+    hold_timer: Timer,
     uptime: Instant,
+    negotiated_hold_time: u64,
 }
 
 impl Peer {
@@ -66,15 +94,13 @@ impl Peer {
             admin_rx: rx,
             msg_tx: None,
             msg_event_rx: None,
-            hold_timer: interval_at(
-                Instant::now() + Duration::new(u32::MAX.into(), 0),
-                Duration::from_secs(hold_time),
-            ),
+            hold_timer: Timer::new(),
             keepalive_timer: interval_at(
                 Instant::now() + Duration::new(u32::MAX.into(), 0),
                 Duration::from_secs(keepalive_time),
             ),
             uptime: Instant::now(),
+            negotiated_hold_time: Bgp::DEFAULT_HOLD_TIME,
         }
     }
 
@@ -89,8 +115,12 @@ impl Peer {
         loop {
             futures::select_biased! {
                 // timer handling
-                _ = self.hold_timer.tick().fuse() => {
-
+                _ = self.hold_timer.ticker.next() => {
+                    println!("hold timer expire");
+                    let elapsed = self.hold_timer.last.elapsed().as_secs();
+                    if elapsed >= self.hold_timer.interval {
+                        println!("correct {}", elapsed);
+                    }
                 }
                 _ = self.keepalive_timer.tick().fuse() => {}
                 // event handling
@@ -102,9 +132,13 @@ impl Peer {
                                 _ => unimplemented!(),
                             },
                             Event::Connection(event) => match event {
-                                TcpConnectionEvent::TcpCRAcked(stream) | TcpConnectionEvent::TcpConnectionConfirmed(stream) => {
+                                TcpConnectionEvent::TcpCRAcked(stream) => {
                                     println!("  {:?}", stream.peer_addr());
-                                    self.handle_tcp_connect(stream, msg_event_tx.clone());
+                                    self.handle_tcp_connect(stream, msg_event_tx.clone(), Event::CONNECTION_TCP_CR_ACKED);
+                                },
+                                TcpConnectionEvent::TcpConnectionConfirmed(stream) => {
+                                    println!("  {:?}", stream.peer_addr());
+                                    self.handle_tcp_connect(stream, msg_event_tx.clone(), Event::CONNECTION_TCP_CONNECTION_CONFIRMED);
                                 },
                                 TcpConnectionEvent::TcpConnectionFail => {},
                                 _ => unimplemented!(),
@@ -123,6 +157,16 @@ impl Peer {
                 // message handling
             };
         }
+    }
+
+    fn send(&self, msg: Message) -> Result<(), Error> {
+        match &self.msg_tx {
+            Some(msg_tx) => msg_tx
+                .send(msg)
+                .map_err(|_| Error::Peer(PeerError::FailedToSendMessage))?,
+            None => return Err(Error::Peer(PeerError::ConnectionNotEstablished)),
+        }
+        Ok(())
     }
 
     fn initialize(
@@ -165,6 +209,7 @@ impl Peer {
         &mut self,
         stream: TcpStream,
         msg_event_tx: UnboundedSender<BgpMessageEvent>,
+        event: u8,
     ) -> Result<(), Error> {
         match self.state() {
             State::Idle => {} // ignore this event
@@ -184,6 +229,10 @@ impl Peer {
                 //   - sets the HoldTimer to a large value, and
                 //   - changes its state to OpenSent.
                 self.initialize(stream, msg_event_tx)?;
+                let msg = self.build_open_msg()?;
+                self.send(msg)?;
+                let hold_time = { self.config.lock().unwrap().hold_time };
+                self.hold_timer.push(hold_time);
             }
             State::Active => {
                 // In response to the success of a TCP connection (Event 16 or Event 17), the local system checks the DelayOpen optional attribute prior to processing.
@@ -201,6 +250,10 @@ impl Peer {
                 //   - changes its state to OpenSent.
                 // A HoldTimer value of 4 minutes is suggested as a "large value" for the HoldTimer.
                 self.initialize(stream, msg_event_tx)?;
+                let msg = self.build_open_msg()?;
+                self.send(msg)?;
+                let hold_time = { self.config.lock().unwrap().hold_time };
+                self.hold_timer.push(hold_time);
             }
             State::OpenSent => {
                 // If a TcpConnection_Valid (Event 14), Tcp_CR_Acked (Event 16), or a
@@ -221,19 +274,108 @@ impl Peer {
                 // connection SHALL be tracked until it sends an OPEN message.
             }
         }
-        self.fsm.lock().unwrap().mv(Event::CONNECTION_TCP_CR_ACKED);
+        self.fsm.lock().unwrap().mv(event);
         Ok(())
+    }
+
+    fn hold_timer_expire(&self) -> Result<(), Error> {
+        match self.state() {
+            State::OpenSent => {}
+            State::OpenConfirm => {}
+            State::Established => {}
+            _ => {
+                // release BGP resources
+                // drop tcp connection
+                // increments ConnectRetryCounter by 1
+                // stay
+            }
+        }
+        self.fsm.lock().unwrap().mv(Event::TIMER_HOLD_TIMER_EXPIRE);
+        Ok(())
+    }
+
+    fn build_open_msg(&self) -> Result<Message, Error> {
+        let conf = self.config.lock().unwrap();
+        let mut builder = MessageBuilder::builder(MessageType::Open);
+        builder
+            .asn(conf.asn)?
+            .hold_time(conf.hold_time as u16)?
+            .identifier(conf.router_id)?;
+        let mut caps: Vec<(&u8, &Capability)> = conf.local_capabilities.iter().collect();
+        caps.sort_by(|a, b| a.0.cmp(&b.0));
+        for cap in caps.iter() {
+            builder.capability(&cap.1)?;
+        }
+        builder.build()
     }
 }
 
 #[derive(Debug)]
-pub(crate) struct PeerManager {
-    // config: Arc<Mutex<PeerConfig>>,
-    pub event_tx: UnboundedSender<Event>,
+struct Timer {
+    ticker: FuturesUnordered<Sleep>,
+    interval: u64,
+    last: Instant,
 }
 
-impl PeerManager {
-    pub fn new(event_tx: UnboundedSender<Event>) -> Self {
-        Self { event_tx }
+impl Timer {
+    fn new() -> Self {
+        let mut ticker = FuturesUnordered::new();
+        ticker.push(sleep(Duration::new(u64::MAX, 0)));
+        Self {
+            ticker,
+            interval: u64::MAX,
+            last: Instant::now(),
+        }
+    }
+
+    fn push(&mut self, t: u64) {
+        self.ticker.push(sleep(Duration::new(t, 0)));
+        self.interval = t;
+        self.last = Instant::now();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::{IpAddr, Ipv4Addr};
+    use std::sync::{Arc, Mutex};
+
+    use crate::bgp::server::Bgp;
+    use crate::bgp::{
+        capability::CapabilitySet,
+        config::NeighborConfig,
+        packet::{self, message::Message},
+    };
+
+    use super::{Peer, PeerConfig};
+
+    #[tokio::test]
+    async fn works_peer_build_open_msg() {
+        let conf = Arc::new(Mutex::new(PeerConfig::new(
+            100,
+            Ipv4Addr::new(1, 1, 1, 1),
+            NeighborConfig {
+                asn: 200,
+                address: IpAddr::V4(Ipv4Addr::new(2, 2, 2, 2)),
+                router_id: Ipv4Addr::new(2, 2, 2, 2),
+            },
+            CapabilitySet::default(100),
+        )));
+        let (_, rx) = tokio::sync::mpsc::unbounded_channel();
+        let peer = Peer::new(conf, rx);
+        let msg = peer.build_open_msg().unwrap();
+        assert_eq!(
+            Message::Open {
+                version: 4,
+                as_num: 100,
+                hold_time: Bgp::DEFAULT_HOLD_TIME as u16,
+                identifier: Ipv4Addr::new(1, 1, 1, 1),
+                capabilities: vec![
+                    packet::capability::Capability::RouteRefresh,
+                    packet::capability::Capability::FourOctetASNumber(100),
+                ]
+            },
+            msg
+        );
     }
 }
