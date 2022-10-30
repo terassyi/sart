@@ -51,6 +51,30 @@ impl Message {
     pub const AS_TRANS: u32 = 23456;
     pub const OPTION_TYPE_CAPABILITIES: u8 = 2;
     pub const OPTION_TYPE_EXTENDED_LENGTH: u8 = 255;
+
+    pub fn msg_type(&self) -> MessageType {
+        match &self {
+            Self::Open {
+                version,
+                as_num,
+                hold_time,
+                identifier,
+                capabilities,
+            } => MessageType::Open,
+            Self::Update {
+                withdrawn_routes,
+                attributes,
+                nlri,
+            } => MessageType::Update,
+            Self::Keepalive => MessageType::Keepalive,
+            Self::Notification {
+                code,
+                subcode,
+                data,
+            } => MessageType::Notification,
+            Self::RouteRefresh { family } => MessageType::RouteRefresh,
+        }
+    }
 }
 
 impl<'a> Into<MessageType> for &'a Message {
@@ -401,6 +425,31 @@ impl MessageBuilder {
         self.family = family;
         Ok(self)
     }
+}
+
+pub(crate) fn validate(msg: &Message) -> Result<(), Error> {
+    match &msg {
+        Message::Open {
+            version,
+            as_num,
+            hold_time,
+            identifier,
+            capabilities,
+        } => {}
+        Message::Update {
+            withdrawn_routes,
+            attributes,
+            nlri,
+        } => {}
+        Message::Keepalive => {}
+        Message::Notification {
+            code,
+            subcode,
+            data,
+        } => {}
+        Message::RouteRefresh { family } => {}
+    }
+    Ok(())
 }
 
 #[cfg(test)]

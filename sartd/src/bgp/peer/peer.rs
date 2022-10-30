@@ -1,16 +1,12 @@
-use std::fmt::format;
-use std::io;
 use std::net::{IpAddr, Ipv4Addr};
-use std::pin::Pin;
 use std::sync::{Arc, Mutex};
-use std::task::{Context, Poll};
 use std::time::Duration;
 
 use futures::stream::{FuturesUnordered, Next};
 use futures::{FutureExt, SinkExt, Stream, StreamExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use tokio::sync::{oneshot, Notify};
+use tokio::sync::Notify;
 use tokio::time::{interval_at, sleep, Instant, Interval, Sleep};
 use tokio_util::codec::{Framed, FramedRead};
 
@@ -21,11 +17,12 @@ use crate::bgp::event::{
     AdministrativeEvent, BgpMessageEvent, Event, TcpConnectionEvent, TimerEvent,
 };
 use crate::bgp::packet::codec::Codec;
-use crate::bgp::packet::message::{Message, MessageBuilder, MessageType};
+use crate::bgp::packet::message::{
+    Message, MessageBuilder, MessageType, NotificationCode, NotificationSubCode,
+};
 use crate::bgp::server::Bgp;
 
 use super::fsm::State;
-use super::neighbor;
 use super::{fsm::FiniteStateMachine, neighbor::Neighbor};
 
 #[derive(Debug)]
@@ -76,24 +73,22 @@ pub(crate) struct Peer {
     fsm: Mutex<FiniteStateMachine>,
     admin_rx: UnboundedReceiver<Event>,
     msg_tx: Option<UnboundedSender<Message>>,
-    msg_event_rx: Option<UnboundedReceiver<BgpMessageEvent>>,
     keepalive_timer: Interval,
     hold_timer: Timer,
     uptime: Instant,
     negotiated_hold_time: u64,
+    connect_retry_counter: u32,
+    drop_signal: Arc<Notify>,
 }
 
 impl Peer {
     pub fn new(config: Arc<Mutex<PeerConfig>>, rx: UnboundedReceiver<Event>) -> Self {
-        let hold_time = { config.lock().unwrap().hold_time };
         let keepalive_time = { config.lock().unwrap().keepalive_time };
-        let connect_retry_time = { config.lock().unwrap().connect_retry_time };
         Self {
             config,
             fsm: Mutex::new(FiniteStateMachine::new()),
             admin_rx: rx,
             msg_tx: None,
-            msg_event_rx: None,
             hold_timer: Timer::new(),
             keepalive_timer: interval_at(
                 Instant::now() + Duration::new(u32::MAX.into(), 0),
@@ -101,6 +96,8 @@ impl Peer {
             ),
             uptime: Instant::now(),
             negotiated_hold_time: Bgp::DEFAULT_HOLD_TIME,
+            connect_retry_counter: 0,
+            drop_signal: Arc::new(Notify::new()),
         }
     }
 
@@ -128,23 +125,25 @@ impl Peer {
                     if let Some(event) = event {
                         match event {
                             Event::Admin(event) => match event {
-                                AdministrativeEvent::ManualStart => self.admin_manual_start().unwrap(),
+                                AdministrativeEvent::ManualStart => self.manual_start().unwrap(),
                                 _ => unimplemented!(),
                             },
                             Event::Connection(event) => match event {
                                 TcpConnectionEvent::TcpCRAcked(stream) => {
                                     println!("  {:?}", stream.peer_addr());
-                                    self.handle_tcp_connect(stream, msg_event_tx.clone(), Event::CONNECTION_TCP_CR_ACKED);
+                                    self.handle_tcp_connect(stream, msg_event_tx.clone(), Event::CONNECTION_TCP_CR_ACKED).unwrap();
                                 },
                                 TcpConnectionEvent::TcpConnectionConfirmed(stream) => {
                                     println!("  {:?}", stream.peer_addr());
-                                    self.handle_tcp_connect(stream, msg_event_tx.clone(), Event::CONNECTION_TCP_CONNECTION_CONFIRMED);
+                                    self.handle_tcp_connect(stream, msg_event_tx.clone(), Event::CONNECTION_TCP_CONNECTION_CONFIRMED).unwrap();
                                 },
-                                TcpConnectionEvent::TcpConnectionFail => {},
+                                TcpConnectionEvent::TcpConnectionFail => self.tcp_connection_fail().unwrap(),
                                 _ => unimplemented!(),
                             },
                             Event::Timer(event) => match event {
-                                TimerEvent::ConnectRetryTimerExpire => {},
+                                TimerEvent::ConnectRetryTimerExpire => self.connect_retry_timer_expire().unwrap(),
+                                TimerEvent::HoldTimerExpire => self.hold_timer_expire().unwrap(),
+                                TimerEvent::KeepaliveTimerExpire => self.keepalive_timer_expire().unwrap(),
                                 _ => unimplemented!(),
                             },
                             _ => panic!("unhandlable event"),
@@ -152,7 +151,21 @@ impl Peer {
                     }
                 }
                 event = msg_event_rx.recv().fuse() => {
-
+                    if let Some(event) = event {
+                        match event {
+                            BgpMessageEvent::BgpOpen(msg) => self.bgp_open().unwrap(),
+                            BgpMessageEvent::BgpHeaderError => self.bgp_header_error().unwrap(),
+                            BgpMessageEvent::BgpOpenMsgErr => self.bgp_open_msg_error().unwrap(),
+                            BgpMessageEvent::NotifMsgVerErr => self.notification_msg_ver_error().unwrap(),
+                            BgpMessageEvent::NotifMsg(msg) => self.notification_msg().unwrap(),
+                            BgpMessageEvent::KeepAliveMsg => self.keepalive_msg().unwrap(),
+                            BgpMessageEvent::UpdateMsg(msg) => self.update_msg().unwrap(),
+                            BgpMessageEvent::UpdateMsgErr => self.update_msg_error().unwrap(),
+                            BgpMessageEvent::RouteRefreshMsg(msg) => self.route_refresh_msg().unwrap(),
+                            BgpMessageEvent::RouteRefreshMsgErr => self.route_refresh_msg_error().unwrap(),
+                            _ => unimplemented!(),
+                        };
+                    }
                 }
                 // message handling
             };
@@ -177,16 +190,43 @@ impl Peer {
         let mut codec = Framed::new(stream, Codec::new(true, false));
         let (msg_tx, mut msg_rx) = unbounded_channel::<Message>();
         self.msg_tx = Some(msg_tx);
+        let drop_signal = self.drop_signal.clone();
         tokio::spawn(async move {
             println!("message handler process is running");
             let (mut sender, mut receiver) = codec.split();
             loop {
                 futures::select_biased! {
                     msg = receiver.next().fuse() => {
-                        if let Some(Ok(msg)) = msg {
-                            println!("{:?}", msg);
-                            msg_event_tx.send(BgpMessageEvent::BgpOpen); // TODO
-
+                        if let Some(msg_result) = msg {
+                            match msg_result {
+                                Ok(msg) => {
+                                    println!("{:?}", msg);
+                                    match msg.msg_type() {
+                                        MessageType::Open => msg_event_tx.send(BgpMessageEvent::BgpOpen(msg)).unwrap(),
+                                        MessageType::Update => msg_event_tx.send(BgpMessageEvent::UpdateMsg(msg)).unwrap(),
+                                        MessageType::Keepalive => msg_event_tx.send(BgpMessageEvent::KeepAliveMsg).unwrap(),
+                                        MessageType::Notification => msg_event_tx.send(BgpMessageEvent::NotifMsg(msg)).unwrap(),
+                                        MessageType::RouteRefresh => msg_event_tx.send(BgpMessageEvent::RouteRefreshMsg(msg)).unwrap(),
+                                    };
+                                },
+                                Err(e) => {
+                                    match e {
+                                        Error::MessageHeader(e) => {
+                                            println!("{:?}", e);
+                                            msg_event_tx.send(BgpMessageEvent::BgpHeaderError).unwrap();
+                                        },
+                                        Error::OpenMessage(e) => {
+                                            println!("{:?}", e);
+                                            msg_event_tx.send(BgpMessageEvent::BgpOpenMsgErr).unwrap();
+                                        },
+                                        Error::UpdateMessage(e) => {
+                                            println!("{:?}", e);
+                                            msg_event_tx.send(BgpMessageEvent::UpdateMsgErr).unwrap();
+                                        },
+                                        _ => println!("{:?}", e),
+                                    }
+                                },
+                            }
                         }
                     }
                     msg = msg_rx.recv().fuse() => {
@@ -194,17 +234,148 @@ impl Peer {
                             sender.send(msg).await;
                         }
                     }
+                    _ = drop_signal.notified().fuse() => {
+
+                    }
                 }
             }
         });
         Ok(())
     }
 
-    fn admin_manual_start(&mut self) -> Result<(), Error> {
+    fn release(&mut self) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn drop_connection(&self) {
+        self.drop_signal.notify_one();
+    }
+
+    // Event 1
+    fn manual_start(&mut self) -> Result<(), Error> {
         self.fsm.lock().unwrap().mv(Event::AMDIN_MANUAL_START);
         Ok(())
     }
 
+    // Event 2
+    fn manual_stop(&mut self) -> Result<(), Error> {
+        self.fsm.lock().unwrap().mv(Event::ADMIN_MANUAL_STOP);
+        Ok(())
+    }
+
+    // Event 9
+    fn connect_retry_timer_expire(&mut self) -> Result<(), Error> {
+        match self.state() {
+            State::Idle => {}
+            State::Connect => {
+                // drops the TCP connection,
+                // restarts the ConnectRetryTimer,
+                // stops the DelayOpenTimer and resets the timer to zero,
+                // initiates a TCP connection to the other BGP peer,
+                // continues to listen for a connection that may be initiated by the remote BGP peer, and
+                // stays in the Connect state.
+
+                // nothing to do here
+            }
+            State::Active => {
+                // restarts the ConnectRetryTimer (with initial value),
+                // initiates a TCP connection to the other BGP peer,
+                // continues to listen for a TCP connection that may be initiated by a remote BGP peer, and
+                // changes its state to Connect.
+
+                // nothing to do here
+            }
+            _ => {
+                // sends the NOTIFICATION with the Error Code Finite State Machine Error,
+                // sets the ConnectRetryTimer to zero,
+                // releases all BGP resources,
+                // drops the TCP connection,
+                // increments the ConnectRetryCounter by 1,
+                let mut builder = MessageBuilder::builder(MessageType::Notification);
+                let msg = builder
+                    .code(NotificationCode::FiniteStateMachine)?
+                    .build()?;
+                self.send(msg)?;
+                self.release()?;
+                self.drop_connection();
+                self.connect_retry_counter += 1;
+            }
+        }
+        self.fsm
+            .lock()
+            .unwrap()
+            .mv(Event::TIMER_CONNECT_RETRY_TIMER_EXPIRE);
+        Ok(())
+    }
+
+    // Event 10
+    fn hold_timer_expire(&mut self) -> Result<(), Error> {
+        match self.state() {
+            State::OpenSent | State::OpenConfirm | State::Established => {
+                // sends a Notification message with the error code Hold Timer Expired
+                // sets the ConnectRetryTimer to zero
+                // releases all BGP resources
+                // drops the tcp connection
+                // increments the ConnectRetryCounter
+                // changes its state to Idle
+                let mut builder = MessageBuilder::builder(MessageType::Notification);
+                let msg = builder.code(NotificationCode::HoldTimerExpired)?.build()?;
+                self.send(msg)?;
+                self.release()?;
+                self.drop_connection();
+                self.connect_retry_counter += 1;
+            }
+            _ => {
+                // releases all BGP resources
+                // drops the tcp connection
+                // increments ConnectRetryCounter by 1
+                // stay
+                self.release()?;
+                self.drop_connection();
+                self.connect_retry_counter += 1;
+            }
+        }
+        self.fsm.lock().unwrap().mv(Event::TIMER_HOLD_TIMER_EXPIRE);
+        Ok(())
+    }
+
+    // Event 11
+    fn keepalive_timer_expire(&self) -> Result<(), Error> {
+        match self.state() {
+            State::Established => {
+                // sends a KEEPALIVE message
+                // restarts its KeepaliveTimer, unless the negotiated HoldTime value is zero.
+                // Each time the local system sends a KEEPALIVE or UPDATE message, it restarts its KeepaliveTimer, unless the negotiated HoldTime value is zero.
+            }
+            State::OpenSent => {
+                // sends the NOTIFICATION with the Error Code Finite State Machine Error,
+                // sets the ConnectRetryTimer to zero,
+                // releases all BGP resources,
+                // drops the TCP connection,
+                // increments the ConnectRetryCounter by 1,
+            }
+            State::OpenConfirm => {
+                // sends a KEEPALIVE message,
+                // restarts the KeepaliveTimer, and
+                // remains in the OpenConfirmed state
+            }
+            _ => {
+                // if the ConnectRetryTimer is running, stops and resets the ConnectRetryTimer (sets to zero),
+                // releases all BGP resources,
+                // drops the TCP connection,
+                // increments the ConnectRetryCounter by 1,
+                // changes its state to Idle.
+            }
+        }
+        self.fsm
+            .lock()
+            .unwrap()
+            .mv(Event::TIMER_KEEPALIVE_TIMER_EXPIRE);
+        Ok(())
+    }
+
+    // tcp_cr_acked and tcp_connection_confirmed
+    // Event 16, 17
     fn handle_tcp_connect(
         &mut self,
         stream: TcpStream,
@@ -278,19 +449,289 @@ impl Peer {
         Ok(())
     }
 
-    fn hold_timer_expire(&self) -> Result<(), Error> {
+    // Event 18
+    fn tcp_connection_fail(&self) -> Result<(), Error> {
         match self.state() {
-            State::OpenSent => {}
-            State::OpenConfirm => {}
-            State::Established => {}
-            _ => {
-                // release BGP resources
-                // drop tcp connection
-                // increments ConnectRetryCounter by 1
-                // stay
+            State::Idle => {}
+            State::Connect | State::Active | State::OpenConfirm => {
+                // stops the ConnectRetryTimer to zero,
+                // drops the TCP connection,
+                // releases all BGP resources, and
+                // changes its state to Idle.
+            }
+            State::OpenSent => {
+                // closes the BGP connection,
+                // restarts the ConnectRetryTimer,
+                // continues to listen for a connection that may be initiated by the remote BGP peer, and
+                // changes its state to Active.
+            }
+            State::Established => {
+                // sets the ConnectRetryTimer to zero,
+                // deletes all routes associated with this connection,
+                // releases all the BGP resources,
+                // drops the TCP connection,
+                // increments the ConnectRetryCounter by 1,
+                // changes its state to Idle.
             }
         }
-        self.fsm.lock().unwrap().mv(Event::TIMER_HOLD_TIMER_EXPIRE);
+        self.fsm
+            .lock()
+            .unwrap()
+            .mv(Event::CONNECTION_TCP_CONNECTION_FAIL);
+        Ok(())
+    }
+
+    // Event 19
+    fn bgp_open(&self) -> Result<(), Error> {
+        match self.state() {
+            State::Active => {
+                // stops the ConnectRetryTimer (if running) and sets the ConnectRetryTimer to zero,
+                // stops and clears the DelayOpenTimer (sets to zero),
+                // completes the BGP initialization,
+                // sends an OPEN message,
+                // sends a KEEPALIVE message,
+                // if the HoldTimer value is non-zero,
+                //   - starts the KeepaliveTimer to initial value,
+                //   - resets the HoldTimer to the negotiated value,
+                // else if the HoldTimer is zero
+                //   - resets the KeepaliveTimer (set to zero),
+                //   - resets the HoldTimer to zero, and
+                // changes its state to OpenConfirm.
+            }
+            State::OpenSent => {
+                // Collision detection mechanisms (Section 6.8) need to be applied
+                // sets the BGP ConnectRetryTimer to zero,
+                // sends a KEEPALIVE message, and
+                // sets a KeepaliveTimer (via the text below)
+                // sets the HoldTimer according to the negotiated value (see Section 4.2),
+                // changes its state to OpenConfirm
+            }
+            State::Established => {
+                // sends a NOTIFICATION with a Cease,
+                // sets the ConnectRetryTimer to zero,
+                // deletes all routes associated with this connection,
+                // releases all BGP resources,
+                // drops the TCP connection,
+                // increments the ConnectRetryCounter by 1,
+                // changes its state to Idle.
+            }
+            _ => {}
+        }
+        self.fsm.lock().unwrap().mv(Event::MESSAGE_BGP_OPEN);
+        Ok(())
+    }
+
+    // Event 21
+    fn bgp_header_error(&self) -> Result<(), Error> {
+        match self.state() {
+            State::Active | State::Connect => {
+                // stops the ConnectRetryTimer (if running) and sets the ConnectRetryTimer to zero,
+                // releases all BGP resources,
+                // drops the TCP connection,
+                // increments the ConnectRetryCounter by 1,
+                // changes its state to Idle.
+            }
+            State::OpenSent | State::OpenConfirm => {
+                // sends a NOTIFICATION message with the appropriate error code,
+                // sets the ConnectRetryTimer to zero,
+                // releases all BGP resources,
+                // drops the TCP connection,
+                // increments the ConnectRetryCounter by 1,
+                // changes its state to Idle.
+            }
+            State::Established => {
+                // sends a NOTIFICATION message with the Error Code Finite State Machine Error,
+                // deletes all routes associated with this connection,
+                // sets the ConnectRetryTimer to zero,
+                // releases all BGP resources,
+                // drops the TCP connection,
+                // increments the ConnectRetryCounter by 1,
+                // changes its state to Idle.
+            }
+            _ => {}
+        }
+        self.fsm.lock().unwrap().mv(Event::MESSAGE_BGP_HEADER_ERROR);
+        Ok(())
+    }
+
+    // Event 22
+    fn bgp_open_msg_error(&self) -> Result<(), Error> {
+        match self.state() {
+            State::Active | State::Connect => {
+                // stops the ConnectRetryTimer (if running) and sets the ConnectRetryTimer to zero,
+                // releases all BGP resources,
+                // drops the TCP connection,
+                // increments the ConnectRetryCounter by 1,
+                // changes its state to Idle.
+            }
+            State::OpenSent | State::OpenConfirm => {
+                // sends a NOTIFICATION message with the appropriate error code,
+                // sets the ConnectRetryTimer to zero,
+                // releases all BGP resources,
+                // drops the TCP connection,
+                // increments the ConnectRetryCounter by 1,
+                // changes its state to Idle.
+            }
+            State::Established => {
+                // sends a NOTIFICATION message with the Error Code Finite State Machine Error,
+                // deletes all routes associated with this connection,
+                // sets the ConnectRetryTimer to zero,
+                // releases all BGP resources,
+                // drops the TCP connection,
+                // increments the ConnectRetryCounter by 1,
+                // changes its state to Idle.
+            }
+            _ => {}
+        }
+        self.fsm
+            .lock()
+            .unwrap()
+            .mv(Event::MESSAGE_BGP_OPEN_MSG_ERROR);
+        Ok(())
+    }
+
+    // Event 24
+    fn notification_msg_ver_error(&self) -> Result<(), Error> {
+        match self.state() {
+            State::Active | State::Connect => {
+                // stops the ConnectRetryTimer (if running) and sets the ConnectRetryTimer to zero,
+                // stops and resets the DelayOpenTimer (sets to zero),
+                // releases all BGP resources,
+                // drops the TCP connection, and
+                // changes its state to Idle.
+            }
+            State::OpenConfirm | State::OpenSent => {
+                // sets the ConnectRetryTimer to zero,
+                // releases all BGP resources,
+                // drops the TCP connection, and
+                // changes its state to Idle.
+            }
+            State::Established => {
+                // sets the ConnectRetryTimer to zero,
+                // deletes all routes associated with this connection,
+                // releases all the BGP resources,
+                // drops the TCP connection,
+                // increments the ConnectRetryCounter by 1,
+                // changes its state to Idle.
+            }
+            _ => {}
+        }
+        self.fsm.lock().unwrap().mv(Event::MESSAGE_NOTIF_MSG_ERROR);
+        Ok(())
+    }
+
+    // Event 25
+    fn notification_msg(&self) -> Result<(), Error> {
+        match self.state() {
+            State::OpenSent => {
+                // sends the NOTIFICATION with the Error Code Finite State Machine Error,
+                // sets the ConnectRetryTimer to zero,
+                // releases all BGP resources,
+                // drops the TCP connection,
+                // increments the ConnectRetryCounter by 1,
+                // changes its state to Idle.
+            }
+            State::Established => {
+                // sets the ConnectRetryTimer to zero,
+                // deletes all routes associated with this connection,
+                // releases all the BGP resources,
+                // drops the TCP connection,
+                // increments the ConnectRetryCounter by 1,
+                // changes its state to Idle.
+            }
+            _ => {
+                // sets the ConnectRetryTimer to zero,
+                // releases all BGP resources,
+                // drops the TCP connection,
+                // increments the ConnectRetryCounter by 1,
+                // changes its state to Idle.
+            }
+        }
+        self.fsm.lock().unwrap().mv(Event::MESSAGE_NOTIF_MSG);
+        Ok(())
+    }
+
+    // Event 26
+    fn keepalive_msg(&self) -> Result<(), Error> {
+        match self.state() {
+            State::OpenSent => {
+                // sends the NOTIFICATION with the Error Code Finite State Machine Error,
+                // sets the ConnectRetryTimer to zero,
+                // releases all BGP resources,
+                // drops the TCP connection,
+                // increments the ConnectRetryCounter by 1,
+            }
+            State::OpenConfirm | State::Established => {
+                // restarts the HoldTimer and if the negotiated HoldTime value is non-zero, and
+                // changes(remains) its state to Established.
+            }
+            _ => {
+                // sets the ConnectRetryTimer to zero,
+                // releases all BGP resources,
+                // drops the TCP connection,
+                // increments the ConnectRetryCounter by one,
+                // changes its state to Idle.
+            }
+        }
+        self.fsm.lock().unwrap().mv(Event::MESSAGE_KEEPALIVE_MSG);
+        Ok(())
+    }
+
+    // Event 27
+    fn update_msg(&self) -> Result<(), Error> {
+        match self.state() {
+            State::OpenSent | State::OpenConfirm => {
+                // sends a NOTIFICATION with a code of Finite State Machine Error,
+            }
+            State::Established => {
+                // processes the message,
+                // restarts its HoldTimer, if the negotiated HoldTime value is non-zero, and
+                // remains in the Established state.
+            }
+            _ => {
+                // sets the ConnectRetryTimer to zero,
+                // releases all BGP resources,
+                // drops the TCP connection,
+                // increments the ConnectRetryCounter by one,
+                // changes its state to Idle.
+            }
+        }
+        self.fsm.lock().unwrap().mv(Event::MESSAGE_UPDATE_MSG);
+        Ok(())
+    }
+
+    // Event 28
+    fn update_msg_error(&self) -> Result<(), Error> {
+        match self.state() {
+            State::OpenSent | State::OpenConfirm => {
+                // sends a NOTIFICATION with a code of Finite State Machine Error,
+            }
+            State::Established => {
+                // sends a NOTIFICATION message with an Update error,
+                // sets the ConnectRetryTimer to zero,
+                // deletes all routes associated with this connection,
+                // releases all BGP resources,
+                // drops the TCP connection,
+                // increments the ConnectRetryCounter by 1,
+                // changes its state to Idle.
+            }
+            _ => {
+                // sets the ConnectRetryTimer to zero,
+                // releases all BGP resources,
+                // drops the TCP connection,
+                // increments the ConnectRetryCounter by one,
+                // changes its state to Idle.
+            }
+        }
+        self.fsm.lock().unwrap().mv(Event::MESSAGE_UPDATE_MSG_ERROR);
+        Ok(())
+    }
+
+    fn route_refresh_msg(&self) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn route_refresh_msg_error(&self) -> Result<(), Error> {
         Ok(())
     }
 

@@ -123,7 +123,7 @@ stateDiagram-v2
     Connect --> OpenSent: 16,17
     Connect --> Idle: others
     Active --> OpenSent: 16,17
-    Active --> OpenConfrm: 19
+    Active --> OpenConfirm: 19
     Active --> Connect: 9
     Active --> Active: 1,14
     Active --> Idle: others

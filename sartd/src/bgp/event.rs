@@ -5,6 +5,10 @@ use std::convert::TryFrom;
 use std::convert::TryInto;
 
 use super::config::NeighborConfig;
+use super::error::MessageHeaderError;
+use super::error::OpenMessageError;
+use super::error::UpdateMessageError;
+use super::packet::message::Message;
 
 #[derive(Debug)]
 pub(crate) enum Event {
@@ -68,16 +72,18 @@ impl Into<u8> for &Event {
 			Event::Connection(TcpConnectionEvent::TcpCRAcked(_)) => 16,
 			Event::Connection(TcpConnectionEvent::TcpConnectionConfirmed(_)) => 17,
 			Event::Connection(TcpConnectionEvent::TcpConnectionFail) => 18,
-			Event::Message(BgpMessageEvent::BgpOpen) => 19,
+			Event::Message(BgpMessageEvent::BgpOpen(_)) => 19,
 			Event::Message(BgpMessageEvent::BgpOpenWithDelayOpenTimerRunning) => 20,
 			Event::Message(BgpMessageEvent::BgpHeaderError) => 21,
 			Event::Message(BgpMessageEvent::BgpOpenMsgErr) => 22,
 			Event::Message(BgpMessageEvent::OpenCollisionDump) => 23,
 			Event::Message(BgpMessageEvent::NotifMsgVerErr) => 24,
-			Event::Message(BgpMessageEvent::NotifMsg) => 25,
+			Event::Message(BgpMessageEvent::NotifMsg(_)) => 25,
 			Event::Message(BgpMessageEvent::KeepAliveMsg) => 26,
-			Event::Message(BgpMessageEvent::UpdateMsg) => 27,
+			Event::Message(BgpMessageEvent::UpdateMsg(_)) => 27,
 			Event::Message(BgpMessageEvent::UpdateMsgErr) => 28,
+            Event::Message(BgpMessageEvent::RouteRefreshMsg(_)) => 100,
+            Event::Message(BgpMessageEvent::RouteRefreshMsgErr) => 101,
 			_ => 0,
 		}
     }
@@ -169,9 +175,9 @@ impl Into<u8> for TcpConnectionEvent {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone)]
 pub(crate) enum BgpMessageEvent {
-    BgpOpen,
+    BgpOpen(Message),
     #[allow(unused)]
     BgpOpenWithDelayOpenTimerRunning,
     BgpHeaderError,
@@ -179,25 +185,29 @@ pub(crate) enum BgpMessageEvent {
     #[allow(unused)]
     OpenCollisionDump,
     NotifMsgVerErr,
-    NotifMsg,
+    NotifMsg(Message),
     KeepAliveMsg,
-    UpdateMsg,
+    UpdateMsg(Message),
     UpdateMsgErr,
+    RouteRefreshMsg(Message),
+    RouteRefreshMsgErr,
 }
 
 impl Into<u8> for BgpMessageEvent {
     fn into(self) -> u8 {
         match self {
-            BgpMessageEvent::BgpOpen => 19,
+            BgpMessageEvent::BgpOpen(_) => 19,
             BgpMessageEvent::BgpOpenWithDelayOpenTimerRunning => 20,
             BgpMessageEvent::BgpHeaderError => 21,
             BgpMessageEvent::BgpOpenMsgErr => 22,
             BgpMessageEvent::OpenCollisionDump => 23,
             BgpMessageEvent::NotifMsgVerErr => 24,
-            BgpMessageEvent::NotifMsg => 25,
+            BgpMessageEvent::NotifMsg(_) => 25,
             BgpMessageEvent::KeepAliveMsg => 26,
-            BgpMessageEvent::UpdateMsg => 27,
+            BgpMessageEvent::UpdateMsg(_) => 27,
             BgpMessageEvent::UpdateMsgErr => 28,
+            BgpMessageEvent::RouteRefreshMsg(_) => 100,
+            BgpMessageEvent::RouteRefreshMsgErr => 101,
         }
     }
 }
