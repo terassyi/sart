@@ -53,8 +53,10 @@ impl Decoder for Codec {
     type Item = Message;
     type Error = Error;
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        if src.is_empty() {
+            return Ok(None);
+        }
         if src.remaining() < Message::HEADER_LENGTH as usize {
-            println!("before parsing message type");
             return Err(Error::MessageHeader(MessageHeaderError::BadMessageLength {
                 length: src.remaining() as u16,
             }));

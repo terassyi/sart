@@ -66,17 +66,15 @@ impl Bgp {
         }
     }
 
+    #[tracing::instrument(skip(conf))]
     pub async fn serve(conf: Config) {
         let mut server = Self::new(conf);
 
-        // let (ctrl_tx, ctrl_rx) = tokio::sync::mpsc::unbounded_channel::<ControlEvent>();
         let (ctrl_tx, mut ctrl_rx) = tokio::sync::mpsc::channel::<ControlEvent>(128);
-
         let init_tx = ctrl_tx.clone();
 
         let signal_api = server.event_signal.clone();
         let api_server_port = server.api_server_port;
-        println!("--");
         tokio::spawn(async move {
             let sock_addr = format!("0.0.0.0:{}", api_server_port).parse().unwrap();
 
@@ -92,7 +90,7 @@ impl Bgp {
                 .await
                 .unwrap();
         });
-        println!("API server is running at 0.0.0.0:{}", api_server_port);
+        tracing::info!("API server is started at 0.0.0.0:{}", api_server_port);
 
         let ipv4_listener = {
             create_tcp_listener(
@@ -117,9 +115,10 @@ impl Bgp {
             .collect::<Vec<TcpListenerStream>>();
         let port = { server.config.lock().unwrap().port };
 
-        println!(
-            "Start listening connections at 0.0.0.0:{} and [::]:{}",
-            port, port
+        tracing::info!(
+            "Sartd BGP server is running at 0.0.0.0:{} and [::]:{}",
+            port,
+            port
         );
         let init_event: Vec<ControlEvent> = { server.config.lock().unwrap().get_control_event() };
 
@@ -138,14 +137,12 @@ impl Bgp {
                         match stream {
                             Ok(stream) => {
                                 let sock = stream.peer_addr().unwrap();
-                                println!("passive stream {:?}", sock);
                                 if let Some(manager) = server.peer_managers.get(&sock.ip()) {
                                     manager.event_tx.send(Event::Connection(TcpConnectionEvent::TcpConnectionConfirmed(stream))).unwrap();
                                 }
                             },
                             Err(e) => {
-                                println!("{:?}", e);
-
+                                tracing::error!("failed to establish the passive connection: {:?}", e);
                             }
                         };
                     }
@@ -153,12 +150,9 @@ impl Bgp {
                 stream = server.active_conn_rx.recv().fuse() => {
                     if let Some(stream) = stream {
                         let sock = stream.peer_addr().unwrap();
-                        println!("active stream {:?}", sock);
                         if let Some(manager) = server.peer_managers.get(&sock.ip()) {
                             manager.event_tx.send(Event::Connection(TcpConnectionEvent::TcpCRAcked(stream))).unwrap();
                         }
-                    } else {
-                        println!("active_conn err = {:?}", stream);
                     }
                 }
                 event = ctrl_rx.recv().fuse() => {
@@ -170,14 +164,15 @@ impl Bgp {
         }
     }
 
+    #[tracing::instrument(skip(self, event))]
     fn handle_event(&mut self, event: ControlEvent) {
+        tracing::info!(global="global", event=%event);
         match event {
-            ControlEvent::Health => println!("health check"),
+            ControlEvent::Health => {}
             ControlEvent::AddPeer(neighbor) => {
-                println!("{:?}", neighbor);
                 self.add_peer(neighbor).unwrap();
             }
-            _ => println!("Undefined control event."),
+            _ => tracing::error!("undefined control event"),
         }
         self.event_signal.notify_one();
     }
@@ -217,7 +212,6 @@ impl Bgp {
             let event_tx = manager.event_tx.clone();
             let connect_retry_time = self.connect_retry_time;
             tokio::spawn(async move {
-                println!("start to connect to remote peer");
                 loop {
                     if let Ok(Ok(stream)) = timeout(
                         Duration::from_secs(connect_retry_time / 2),

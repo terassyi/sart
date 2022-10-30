@@ -39,7 +39,7 @@ pub(crate) enum Error {
 }
 
 // https://www.rfc-editor.org/rfc/rfc1771#section-6.1
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, Error, PartialEq, Clone)]
 pub(crate) enum MessageHeaderError {
     #[error("Connection not synchronized")]
     ConnectionNotSynchronized,
@@ -49,40 +49,86 @@ pub(crate) enum MessageHeaderError {
     BadMessageType { val: u8 },
 }
 
+impl Into<u8> for MessageHeaderError {
+    fn into(self) -> u8 {
+        match self {
+            Self::ConnectionNotSynchronized => 1,
+            Self::BadMessageLength { length } => 2,
+            Self::BadMessageType { val } => 3,
+        }
+    }
+}
+
 // https://www.rfc-editor.org/rfc/rfc4271#section-6.2
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, Error, PartialEq, Clone)]
 pub(crate) enum OpenMessageError {
     #[error("Unsupported version number")]
     UnsupportedVersionNumber,
     #[error("Invalid peer AS")]
-    InvalidPeerAS,
-    #[error("Unacceptable hold time")]
-    UnacceptableHoldTime,
+    BadPeerAS,
+    #[error("Bad BGP identifier")]
+    BadBGPIdentifier,
     #[error("Unsupported optional parameters")]
     UnsupportedOptionalParameter,
+    #[error("Unacceptable hold time")]
+    UnacceptableHoldTime,
     #[error("Unspecific capability")]
     Unspecific,
 }
 
+impl Into<u8> for OpenMessageError {
+    fn into(self) -> u8 {
+        match self {
+            Self::UnsupportedVersionNumber => 1,
+            Self::BadPeerAS => 2,
+            Self::BadBGPIdentifier => 3,
+            Self::UnsupportedOptionalParameter => 4,
+            Self::UnacceptableHoldTime => 6,
+            Self::Unspecific => 0,
+        }
+    }
+}
+
 // https://www.rfc-editor.org/rfc/rfc4271#section-6.3
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, Error, PartialEq, Clone)]
 pub(crate) enum UpdateMessageError {
     #[error("Malformed attribute list")]
     MalformedAttributeList,
-    #[error("Optional attribute error")]
-    OptionalAttributeError,
-    #[error("Attribute flags error")]
-    AttributeFlagsError,
+    #[error("Unrecognized well known attribute")]
+    UnrecognizedWellknownAttribute,
     #[error("Missing well known attribute")]
     MissingWellKnownAttribute,
+    #[error("Attribute flags error")]
+    AttributeFlagsError,
+    #[error("Attribute length error")]
+    AttributeLengthError,
     #[error("Invalid ORIGIN attribute")]
     InvalidOriginAttribute,
     #[error("Invalid NEXT_HOP attribute")]
     InvalidNextHopAttribute,
-    #[error("Malformed AS path")]
-    MalformedASPath,
+    #[error("Optional attribute error")]
+    OptionalAttributeError,
     #[error("Invalid network field")]
     InvalidNetworkField,
+    #[error("Malformed AS path")]
+    MalformedASPath,
+}
+
+impl Into<u8> for UpdateMessageError {
+    fn into(self) -> u8 {
+        match self {
+            Self::MalformedAttributeList => 1,
+            Self::UnrecognizedWellknownAttribute => 2,
+            Self::MissingWellKnownAttribute => 3,
+            Self::AttributeFlagsError => 4,
+            Self::AttributeLengthError => 5,
+            Self::InvalidOriginAttribute => 6,
+            Self::InvalidNextHopAttribute => 8,
+            Self::OptionalAttributeError => 9,
+            Self::InvalidNetworkField => 10,
+            Self::MalformedASPath => 11,
+        }
+    }
 }
 
 #[derive(Debug, Error)]

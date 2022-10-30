@@ -74,18 +74,30 @@ impl Into<u8> for &Event {
 			Event::Connection(TcpConnectionEvent::TcpConnectionFail) => 18,
 			Event::Message(BgpMessageEvent::BgpOpen(_)) => 19,
 			Event::Message(BgpMessageEvent::BgpOpenWithDelayOpenTimerRunning) => 20,
-			Event::Message(BgpMessageEvent::BgpHeaderError) => 21,
-			Event::Message(BgpMessageEvent::BgpOpenMsgErr) => 22,
+			Event::Message(BgpMessageEvent::BgpHeaderError(_)) => 21,
+			Event::Message(BgpMessageEvent::BgpOpenMsgErr(_)) => 22,
 			Event::Message(BgpMessageEvent::OpenCollisionDump) => 23,
 			Event::Message(BgpMessageEvent::NotifMsgVerErr) => 24,
 			Event::Message(BgpMessageEvent::NotifMsg(_)) => 25,
 			Event::Message(BgpMessageEvent::KeepAliveMsg) => 26,
 			Event::Message(BgpMessageEvent::UpdateMsg(_)) => 27,
-			Event::Message(BgpMessageEvent::UpdateMsgErr) => 28,
+			Event::Message(BgpMessageEvent::UpdateMsgErr(_)) => 28,
             Event::Message(BgpMessageEvent::RouteRefreshMsg(_)) => 100,
             Event::Message(BgpMessageEvent::RouteRefreshMsgErr) => 101,
 			_ => 0,
 		}
+    }
+}
+
+impl std::fmt::Display for Event {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Event::Admin(e) => write!(f, "{}", e),
+            Event::Timer(e) => write!(f, "{}", e),
+            Event::Connection(e) => write!(f, "{}", e),
+            Event::Message(e) => write!(f, "{}", e),
+            Event::Control(e) => write!(f, "{}", e),
+        }
     }
 }
 
@@ -114,6 +126,21 @@ pub(crate) enum AdministrativeEvent {
     AutomaticStop,
 }
 
+impl std::fmt::Display for AdministrativeEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+			AdministrativeEvent::ManualStart => write!(f, "Admin_ManualStart"),
+			AdministrativeEvent::ManualStop => write!(f, "Admin_ManualStop"),
+			AdministrativeEvent::AutomaticStart => write!(f, "Admin_AutomaticStart"),
+			AdministrativeEvent::ManualStartWithPassiveTcpEstablishment => write!(f, "Admin_ManualStartWithPassiveTcpEstablishment"),
+			AdministrativeEvent::AutomaticStartWithPassiveTcpEstablishment => write!(f, "Admin_AutomaticStartWithPassiveTcpEstablishment"),
+			AdministrativeEvent::AutomaticStartWithDampPeerOscillations => write!(f, "Admin_AutomaticStartWithDampPeerOscillations"),
+			AdministrativeEvent::AutomaticStartWithDampPeerOscillationsAndPassiveTcpEstablishment => write!(f, "Admin_AutomaticStartWithDampPeerOscillationsAndPassiveTcpEstablishment"),
+			AdministrativeEvent::AutomaticStop => write!(f, "Admin_AutomaticStop"),
+        }
+    }
+}
+
 impl Into<u8> for AdministrativeEvent {
     fn into(self) -> u8 {
         match self {
@@ -140,6 +167,18 @@ pub(crate) enum TimerEvent {
     IdleHoldTimerExpire,
 }
 
+impl std::fmt::Display for TimerEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TimerEvent::ConnectRetryTimerExpire => write!(f, "Timer_ConnectRetryTimerExpire"),
+            TimerEvent::HoldTimerExpire => write!(f, "Timer_HoldTimerExpire"),
+            TimerEvent::KeepaliveTimerExpire => write!(f, "Timer_KeepaliveTimerExpire"),
+            TimerEvent::DelayOpenTimerExpire => write!(f, "Timer_DelayOpenTimerExpire"),
+            TimerEvent::IdleHoldTimerExpire => write!(f, "Timer_IdleHoldTimerExpire"),
+        }
+    }
+}
+
 impl Into<u8> for TimerEvent {
     fn into(self) -> u8 {
         match self {
@@ -163,6 +202,20 @@ pub(crate) enum TcpConnectionEvent {
     TcpConnectionFail,
 }
 
+impl std::fmt::Display for TcpConnectionEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TcpConnectionEvent::TcpConnectionValid => write!(f, "Connection_TcpConnectionValid"),
+            TcpConnectionEvent::TcpCRInvalid => write!(f, "Connection_TcpCRInvalid"),
+            TcpConnectionEvent::TcpCRAcked(_) => write!(f, "Connection_TcpCRAcked"),
+            TcpConnectionEvent::TcpConnectionConfirmed(_) => {
+                write!(f, "Connection_TcpConnectionConfirmed")
+            }
+            TcpConnectionEvent::TcpConnectionFail => write!(f, "Connection_TcpConnectionFail"),
+        }
+    }
+}
+
 impl Into<u8> for TcpConnectionEvent {
     fn into(self) -> u8 {
         match self {
@@ -180,17 +233,38 @@ pub(crate) enum BgpMessageEvent {
     BgpOpen(Message),
     #[allow(unused)]
     BgpOpenWithDelayOpenTimerRunning,
-    BgpHeaderError,
-    BgpOpenMsgErr,
+    BgpHeaderError(MessageHeaderError),
+    BgpOpenMsgErr(OpenMessageError),
     #[allow(unused)]
     OpenCollisionDump,
     NotifMsgVerErr,
     NotifMsg(Message),
     KeepAliveMsg,
     UpdateMsg(Message),
-    UpdateMsgErr,
+    UpdateMsgErr(UpdateMessageError),
     RouteRefreshMsg(Message),
     RouteRefreshMsgErr,
+}
+
+impl std::fmt::Display for BgpMessageEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BgpMessageEvent::BgpOpen(_) => write!(f, "Message_BGPOpen"),
+            BgpMessageEvent::BgpOpenWithDelayOpenTimerRunning => {
+                write!(f, "Message_BgpOpenWithDelayOpenTimerRunning")
+            }
+            BgpMessageEvent::BgpHeaderError(_) => write!(f, "Message_BgpHeaderError"),
+            BgpMessageEvent::BgpOpenMsgErr(_) => write!(f, "Message_BgpOpenMsgErr"),
+            BgpMessageEvent::OpenCollisionDump => write!(f, "Message_OpenCollisionDump"),
+            BgpMessageEvent::NotifMsgVerErr => write!(f, "Message_NotifMsgVerErr"),
+            BgpMessageEvent::NotifMsg(_) => write!(f, "Message_NotifMsg"),
+            BgpMessageEvent::KeepAliveMsg => write!(f, "Message_KeepAliveMsg"),
+            BgpMessageEvent::UpdateMsg(_) => write!(f, "Message_UpdateMsg"),
+            BgpMessageEvent::UpdateMsgErr(_) => write!(f, "Message_UpdateMsgErr"),
+            BgpMessageEvent::RouteRefreshMsg(_) => write!(f, "Message_RouteRefreshMsg"),
+            BgpMessageEvent::RouteRefreshMsgErr => write!(f, "Message_RouteRefreshMsgErr"),
+        }
+    }
 }
 
 impl Into<u8> for BgpMessageEvent {
@@ -198,14 +272,14 @@ impl Into<u8> for BgpMessageEvent {
         match self {
             BgpMessageEvent::BgpOpen(_) => 19,
             BgpMessageEvent::BgpOpenWithDelayOpenTimerRunning => 20,
-            BgpMessageEvent::BgpHeaderError => 21,
-            BgpMessageEvent::BgpOpenMsgErr => 22,
+            BgpMessageEvent::BgpHeaderError(_) => 21,
+            BgpMessageEvent::BgpOpenMsgErr(_) => 22,
             BgpMessageEvent::OpenCollisionDump => 23,
             BgpMessageEvent::NotifMsgVerErr => 24,
             BgpMessageEvent::NotifMsg(_) => 25,
             BgpMessageEvent::KeepAliveMsg => 26,
             BgpMessageEvent::UpdateMsg(_) => 27,
-            BgpMessageEvent::UpdateMsgErr => 28,
+            BgpMessageEvent::UpdateMsgErr(_) => 28,
             BgpMessageEvent::RouteRefreshMsg(_) => 100,
             BgpMessageEvent::RouteRefreshMsgErr => 101,
         }
@@ -216,4 +290,13 @@ impl Into<u8> for BgpMessageEvent {
 pub(crate) enum ControlEvent {
     AddPeer(NeighborConfig),
     Health,
+}
+
+impl std::fmt::Display for ControlEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ControlEvent::AddPeer(_) => write!(f, "Control_AddPeer"),
+            ControlEvent::Health => write!(f, "Health"),
+        }
+    }
 }

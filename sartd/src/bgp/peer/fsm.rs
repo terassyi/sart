@@ -73,9 +73,6 @@ impl FiniteStateMachine {
 				}
 			},
 		}
-        if current != self.get_state() {
-            println!("{:?}", self.get_state());
-        }
     }
 }
 

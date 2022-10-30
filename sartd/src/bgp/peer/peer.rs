@@ -12,7 +12,9 @@ use tokio_util::codec::{Framed, FramedRead};
 
 use crate::bgp::capability::{Capability, CapabilitySet};
 use crate::bgp::config::NeighborConfig;
-use crate::bgp::error::{Error, PeerError};
+use crate::bgp::error::{
+    Error, MessageHeaderError, OpenMessageError, PeerError, UpdateMessageError,
+};
 use crate::bgp::event::{
     AdministrativeEvent, BgpMessageEvent, Event, TcpConnectionEvent, TimerEvent,
 };
@@ -105,9 +107,14 @@ impl Peer {
         self.fsm.lock().unwrap().get_state()
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn handle(&mut self) {
         // handle event
         let (msg_event_tx, mut msg_event_rx) = unbounded_channel::<BgpMessageEvent>();
+        let (peer_addr, peer_as) = {
+            let c = self.config.lock().unwrap();
+            (c.neighbor.get_addr().to_string(), c.neighbor.get_asn())
+        };
 
         loop {
             futures::select_biased! {
@@ -123,6 +130,8 @@ impl Peer {
                 // event handling
                 event = self.admin_rx.recv().fuse() => {
                     if let Some(event) = event {
+                        let current_state = self.state();
+                        tracing::info!(peer.addr=peer_addr, peer.asn=peer_as, state=?current_state, event=%event);
                         match event {
                             Event::Admin(event) => match event {
                                 AdministrativeEvent::ManualStart => self.manual_start().unwrap(),
@@ -130,11 +139,9 @@ impl Peer {
                             },
                             Event::Connection(event) => match event {
                                 TcpConnectionEvent::TcpCRAcked(stream) => {
-                                    println!("  {:?}", stream.peer_addr());
                                     self.handle_tcp_connect(stream, msg_event_tx.clone(), Event::CONNECTION_TCP_CR_ACKED).unwrap();
                                 },
                                 TcpConnectionEvent::TcpConnectionConfirmed(stream) => {
-                                    println!("  {:?}", stream.peer_addr());
                                     self.handle_tcp_connect(stream, msg_event_tx.clone(), Event::CONNECTION_TCP_CONNECTION_CONFIRMED).unwrap();
                                 },
                                 TcpConnectionEvent::TcpConnectionFail => self.tcp_connection_fail().unwrap(),
@@ -153,14 +160,14 @@ impl Peer {
                 event = msg_event_rx.recv().fuse() => {
                     if let Some(event) = event {
                         match event {
-                            BgpMessageEvent::BgpOpen(msg) => self.bgp_open().unwrap(),
-                            BgpMessageEvent::BgpHeaderError => self.bgp_header_error().unwrap(),
-                            BgpMessageEvent::BgpOpenMsgErr => self.bgp_open_msg_error().unwrap(),
+                            BgpMessageEvent::BgpOpen(msg) => self.bgp_open(msg).unwrap(),
+                            BgpMessageEvent::BgpHeaderError(e) => self.bgp_header_error(e).unwrap(),
+                            BgpMessageEvent::BgpOpenMsgErr(e) => self.bgp_open_msg_error(e).unwrap(),
                             BgpMessageEvent::NotifMsgVerErr => self.notification_msg_ver_error().unwrap(),
                             BgpMessageEvent::NotifMsg(msg) => self.notification_msg().unwrap(),
                             BgpMessageEvent::KeepAliveMsg => self.keepalive_msg().unwrap(),
                             BgpMessageEvent::UpdateMsg(msg) => self.update_msg().unwrap(),
-                            BgpMessageEvent::UpdateMsgErr => self.update_msg_error().unwrap(),
+                            BgpMessageEvent::UpdateMsgErr(e) => self.update_msg_error(e).unwrap(),
                             BgpMessageEvent::RouteRefreshMsg(msg) => self.route_refresh_msg().unwrap(),
                             BgpMessageEvent::RouteRefreshMsgErr => self.route_refresh_msg_error().unwrap(),
                             _ => unimplemented!(),
@@ -182,6 +189,7 @@ impl Peer {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self, stream, msg_event_tx))]
     fn initialize(
         &mut self,
         stream: TcpStream,
@@ -192,7 +200,6 @@ impl Peer {
         self.msg_tx = Some(msg_tx);
         let drop_signal = self.drop_signal.clone();
         tokio::spawn(async move {
-            println!("message handler process is running");
             let (mut sender, mut receiver) = codec.split();
             loop {
                 futures::select_biased! {
@@ -200,7 +207,6 @@ impl Peer {
                         if let Some(msg_result) = msg {
                             match msg_result {
                                 Ok(msg) => {
-                                    println!("received msg - {:?}", msg);
                                     match msg.msg_type() {
                                         MessageType::Open => msg_event_tx.send(BgpMessageEvent::BgpOpen(msg)).unwrap(),
                                         MessageType::Update => msg_event_tx.send(BgpMessageEvent::UpdateMsg(msg)).unwrap(),
@@ -212,18 +218,18 @@ impl Peer {
                                 Err(e) => {
                                     match e {
                                         Error::MessageHeader(e) => {
-                                            println!("{:?}", e);
-                                            msg_event_tx.send(BgpMessageEvent::BgpHeaderError).unwrap();
+                                            tracing::error!("{:?}", e);
+                                            msg_event_tx.send(BgpMessageEvent::BgpHeaderError(e)).unwrap();
                                         },
                                         Error::OpenMessage(e) => {
-                                            println!("{:?}", e);
-                                            msg_event_tx.send(BgpMessageEvent::BgpOpenMsgErr).unwrap();
+                                            tracing::error!("{:?}", e);
+                                            msg_event_tx.send(BgpMessageEvent::BgpOpenMsgErr(e)).unwrap();
                                         },
                                         Error::UpdateMessage(e) => {
-                                            println!("{:?}", e);
-                                            msg_event_tx.send(BgpMessageEvent::UpdateMsgErr).unwrap();
+                                            tracing::error!("{:?}", e);
+                                            msg_event_tx.send(BgpMessageEvent::UpdateMsgErr(e)).unwrap();
                                         },
-                                        _ => println!("{:?}", e),
+                                        _ => tracing::error!("{:?}", e),
                                     }
                                 },
                             }
@@ -450,7 +456,7 @@ impl Peer {
     }
 
     // Event 18
-    fn tcp_connection_fail(&self) -> Result<(), Error> {
+    fn tcp_connection_fail(&mut self) -> Result<(), Error> {
         match self.state() {
             State::Idle => {}
             State::Connect | State::Active | State::OpenConfirm => {
@@ -458,12 +464,16 @@ impl Peer {
                 // drops the TCP connection,
                 // releases all BGP resources, and
                 // changes its state to Idle.
+                self.drop_connection();
+                self.release()?;
             }
             State::OpenSent => {
                 // closes the BGP connection,
                 // restarts the ConnectRetryTimer,
                 // continues to listen for a connection that may be initiated by the remote BGP peer, and
                 // changes its state to Active.
+
+                // nothing to do here
             }
             State::Established => {
                 // sets the ConnectRetryTimer to zero,
@@ -472,6 +482,9 @@ impl Peer {
                 // drops the TCP connection,
                 // increments the ConnectRetryCounter by 1,
                 // changes its state to Idle.
+                self.drop_connection();
+                self.release()?;
+                self.connect_retry_counter += 1;
             }
         }
         self.fsm
@@ -482,7 +495,7 @@ impl Peer {
     }
 
     // Event 19
-    fn bgp_open(&self) -> Result<(), Error> {
+    fn bgp_open(&mut self, recv: Message) -> Result<(), Error> {
         match self.state() {
             State::Active => {
                 // stops the ConnectRetryTimer (if running) and sets the ConnectRetryTimer to zero,
@@ -497,6 +510,10 @@ impl Peer {
                 //   - resets the KeepaliveTimer (set to zero),
                 //   - resets the HoldTimer to zero, and
                 // changes its state to OpenConfirm.
+                let msg = self.build_open_msg()?;
+                self.send(msg)?;
+                let msg = Self::build_keepalive_msg()?;
+                self.send(msg)?;
             }
             State::OpenSent => {
                 // Collision detection mechanisms (Section 6.8) need to be applied
@@ -505,6 +522,8 @@ impl Peer {
                 // sets a KeepaliveTimer (via the text below)
                 // sets the HoldTimer according to the negotiated value (see Section 4.2),
                 // changes its state to OpenConfirm
+                let msg = Self::build_keepalive_msg()?;
+                self.send(msg)?;
             }
             State::Established => {
                 // sends a NOTIFICATION with a Cease,
@@ -514,6 +533,12 @@ impl Peer {
                 // drops the TCP connection,
                 // increments the ConnectRetryCounter by 1,
                 // changes its state to Idle.
+                let mut builder = MessageBuilder::builder(MessageType::Notification);
+                let msg = builder.code(NotificationCode::Cease)?.build()?;
+                self.send(msg)?;
+                self.release()?;
+                self.drop_connection();
+                self.connect_retry_counter += 1;
             }
             _ => {}
         }
@@ -522,7 +547,7 @@ impl Peer {
     }
 
     // Event 21
-    fn bgp_header_error(&self) -> Result<(), Error> {
+    fn bgp_header_error(&mut self, e: MessageHeaderError) -> Result<(), Error> {
         match self.state() {
             State::Active | State::Connect => {
                 // stops the ConnectRetryTimer (if running) and sets the ConnectRetryTimer to zero,
@@ -530,6 +555,9 @@ impl Peer {
                 // drops the TCP connection,
                 // increments the ConnectRetryCounter by 1,
                 // changes its state to Idle.
+                self.release()?;
+                self.drop_connection();
+                self.connect_retry_counter += 1;
             }
             State::OpenSent | State::OpenConfirm => {
                 // sends a NOTIFICATION message with the appropriate error code,
@@ -538,6 +566,19 @@ impl Peer {
                 // drops the TCP connection,
                 // increments the ConnectRetryCounter by 1,
                 // changes its state to Idle.
+                let mut builder = MessageBuilder::builder(MessageType::Notification);
+                builder.code(NotificationCode::MessageHeader)?;
+                if let Some(subcode) = NotificationSubCode::try_from_with_code(
+                    e.into(),
+                    NotificationCode::MessageHeader,
+                )? {
+                    builder.subcode(subcode)?;
+                }
+                let msg = builder.build()?;
+                self.send(msg)?;
+                self.release()?;
+                self.drop_connection();
+                self.connect_retry_counter += 1;
             }
             State::Established => {
                 // sends a NOTIFICATION message with the Error Code Finite State Machine Error,
@@ -547,6 +588,19 @@ impl Peer {
                 // drops the TCP connection,
                 // increments the ConnectRetryCounter by 1,
                 // changes its state to Idle.
+                let mut builder = MessageBuilder::builder(MessageType::Notification);
+                builder.code(NotificationCode::MessageHeader)?;
+                if let Some(subcode) = NotificationSubCode::try_from_with_code(
+                    e.into(),
+                    NotificationCode::MessageHeader,
+                )? {
+                    builder.subcode(subcode)?;
+                }
+                let msg = builder.build()?;
+                self.send(msg)?;
+                self.release()?;
+                self.drop_connection();
+                self.connect_retry_counter += 1;
             }
             _ => {}
         }
@@ -555,7 +609,7 @@ impl Peer {
     }
 
     // Event 22
-    fn bgp_open_msg_error(&self) -> Result<(), Error> {
+    fn bgp_open_msg_error(&mut self, e: OpenMessageError) -> Result<(), Error> {
         match self.state() {
             State::Active | State::Connect => {
                 // stops the ConnectRetryTimer (if running) and sets the ConnectRetryTimer to zero,
@@ -563,6 +617,9 @@ impl Peer {
                 // drops the TCP connection,
                 // increments the ConnectRetryCounter by 1,
                 // changes its state to Idle.
+                self.release()?;
+                self.drop_connection();
+                self.connect_retry_counter += 1;
             }
             State::OpenSent | State::OpenConfirm => {
                 // sends a NOTIFICATION message with the appropriate error code,
@@ -571,6 +628,19 @@ impl Peer {
                 // drops the TCP connection,
                 // increments the ConnectRetryCounter by 1,
                 // changes its state to Idle.
+                let mut builder = MessageBuilder::builder(MessageType::Notification);
+                builder.code(NotificationCode::OpenMessage)?;
+                if let Some(subcode) = NotificationSubCode::try_from_with_code(
+                    e.into(),
+                    NotificationCode::MessageHeader,
+                )? {
+                    builder.subcode(subcode)?;
+                }
+                let msg = builder.build()?;
+                self.send(msg)?;
+                self.release()?;
+                self.drop_connection();
+                self.connect_retry_counter += 1;
             }
             State::Established => {
                 // sends a NOTIFICATION message with the Error Code Finite State Machine Error,
@@ -580,6 +650,14 @@ impl Peer {
                 // drops the TCP connection,
                 // increments the ConnectRetryCounter by 1,
                 // changes its state to Idle.
+                let mut builder = MessageBuilder::builder(MessageType::Notification);
+                let msg = builder
+                    .code(NotificationCode::FiniteStateMachine)?
+                    .build()?;
+                self.send(msg)?;
+                self.release()?;
+                self.drop_connection();
+                self.connect_retry_counter += 1;
             }
             _ => {}
         }
@@ -591,7 +669,7 @@ impl Peer {
     }
 
     // Event 24
-    fn notification_msg_ver_error(&self) -> Result<(), Error> {
+    fn notification_msg_ver_error(&mut self) -> Result<(), Error> {
         match self.state() {
             State::Active | State::Connect => {
                 // stops the ConnectRetryTimer (if running) and sets the ConnectRetryTimer to zero,
@@ -599,12 +677,16 @@ impl Peer {
                 // releases all BGP resources,
                 // drops the TCP connection, and
                 // changes its state to Idle.
+                self.release()?;
+                self.drop_connection();
             }
             State::OpenConfirm | State::OpenSent => {
                 // sets the ConnectRetryTimer to zero,
                 // releases all BGP resources,
                 // drops the TCP connection, and
                 // changes its state to Idle.
+                self.release()?;
+                self.drop_connection();
             }
             State::Established => {
                 // sets the ConnectRetryTimer to zero,
@@ -613,6 +695,9 @@ impl Peer {
                 // drops the TCP connection,
                 // increments the ConnectRetryCounter by 1,
                 // changes its state to Idle.
+                self.release()?;
+                self.drop_connection();
+                self.connect_retry_counter += 1;
             }
             _ => {}
         }
@@ -701,7 +786,7 @@ impl Peer {
     }
 
     // Event 28
-    fn update_msg_error(&self) -> Result<(), Error> {
+    fn update_msg_error(&self, e: UpdateMessageError) -> Result<(), Error> {
         match self.state() {
             State::OpenSent | State::OpenConfirm => {
                 // sends a NOTIFICATION with a code of Finite State Machine Error,
@@ -747,6 +832,11 @@ impl Peer {
         for cap in caps.iter() {
             builder.capability(&cap.1)?;
         }
+        builder.build()
+    }
+
+    fn build_keepalive_msg() -> Result<Message, Error> {
+        let builder = MessageBuilder::builder(MessageType::Keepalive);
         builder.build()
     }
 }
