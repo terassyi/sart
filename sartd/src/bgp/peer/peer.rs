@@ -200,7 +200,7 @@ impl Peer {
                         if let Some(msg_result) = msg {
                             match msg_result {
                                 Ok(msg) => {
-                                    println!("{:?}", msg);
+                                    println!("received msg - {:?}", msg);
                                     match msg.msg_type() {
                                         MessageType::Open => msg_event_tx.send(BgpMessageEvent::BgpOpen(msg)).unwrap(),
                                         MessageType::Update => msg_event_tx.send(BgpMessageEvent::UpdateMsg(msg)).unwrap(),
@@ -234,9 +234,9 @@ impl Peer {
                             sender.send(msg).await;
                         }
                     }
-                    _ = drop_signal.notified().fuse() => {
+                    // _ = drop_signal.notified().fuse() => {
 
-                    }
+                    // }
                 }
             }
         });

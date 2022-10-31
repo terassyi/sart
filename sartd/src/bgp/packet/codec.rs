@@ -54,6 +54,7 @@ impl Decoder for Codec {
     type Error = Error;
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         if src.remaining() < Message::HEADER_LENGTH as usize {
+            println!("before parsing message type");
             return Err(Error::MessageHeader(MessageHeaderError::BadMessageLength {
                 length: src.remaining() as u16,
             }));
@@ -61,6 +62,7 @@ impl Decoder for Codec {
         let marker = src.get_u128();
         let header_length = src.get_u16();
         if marker != Message::MARKER || header_length < Message::HEADER_LENGTH {
+            println!("second");
             return Err(Error::MessageHeader(MessageHeaderError::BadMessageLength {
                 length: header_length,
             }));
@@ -73,19 +75,27 @@ impl Decoder for Codec {
                 let hold_time = src.get_u16();
                 let router_id = Ipv4Addr::from(src.get_u32());
                 let mut capabilities = vec![];
-                let capability_length = src.get_u8();
-                if capability_length != src.remaining() as u8 {
+                let optional_parameters_length = src.get_u8();
+                if optional_parameters_length != src.remaining() as u8 {
+                    println!("open message bad message length");
                     return Err(Error::MessageHeader(MessageHeaderError::BadMessageLength {
                         length: src.len() as u16,
                     }));
                 }
                 while src.remaining() > 0 {
                     let option_type = src.get_u8();
-                    let _option_length = src.get_u8();
+                    let option_length = src.get_u8();
                     match option_type {
                         Message::OPTION_TYPE_CAPABILITIES => {
-                            let cap = Capability::decode(src.get_u8(), src.get_u8(), src)?;
-                            capabilities.push(cap);
+                            let mut l = 0;
+                            while option_length > l {
+                                let code = src.get_u8();
+                                let length = src.get_u8();
+                                l += length + 2;
+                                let cap = Capability::decode(code, length, src)?;
+                                println!("{:?}", cap);
+                                capabilities.push(cap);
+                            }
                         }
                         _ => {
                             return Err(Error::OpenMessage(
@@ -345,6 +355,18 @@ mod tests {
                 Capability::Unsupported(0x80, Vec::new()), // Unsupported Route Refresh Cisco
                 Capability::RouteRefresh,
             ]
+        }),
+        case("testdata/messages/open-optional-parameters", true, false, Message::Open {
+            version: 4,
+            as_num: 200,
+            hold_time: 90,
+            identifier: Ipv4Addr::new(2, 2, 2, 2),
+            capabilities: vec![
+                Capability::RouteRefresh,
+                Capability::MultiProtocol(AddressFamily{ afi: Afi::IPv4, safi: Safi::Unicast }),
+                Capability::FourOctetASNumber(200),
+                Capability::ExtendedNextHop(vec![(AddressFamily{ afi: Afi::IPv4, safi: Safi::Unicast }, 2)]),
+            ],
         }),
         case("testdata/messages/route-refresh", true, false, Message::RouteRefresh { family: AddressFamily{ afi: Afi::IPv4, safi: Safi::Unicast} }),
         case("testdata/messages/update-as-set", false, false, Message::Update {
