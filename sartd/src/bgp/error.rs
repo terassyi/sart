@@ -2,7 +2,7 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub(crate) enum Error {
-    #[error("")]
+    #[error("system error")]
     System,
     #[error("message header error")]
     MessageHeader(#[from] MessageHeaderError),
@@ -34,6 +34,8 @@ pub(crate) enum Error {
     MissingMessageField,
     #[error("invalid message field")]
     InvalidMessageField,
+    #[error("undesired message")]
+    UndesiredMessage,
     #[error("peer error")]
     Peer(#[from] PeerError),
 }

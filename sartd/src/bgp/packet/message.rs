@@ -7,6 +7,7 @@ use crate::bgp::packet::prefix::Prefix;
 use crate::bgp::server::Bgp;
 use std::convert::TryFrom;
 use std::net::Ipv4Addr;
+use std::ops::Add;
 
 pub(crate) struct Builder {}
 
@@ -73,6 +74,59 @@ impl Message {
                 data,
             } => MessageType::Notification,
             Self::RouteRefresh { family } => MessageType::RouteRefresh,
+        }
+    }
+
+    pub fn to_open(self) -> Result<(u8, u32, u16, Ipv4Addr, Vec<Capability>), Error> {
+        match self {
+            Self::Open {
+                version,
+                as_num,
+                hold_time,
+                identifier,
+                capabilities,
+            } => Ok((version, as_num, hold_time, identifier, capabilities)),
+            _ => Err(Error::UndesiredMessage),
+        }
+    }
+
+    pub fn to_update(
+        self,
+    ) -> Result<
+        (
+            Option<Vec<Prefix>>,
+            Option<Vec<Attribute>>,
+            Option<Vec<Prefix>>,
+        ),
+        Error,
+    > {
+        match self {
+            Self::Update {
+                withdrawn_routes,
+                attributes,
+                nlri,
+            } => Ok((withdrawn_routes, attributes, nlri)),
+            _ => Err(Error::UndesiredMessage),
+        }
+    }
+
+    pub fn to_notification(
+        self,
+    ) -> Result<(NotificationCode, Option<NotificationSubCode>, Vec<u8>), Error> {
+        match self {
+            Self::Notification {
+                code,
+                subcode,
+                data,
+            } => Ok((code, subcode, data)),
+            _ => Err(Error::UndesiredMessage),
+        }
+    }
+
+    pub fn to_route_refresh(self) -> Result<AddressFamily, Error> {
+        match self {
+            Self::RouteRefresh { family } => Ok(family),
+            _ => Err(Error::UndesiredMessage),
         }
     }
 }

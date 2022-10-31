@@ -120,13 +120,17 @@ impl Peer {
             futures::select_biased! {
                 // timer handling
                 _ = self.hold_timer.ticker.next() => {
-                    println!("hold timer expire");
-                    let elapsed = self.hold_timer.last.elapsed().as_secs();
-                    if elapsed >= self.hold_timer.interval {
-                        println!("correct {}", elapsed);
+                    if self.hold_timer.last.elapsed().as_secs() >= self.hold_timer.interval {
+                        let current_state = self.state();
+                        tracing::warn!(peer.addr=peer_addr, peer.asn=peer_as, state=?current_state, event=%TimerEvent::HoldTimerExpire);
+                        self.hold_timer_expire().unwrap();
                     }
                 }
-                _ = self.keepalive_timer.tick().fuse() => {}
+                _ = self.keepalive_timer.tick().fuse() => {
+                    let current_state = self.state();
+                    tracing::debug!(peer.addr=peer_addr, peer.asn=peer_as, state=?current_state, event=%TimerEvent::KeepaliveTimerExpire);
+                    self.keepalive_timer_expire().unwrap();
+                }
                 // event handling
                 event = self.admin_rx.recv().fuse() => {
                     if let Some(event) = event {
@@ -147,12 +151,12 @@ impl Peer {
                                 TcpConnectionEvent::TcpConnectionFail => self.tcp_connection_fail().unwrap(),
                                 _ => unimplemented!(),
                             },
-                            Event::Timer(event) => match event {
-                                TimerEvent::ConnectRetryTimerExpire => self.connect_retry_timer_expire().unwrap(),
-                                TimerEvent::HoldTimerExpire => self.hold_timer_expire().unwrap(),
-                                TimerEvent::KeepaliveTimerExpire => self.keepalive_timer_expire().unwrap(),
-                                _ => unimplemented!(),
-                            },
+                            // Event::Timer(event) => match event {
+                            //     TimerEvent::ConnectRetryTimerExpire => self.connect_retry_timer_expire().unwrap(),
+                            //     TimerEvent::HoldTimerExpire => self.hold_timer_expire().unwrap(),
+                            //     TimerEvent::KeepaliveTimerExpire => self.keepalive_timer_expire().unwrap(),
+                            //     _ => unimplemented!(),
+                            // },
                             _ => panic!("unhandlable event"),
                         }
                     }
@@ -513,6 +517,7 @@ impl Peer {
 
     // Event 19
     fn bgp_open(&mut self, recv: Message) -> Result<(), Error> {
+        let (version, asn, hold_time, router_id, caps) = recv.to_open()?;
         match self.state() {
             State::Active => {
                 // stops the ConnectRetryTimer (if running) and sets the ConnectRetryTimer to zero,
@@ -531,6 +536,7 @@ impl Peer {
                 self.send(msg)?;
                 let msg = Self::build_keepalive_msg()?;
                 self.send(msg)?;
+                let _negotiated_hold_time = self.negotiate_hold_time(hold_time as u64)?;
             }
             State::OpenSent => {
                 // Collision detection mechanisms (Section 6.8) need to be applied
@@ -896,8 +902,34 @@ impl Peer {
         Ok(())
     }
 
-    fn negotiate(&mut self) -> Result<(), Error> {
-        Ok(())
+    fn negotiate_hold_time(&mut self, received_hold_time: u64) -> Result<u64, Error> {
+        // This 2-octet unsigned integer indicates the number of seconds
+        // the sender proposes for the value of the Hold Timer.  Upon
+        // receipt of an OPEN message, a BGP speaker MUST calculate the
+        // value of the Hold Timer by using the smaller of its configured
+        // Hold Time and the Hold Time received in the OPEN message.  The
+        // Hold Time MUST be either zero or at least three seconds.  An
+        // implementation MAY reject connections on the basis of the Hold
+        // Time.  The calculated value indicates the maximum number of
+        // seconds that may elapse between the receipt of successive
+        // KEEPALIVE and/or UPDATE messages from the sender.
+        let local_hold_time = self.config.lock().unwrap().hold_time;
+        let negotiated_hold_time = if local_hold_time > received_hold_time {
+            received_hold_time
+        } else {
+            local_hold_time
+        };
+        if negotiated_hold_time > 0 && negotiated_hold_time < 3 {
+            return Err(Error::OpenMessage(OpenMessageError::UnacceptableHoldTime));
+        }
+        if negotiated_hold_time != 0 {
+            self.negotiated_hold_time = negotiated_hold_time;
+            self.hold_timer.push(negotiated_hold_time);
+            self.keepalive_timer =
+                interval_at(Instant::now(), Duration::new(negotiated_hold_time, 0));
+        }
+
+        Ok(negotiated_hold_time)
     }
 
     fn build_open_msg(&self) -> Result<Message, Error> {
