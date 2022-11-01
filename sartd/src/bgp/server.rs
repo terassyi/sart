@@ -12,7 +12,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc::{channel, Receiver, UnboundedSender};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tokio::sync::Notify;
-use tokio::time::{sleep, timeout, Instant};
+use tokio::time::{sleep, timeout, Instant, interval_at};
 use tokio_stream::wrappers::TcpListenerStream;
 use tonic::transport::Server;
 use tonic_reflection::server::Builder;
@@ -23,13 +23,14 @@ use crate::bgp::config::Config;
 use crate::bgp::error::Error;
 use crate::bgp::event::{TcpConnectionEvent, TimerEvent};
 use crate::bgp::family::Afi;
+use crate::bgp::peer::fsm::State;
 use crate::proto::sart::bgp_api_server::BgpApiServer;
 
 use super::capability::{Capability, CapabilitySet};
 use super::config::NeighborConfig;
 use super::error::ControlError;
 use super::event::{AdministrativeEvent, ControlEvent, Event};
-use super::peer::peer::{Peer, PeerConfig, PeerManager};
+use super::peer::peer::{Peer, PeerInfo, PeerManager};
 
 #[derive(Debug)]
 pub(crate) struct Bgp {
@@ -126,6 +127,8 @@ impl Bgp {
             init_tx.send(e).await.unwrap();
         }
 
+        let mut peer_management_interval = interval_at(Instant::now(), Duration::new(10, 0));
+
         loop {
             let mut future_streams = FuturesUnordered::new();
             for stream in &mut listener_streams {
@@ -160,6 +163,15 @@ impl Bgp {
                         server.handle_event(event);
                     }
                 }
+                _ = peer_management_interval.tick().fuse() => {
+                    for peer_manager in server.peer_managers.values() {
+                        let info = peer_manager.info.lock().unwrap();
+                        if info.state == State::Idle {
+                            tracing::info!(peer.addr=info.neighbor.get_addr().to_string(), peer.asn=info.neighbor.get_asn(), "restart peer");
+                            peer_manager.event_tx.send(Event::Admin(AdministrativeEvent::ManualStart)).unwrap();
+                        }
+                    }
+                }
             }
         }
     }
@@ -186,7 +198,7 @@ impl Bgp {
             let conf = self.config.lock().unwrap();
             (conf.asn, conf.router_id)
         };
-        let config = Arc::new(Mutex::new(PeerConfig::new(
+        let config = Arc::new(Mutex::new(PeerInfo::new(
             local_as,
             local_router_id,
             neighbor,

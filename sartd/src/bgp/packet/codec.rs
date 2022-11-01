@@ -80,6 +80,7 @@ impl Decoder for Codec {
                 let optional_parameters_length = src.get_u8();
                 if optional_parameters_length != src.remaining() as u8 {
                     println!("open message bad message length");
+                    println!("{:?}", src.to_vec());
                     return Err(Error::MessageHeader(MessageHeaderError::BadMessageLength {
                         length: src.len() as u16,
                     }));
@@ -450,6 +451,37 @@ mod tests {
         assert_eq!(expected, msg);
     }
 
+    #[rstest(
+        input,
+        as4_enabled,
+        path_id_enabled,
+        expected,
+        case("testdata/messages/open-bad-message-length", false, false, Message::Open {
+            version: 4,
+            as_num: 300,
+            hold_time: 90,
+            identifier: Ipv4Addr::new(3, 3, 3, 3),
+            capabilities: vec![
+                Capability::RouteRefresh,
+                Capability::MultiProtocol(AddressFamily{ afi: Afi::IPv4, safi: Safi::Unicast }),
+                Capability::FourOctetASNumber(300),
+            ]
+        }),
+    )]
+    fn fail_codec_decode(
+        input: &str,
+        as4_enabled: bool,
+        path_id_enabled: bool,
+        expected: Message,
+    ) {
+        let mut file = std::fs::File::open(input).unwrap();
+        let mut data = Vec::new();
+        file.read_to_end(&mut data).unwrap();
+        let mut codec = Codec::new(as4_enabled, path_id_enabled);
+        let mut buf = BytesMut::from(data.as_slice());
+        let msg = codec.decode(&mut buf).unwrap().unwrap();
+        assert_eq!(expected, msg);
+    }
     #[rstest(
         path,
         as4_enabled,

@@ -29,28 +29,29 @@ use super::{fsm::FiniteStateMachine, neighbor::Neighbor};
 
 #[derive(Debug)]
 pub(crate) struct PeerManager {
-    config: Arc<Mutex<PeerConfig>>,
+    pub info: Arc<Mutex<PeerInfo>>,
     pub event_tx: UnboundedSender<Event>,
 }
 
 impl PeerManager {
-    pub fn new(config: Arc<Mutex<PeerConfig>>, event_tx: UnboundedSender<Event>) -> Self {
-        Self { config, event_tx }
+    pub fn new(config: Arc<Mutex<PeerInfo>>, event_tx: UnboundedSender<Event>) -> Self {
+        Self { info: config, event_tx }
     }
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct PeerConfig {
-    neighbor: Neighbor,
-    asn: u32,
-    router_id: Ipv4Addr,
-    hold_time: u64,
-    keepalive_time: u64,
-    connect_retry_time: u64,
-    local_capabilities: CapabilitySet,
+pub(crate) struct PeerInfo {
+    pub neighbor: Neighbor,
+    pub asn: u32,
+    pub router_id: Ipv4Addr,
+    pub hold_time: u64,
+    pub keepalive_time: u64,
+    pub connect_retry_time: u64,
+    pub local_capabilities: CapabilitySet,
+    pub state: State,
 }
 
-impl PeerConfig {
+impl PeerInfo {
     pub fn new(
         local_as: u32,
         local_router_id: Ipv4Addr,
@@ -65,13 +66,14 @@ impl PeerConfig {
             keepalive_time: Bgp::DEFAULT_KEEPALIVE_TIME,
             connect_retry_time: Bgp::DEFAULT_CONNECT_RETRY_TIME,
             local_capabilities,
+            state: State::Idle,
         }
     }
 }
 
 #[derive(Debug)]
 pub(crate) struct Peer {
-    config: Arc<Mutex<PeerConfig>>,
+    info: Arc<Mutex<PeerInfo>>,
     fsm: Mutex<FiniteStateMachine>,
     admin_rx: UnboundedReceiver<Event>,
     msg_tx: Option<UnboundedSender<Message>>,
@@ -82,13 +84,15 @@ pub(crate) struct Peer {
     negotiated_hold_time: u64,
     connect_retry_counter: u32,
     drop_signal: Arc<Notify>,
+    send_counter: Arc<Mutex<MessageCounter>>,
+    recv_counter: Arc<Mutex<MessageCounter>>,
 }
 
 impl Peer {
-    pub fn new(config: Arc<Mutex<PeerConfig>>, rx: UnboundedReceiver<Event>) -> Self {
+    pub fn new(config: Arc<Mutex<PeerInfo>>, rx: UnboundedReceiver<Event>) -> Self {
         let keepalive_time = { config.lock().unwrap().keepalive_time };
         Self {
-            config,
+            info: config,
             fsm: Mutex::new(FiniteStateMachine::new()),
             admin_rx: rx,
             msg_tx: None,
@@ -102,6 +106,8 @@ impl Peer {
             negotiated_hold_time: Bgp::DEFAULT_HOLD_TIME,
             connect_retry_counter: 0,
             drop_signal: Arc::new(Notify::new()),
+            send_counter: Arc::new(Mutex::new(MessageCounter::new())),
+            recv_counter: Arc::new(Mutex::new(MessageCounter::new())),
         }
     }
 
@@ -109,12 +115,17 @@ impl Peer {
         self.fsm.lock().unwrap().get_state()
     }
 
+    fn move_state(&mut self, event: u8) {
+        let state = self.fsm.lock().unwrap().mv(event);
+        self.info.lock().unwrap().state = state;
+    }
+
     #[tracing::instrument(skip(self))]
     pub async fn handle(&mut self) {
         // handle event
         let (msg_event_tx, mut msg_event_rx) = unbounded_channel::<BgpMessageEvent>();
         let (peer_addr, peer_as) = {
-            let c = self.config.lock().unwrap();
+            let c = self.info.lock().unwrap();
             (c.neighbor.get_addr().to_string(), c.neighbor.get_asn())
         };
 
@@ -203,14 +214,16 @@ impl Peer {
         stream: TcpStream,
         msg_event_tx: UnboundedSender<BgpMessageEvent>,
     ) -> Result<(), Error> {
-        let mut codec = Framed::new(stream, Codec::new(true, false));
+        let codec = Framed::new(stream, Codec::new(true, false));
         let (msg_tx, mut msg_rx) = unbounded_channel::<Message>();
         self.msg_tx = Some(msg_tx);
         let drop_signal = self.drop_signal.clone();
         let (peer_addr, peer_as) = {
-            let c = self.config.lock().unwrap();
+            let c = self.info.lock().unwrap();
             (c.neighbor.get_addr().to_string(), c.neighbor.get_asn())
         };
+        let send_counter = self.send_counter.clone();
+        let recv_counter = self.recv_counter.clone();
         tokio::spawn(async move {
             let (mut sender, mut receiver) = codec.split();
             loop {
@@ -220,11 +233,26 @@ impl Peer {
                             match msg_result {
                                 Ok(msg) => {
                                     match msg.msg_type() {
-                                        MessageType::Open => msg_event_tx.send(BgpMessageEvent::BgpOpen(msg)).unwrap(),
-                                        MessageType::Update => msg_event_tx.send(BgpMessageEvent::UpdateMsg(msg)).unwrap(),
-                                        MessageType::Keepalive => msg_event_tx.send(BgpMessageEvent::KeepAliveMsg).unwrap(),
-                                        MessageType::Notification => msg_event_tx.send(BgpMessageEvent::NotifMsg(msg)).unwrap(),
-                                        MessageType::RouteRefresh => msg_event_tx.send(BgpMessageEvent::RouteRefreshMsg(msg)).unwrap(),
+                                        MessageType::Open => {
+                                            recv_counter.lock().unwrap().open += 1;
+                                            msg_event_tx.send(BgpMessageEvent::BgpOpen(msg)).unwrap();
+                                        },
+                                        MessageType::Update => {
+                                            recv_counter.lock().unwrap().update += 1;
+                                            msg_event_tx.send(BgpMessageEvent::UpdateMsg(msg)).unwrap();
+                                        },
+                                        MessageType::Keepalive => {
+                                            recv_counter.lock().unwrap().keepalive += 1;
+                                            msg_event_tx.send(BgpMessageEvent::KeepAliveMsg).unwrap();
+                                        },
+                                        MessageType::Notification => {
+                                            recv_counter.lock().unwrap().notification += 1;
+                                            msg_event_tx.send(BgpMessageEvent::NotifMsg(msg)).unwrap();
+                                        },
+                                        MessageType::RouteRefresh => {
+                                            recv_counter.lock().unwrap().route_refresh += 1;
+                                            msg_event_tx.send(BgpMessageEvent::RouteRefreshMsg(msg)).unwrap();
+                                        },
                                     };
                                 },
                                 Err(e) => {
@@ -249,6 +277,13 @@ impl Peer {
                     }
                     msg = msg_rx.recv().fuse() => {
                         if let Some(msg) = msg {
+                            match msg.msg_type() {
+                                MessageType::Open => send_counter.lock().unwrap().open += 1,
+                                MessageType::Update => send_counter.lock().unwrap().update += 1,
+                                MessageType::Keepalive => send_counter.lock().unwrap().keepalive += 1,
+                                MessageType::Notification => send_counter.lock().unwrap().notification += 1,
+                                MessageType::RouteRefresh => send_counter.lock().unwrap().route_refresh += 1,
+                            };
                             sender.send(msg).await;
                         }
                     }
@@ -263,6 +298,13 @@ impl Peer {
     }
 
     fn release(&mut self) -> Result<(), Error> {
+        self.keepalive_time = 0;
+        self.keepalive_timer = interval_at(Instant::now() + Duration::new(u32::MAX.into(), 0), Duration::new(u32::MAX.into(), 0));
+        self.hold_timer.stop();
+        self.negotiated_hold_time = Bgp::DEFAULT_HOLD_TIME;
+        self.msg_tx = None;
+        self.send_counter.lock().unwrap().reset();
+        self.recv_counter.lock().unwrap().reset();
         Ok(())
     }
 
@@ -272,13 +314,13 @@ impl Peer {
 
     // Event 1
     fn manual_start(&mut self) -> Result<(), Error> {
-        self.fsm.lock().unwrap().mv(Event::AMDIN_MANUAL_START);
+        self.move_state(Event::AMDIN_MANUAL_START);
         Ok(())
     }
 
     // Event 2
     fn manual_stop(&mut self) -> Result<(), Error> {
-        self.fsm.lock().unwrap().mv(Event::ADMIN_MANUAL_STOP);
+        self.move_state(Event::ADMIN_MANUAL_STOP);
         Ok(())
     }
 
@@ -354,7 +396,7 @@ impl Peer {
                 self.connect_retry_counter += 1;
             }
         }
-        self.fsm.lock().unwrap().mv(Event::TIMER_HOLD_TIMER_EXPIRE);
+        self.move_state(Event::TIMER_HOLD_TIMER_EXPIRE);
         Ok(())
     }
 
@@ -439,7 +481,7 @@ impl Peer {
                 self.initialize(stream, msg_event_tx)?;
                 let msg = self.build_open_msg()?;
                 self.send(msg)?;
-                let hold_time = { self.config.lock().unwrap().hold_time };
+                let hold_time = { self.info.lock().unwrap().hold_time };
                 self.hold_timer.push(hold_time);
             }
             State::Active => {
@@ -460,7 +502,7 @@ impl Peer {
                 self.initialize(stream, msg_event_tx)?;
                 let msg = self.build_open_msg()?;
                 self.send(msg)?;
-                let hold_time = { self.config.lock().unwrap().hold_time };
+                let hold_time = { self.info.lock().unwrap().hold_time };
                 self.hold_timer.push(hold_time);
             }
             State::OpenSent => {
@@ -482,7 +524,7 @@ impl Peer {
                 // connection SHALL be tracked until it sends an OPEN message.
             }
         }
-        self.fsm.lock().unwrap().mv(event);
+        self.move_state(event);
         Ok(())
     }
 
@@ -576,7 +618,7 @@ impl Peer {
             }
             _ => {}
         }
-        self.fsm.lock().unwrap().mv(Event::MESSAGE_BGP_OPEN);
+        self.move_state(Event::MESSAGE_BGP_OPEN);
         Ok(())
     }
 
@@ -638,7 +680,7 @@ impl Peer {
             }
             _ => {}
         }
-        self.fsm.lock().unwrap().mv(Event::MESSAGE_BGP_HEADER_ERROR);
+        self.move_state(Event::MESSAGE_BGP_HEADER_ERROR);
         Ok(())
     }
 
@@ -735,7 +777,7 @@ impl Peer {
             }
             _ => {}
         }
-        self.fsm.lock().unwrap().mv(Event::MESSAGE_NOTIF_MSG_ERROR);
+        self.move_state(Event::MESSAGE_NOTIF_MSG_ERROR);
         Ok(())
     }
 
@@ -744,7 +786,7 @@ impl Peer {
     fn notification_msg(&mut self, msg: Message) -> Result<(), Error> {
         let (code, subcode, data) = msg.to_notification()?;
         let (peer_addr, peer_as) = {
-            let conf = self.config.lock().unwrap();
+            let conf = self.info.lock().unwrap();
             (conf.neighbor.get_addr().to_string(), conf.neighbor.get_asn())
         };
         tracing::warn!(peer.addr=peer_addr, peer.asn=peer_as, notification_code=?code, notification_subcode=?subcode);
@@ -787,7 +829,7 @@ impl Peer {
                 self.connect_retry_counter += 1;
             }
         }
-        self.fsm.lock().unwrap().mv(Event::MESSAGE_NOTIF_MSG);
+        self.move_state(Event::MESSAGE_NOTIF_MSG);
         Ok(())
     }
 
@@ -825,7 +867,7 @@ impl Peer {
                 self.connect_retry_counter += 1;
             }
         }
-        self.fsm.lock().unwrap().mv(Event::MESSAGE_KEEPALIVE_MSG);
+        self.move_state(Event::MESSAGE_KEEPALIVE_MSG);
         Ok(())
     }
 
@@ -859,7 +901,7 @@ impl Peer {
                 self.connect_retry_counter += 1;
             }
         }
-        self.fsm.lock().unwrap().mv(Event::MESSAGE_UPDATE_MSG);
+        self.move_state(Event::MESSAGE_UPDATE_MSG);
         Ok(())
     }
 
@@ -909,7 +951,7 @@ impl Peer {
                 self.drop_connection();
             }
         }
-        self.fsm.lock().unwrap().mv(Event::MESSAGE_UPDATE_MSG_ERROR);
+        self.move_state(Event::MESSAGE_UPDATE_MSG_ERROR);
         Ok(())
     }
 
@@ -933,7 +975,7 @@ impl Peer {
         // Time.  The calculated value indicates the maximum number of
         // seconds that may elapse between the receipt of successive
         // KEEPALIVE and/or UPDATE messages from the sender.
-        let local_hold_time = self.config.lock().unwrap().hold_time;
+        let local_hold_time = self.info.lock().unwrap().hold_time;
         let negotiated_hold_time = if local_hold_time > received_hold_time {
             received_hold_time
         } else {
@@ -955,7 +997,7 @@ impl Peer {
                 interval_at(Instant::now(), Duration::new(u64::MAX, 0));
         }
         let (peer_addr, peer_as) = {
-            let conf = self.config.lock().unwrap();
+            let conf = self.info.lock().unwrap();
             (conf.neighbor.get_addr().to_string(), conf.neighbor.get_asn())
         };
         tracing::info!(peer.addr=peer_addr, peer.asn=peer_as, hold_time=negotiated_hold_time, keepalive_time=self.keepalive_time);
@@ -964,7 +1006,7 @@ impl Peer {
     }
 
     fn build_open_msg(&self) -> Result<Message, Error> {
-        let conf = self.config.lock().unwrap();
+        let conf = self.info.lock().unwrap();
         let mut builder = MessageBuilder::builder(MessageType::Open);
         builder
             .asn(conf.asn)?
@@ -994,7 +1036,7 @@ struct Timer {
 impl Timer {
     fn new() -> Self {
         let mut ticker = FuturesUnordered::new();
-        ticker.push(sleep(Duration::new(u64::MAX, 0)));
+        ticker.push(sleep(Duration::new(u32::MAX.into(), 0)));
         Self {
             ticker,
             interval: u64::MAX,
@@ -1014,6 +1056,40 @@ impl Timer {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct MessageCounter {
+    open: usize,
+    update: usize,
+    keepalive: usize,
+    notification: usize,
+    route_refresh: usize,
+}
+
+impl MessageCounter {
+    fn new() -> Self {
+        Self {
+            open: 0,
+            update: 0,
+            keepalive: 0, 
+            notification: 0,
+            route_refresh: 0,
+        }
+    }
+
+    fn sum(&self) -> usize {
+        self.open + self.update + self.keepalive + self.notification + self.route_refresh
+    }
+
+    fn reset(&mut self) {
+        self.open = 0;
+        self.update = 0;
+        self.keepalive = 0;
+        self.notification = 0;
+        self.route_refresh = 0;
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use std::net::{IpAddr, Ipv4Addr};
@@ -1025,12 +1101,16 @@ mod tests {
         config::NeighborConfig,
         packet::{self, message::Message},
     };
+    use crate::bgp::event::Event;
+    use crate::bgp::peer::fsm::State;
 
-    use super::{Peer, PeerConfig};
+    use super::{Peer, PeerInfo};
+    use rstest::rstest;
 
     #[tokio::test]
-    async fn works_peer_build_open_msg() {
-        let conf = Arc::new(Mutex::new(PeerConfig::new(
+    async fn works_peer_move_event() {
+        let event = vec![Event::AMDIN_MANUAL_START, Event::TIMER_CONNECT_RETRY_TIMER_EXPIRE, Event::CONNECTION_TCP_CONNECTION_CONFIRMED, Event::MESSAGE_BGP_OPEN, Event::MESSAGE_KEEPALIVE_MSG];
+        let info = Arc::new(Mutex::new(PeerInfo::new(
             100,
             Ipv4Addr::new(1, 1, 1, 1),
             NeighborConfig {
@@ -1041,7 +1121,27 @@ mod tests {
             CapabilitySet::default(100),
         )));
         let (_, rx) = tokio::sync::mpsc::unbounded_channel();
-        let peer = Peer::new(conf, rx);
+        let mut peer = Peer::new(info, rx);
+        for e in event.into_iter() {
+            peer.move_state(e);
+        }
+        assert_eq!(State::Established, peer.info.lock().unwrap().state);
+    }
+
+    #[tokio::test]
+    async fn works_peer_build_open_msg() {
+        let info = Arc::new(Mutex::new(PeerInfo::new(
+            100,
+            Ipv4Addr::new(1, 1, 1, 1),
+            NeighborConfig {
+                asn: 200,
+                address: IpAddr::V4(Ipv4Addr::new(2, 2, 2, 2)),
+                router_id: Ipv4Addr::new(2, 2, 2, 2),
+            },
+            CapabilitySet::default(100),
+        )));
+        let (_, rx) = tokio::sync::mpsc::unbounded_channel();
+        let peer = Peer::new(info, rx);
         let msg = peer.build_open_msg().unwrap();
         assert_eq!(
             Message::Open {
