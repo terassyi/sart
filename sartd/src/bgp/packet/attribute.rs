@@ -182,7 +182,7 @@ impl Attribute {
                 let _ = data.get_u8();
                 let mut nlri = Vec::new();
                 while data.remaining() > remain - length {
-                    nlri.push(Prefix::decode(family, add_path_enabled, data)?)
+                    nlri.push(Prefix::decode(&family, add_path_enabled, data)?)
                 }
                 Ok(Self::MPReachNLRI(b, family, next_hops, nlri))
             }
@@ -192,7 +192,7 @@ impl Attribute {
                 })?;
                 let mut withdrawn_routes = Vec::new();
                 while data.remaining() > remain - length {
-                    withdrawn_routes.push(Prefix::decode(family, false, data)?);
+                    withdrawn_routes.push(Prefix::decode(&family, false, data)?);
                 }
                 Ok(Self::MPUnReachNLRI(b, family, withdrawn_routes))
             }

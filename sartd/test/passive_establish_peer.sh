@@ -5,13 +5,17 @@ set -x
 echo "==== Test to establish BGP session ===="
 
 sartd/test/simple/topology.sh
-sartd/test/simple/gobgp_run.sh
 
 echo "==== RUN SARTD BGP ===="
 sudo ip netns exec core sartd/target/debug/sartd -f sartd/test/simple/config.yaml &
 
+sleep 1
+
+echo "==== RUN GOBGP ===="
+sartd/test/simple/gobgp_run.sh
+
 echo "==== SLEEP 10s ===="
-sleep 10s
+sleep 10
 
 SPINE1_SESSION_STATE=$(sudo ip netns exec spine1 gobgp neighbor --json | jq .[].state.session_state)
 RES=0
@@ -38,5 +42,5 @@ sartd/test/sartd_stop.sh
 sartd/test/simple/clean_topology.sh
 
 if [ $RES -ne 2 ]; then
-	exit 1
+	false
 fi

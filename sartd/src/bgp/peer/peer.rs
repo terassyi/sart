@@ -35,7 +35,10 @@ pub(crate) struct PeerManager {
 
 impl PeerManager {
     pub fn new(config: Arc<Mutex<PeerInfo>>, event_tx: UnboundedSender<Event>) -> Self {
-        Self { info: config, event_tx }
+        Self {
+            info: config,
+            event_tx,
+        }
     }
 }
 
@@ -231,29 +234,31 @@ impl Peer {
                     msg = receiver.next().fuse() => {
                         if let Some(msg_result) = msg {
                             match msg_result {
-                                Ok(msg) => {
-                                    match msg.msg_type() {
-                                        MessageType::Open => {
-                                            recv_counter.lock().unwrap().open += 1;
-                                            msg_event_tx.send(BgpMessageEvent::BgpOpen(msg)).unwrap();
-                                        },
-                                        MessageType::Update => {
-                                            recv_counter.lock().unwrap().update += 1;
-                                            msg_event_tx.send(BgpMessageEvent::UpdateMsg(msg)).unwrap();
-                                        },
-                                        MessageType::Keepalive => {
-                                            recv_counter.lock().unwrap().keepalive += 1;
-                                            msg_event_tx.send(BgpMessageEvent::KeepAliveMsg).unwrap();
-                                        },
-                                        MessageType::Notification => {
-                                            recv_counter.lock().unwrap().notification += 1;
-                                            msg_event_tx.send(BgpMessageEvent::NotifMsg(msg)).unwrap();
-                                        },
-                                        MessageType::RouteRefresh => {
-                                            recv_counter.lock().unwrap().route_refresh += 1;
-                                            msg_event_tx.send(BgpMessageEvent::RouteRefreshMsg(msg)).unwrap();
-                                        },
-                                    };
+                                Ok(msgs) => {
+                                    for msg in msgs.into_iter() {
+                                        match msg.msg_type() {
+                                            MessageType::Open => {
+                                                recv_counter.lock().unwrap().open += 1;
+                                                msg_event_tx.send(BgpMessageEvent::BgpOpen(msg)).unwrap();
+                                            },
+                                            MessageType::Update => {
+                                                recv_counter.lock().unwrap().update += 1;
+                                                msg_event_tx.send(BgpMessageEvent::UpdateMsg(msg)).unwrap();
+                                            },
+                                            MessageType::Keepalive => {
+                                                recv_counter.lock().unwrap().keepalive += 1;
+                                                msg_event_tx.send(BgpMessageEvent::KeepAliveMsg).unwrap();
+                                            },
+                                            MessageType::Notification => {
+                                                recv_counter.lock().unwrap().notification += 1;
+                                                msg_event_tx.send(BgpMessageEvent::NotifMsg(msg)).unwrap();
+                                            },
+                                            MessageType::RouteRefresh => {
+                                                recv_counter.lock().unwrap().route_refresh += 1;
+                                                msg_event_tx.send(BgpMessageEvent::RouteRefreshMsg(msg)).unwrap();
+                                            },
+                                        };
+                                    }
                                 },
                                 Err(e) => {
                                     match e {
@@ -299,7 +304,10 @@ impl Peer {
 
     fn release(&mut self) -> Result<(), Error> {
         self.keepalive_time = 0;
-        self.keepalive_timer = interval_at(Instant::now() + Duration::new(u32::MAX.into(), 0), Duration::new(u32::MAX.into(), 0));
+        self.keepalive_timer = interval_at(
+            Instant::now() + Duration::new(u32::MAX.into(), 0),
+            Duration::new(u32::MAX.into(), 0),
+        );
         self.hold_timer.stop();
         self.negotiated_hold_time = Bgp::DEFAULT_HOLD_TIME;
         self.msg_tx = None;
@@ -408,7 +416,7 @@ impl Peer {
                 // restarts its KeepaliveTimer, unless the negotiated HoldTime value is zero.
                 // Each time the local system sends a KEEPALIVE or UPDATE message, it restarts its KeepaliveTimer, unless the negotiated HoldTime value is zero.
                 if self.keepalive_time == 0 {
-                    return Ok(())
+                    return Ok(());
                 }
                 let msg = Self::build_keepalive_msg()?;
                 self.send(msg)?;
@@ -787,7 +795,10 @@ impl Peer {
         let (code, subcode, data) = msg.to_notification()?;
         let (peer_addr, peer_as) = {
             let conf = self.info.lock().unwrap();
-            (conf.neighbor.get_addr().to_string(), conf.neighbor.get_asn())
+            (
+                conf.neighbor.get_addr().to_string(),
+                conf.neighbor.get_asn(),
+            )
         };
         tracing::warn!(peer.addr=peer_addr, peer.asn=peer_as, notification_code=?code, notification_subcode=?subcode);
         match self.state() {
@@ -993,14 +1004,21 @@ impl Peer {
         } else {
             self.hold_timer.stop();
             self.keepalive_time = 0;
-            self.keepalive_timer =
-                interval_at(Instant::now(), Duration::new(u64::MAX, 0));
+            self.keepalive_timer = interval_at(Instant::now(), Duration::new(u64::MAX, 0));
         }
         let (peer_addr, peer_as) = {
             let conf = self.info.lock().unwrap();
-            (conf.neighbor.get_addr().to_string(), conf.neighbor.get_asn())
+            (
+                conf.neighbor.get_addr().to_string(),
+                conf.neighbor.get_asn(),
+            )
         };
-        tracing::info!(peer.addr=peer_addr, peer.asn=peer_as, hold_time=negotiated_hold_time, keepalive_time=self.keepalive_time);
+        tracing::info!(
+            peer.addr = peer_addr,
+            peer.asn = peer_as,
+            hold_time = negotiated_hold_time,
+            keepalive_time = self.keepalive_time
+        );
 
         Ok(negotiated_hold_time)
     }
@@ -1070,7 +1088,7 @@ impl MessageCounter {
         Self {
             open: 0,
             update: 0,
-            keepalive: 0, 
+            keepalive: 0,
             notification: 0,
             route_refresh: 0,
         }
@@ -1089,27 +1107,32 @@ impl MessageCounter {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use std::net::{IpAddr, Ipv4Addr};
     use std::sync::{Arc, Mutex};
 
+    use crate::bgp::event::Event;
+    use crate::bgp::peer::fsm::State;
     use crate::bgp::server::Bgp;
     use crate::bgp::{
         capability::CapabilitySet,
         config::NeighborConfig,
         packet::{self, message::Message},
     };
-    use crate::bgp::event::Event;
-    use crate::bgp::peer::fsm::State;
 
     use super::{Peer, PeerInfo};
     use rstest::rstest;
 
     #[tokio::test]
     async fn works_peer_move_event() {
-        let event = vec![Event::AMDIN_MANUAL_START, Event::TIMER_CONNECT_RETRY_TIMER_EXPIRE, Event::CONNECTION_TCP_CONNECTION_CONFIRMED, Event::MESSAGE_BGP_OPEN, Event::MESSAGE_KEEPALIVE_MSG];
+        let event = vec![
+            Event::AMDIN_MANUAL_START,
+            Event::TIMER_CONNECT_RETRY_TIMER_EXPIRE,
+            Event::CONNECTION_TCP_CONNECTION_CONFIRMED,
+            Event::MESSAGE_BGP_OPEN,
+            Event::MESSAGE_KEEPALIVE_MSG,
+        ];
         let info = Arc::new(Mutex::new(PeerInfo::new(
             100,
             Ipv4Addr::new(1, 1, 1, 1),

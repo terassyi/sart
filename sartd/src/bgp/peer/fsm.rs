@@ -73,8 +73,8 @@ impl FiniteStateMachine {
 				}
 			},
 		};
-		self.state = new_state;
-		new_state
+        self.state = new_state;
+        new_state
     }
 }
 

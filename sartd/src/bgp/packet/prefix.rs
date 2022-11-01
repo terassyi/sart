@@ -22,7 +22,7 @@ impl Prefix {
     }
 
     pub fn decode(
-        family: AddressFamily,
+        family: &AddressFamily,
         add_path_enabled: bool,
         data: &mut BytesMut,
     ) -> Result<Self, Error> {
@@ -144,7 +144,7 @@ mod tests {
         expected: Prefix,
     ) {
         let mut buf = BytesMut::from(input.as_slice());
-        match Prefix::decode(family, add_path_enabled, &mut buf) {
+        match Prefix::decode(&family, add_path_enabled, &mut buf) {
             Ok(pref) => assert_eq!(expected, pref),
             Err(_) => assert!(false),
         }

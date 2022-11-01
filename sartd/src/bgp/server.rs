@@ -12,7 +12,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc::{channel, Receiver, UnboundedSender};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tokio::sync::Notify;
-use tokio::time::{sleep, timeout, Instant, interval_at};
+use tokio::time::{interval_at, sleep, timeout, Instant};
 use tokio_stream::wrappers::TcpListenerStream;
 use tonic::transport::Server;
 use tonic_reflection::server::Builder;
