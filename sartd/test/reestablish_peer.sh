@@ -18,7 +18,7 @@ echo "==== STOP GOBGP ===="
 sartd/test/simple/gobgp_stop.sh
 
 echo "==== WAIT FOR RESTARTING SARTD PEER HANDLING"
-sleep 120
+sleep 30
 
 echo "==== RESTART GOBGP ===="
 sartd/test/simple/gobgp_run.sh

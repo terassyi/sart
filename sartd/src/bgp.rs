@@ -7,3 +7,5 @@ pub(crate) mod family;
 pub(crate) mod packet;
 pub(crate) mod peer;
 pub(crate) mod server;
+pub(crate) mod rib;
+pub(crate) mod path;

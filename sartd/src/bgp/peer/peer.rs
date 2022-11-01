@@ -131,6 +131,7 @@ impl Peer {
             let c = self.info.lock().unwrap();
             (c.neighbor.get_addr().to_string(), c.neighbor.get_asn())
         };
+        let peer_down_signal = Arc::new(Notify::new());
 
         loop {
             futures::select_biased! {
@@ -164,8 +165,8 @@ impl Peer {
                                 _ => unimplemented!(),
                             },
                             Event::Connection(event) => match event {
-                                TcpConnectionEvent::TcpCRAcked(stream) => self.handle_tcp_connect(stream, msg_event_tx.clone(), Event::CONNECTION_TCP_CR_ACKED),
-                                TcpConnectionEvent::TcpConnectionConfirmed(stream) => self.handle_tcp_connect(stream, msg_event_tx.clone(), Event::CONNECTION_TCP_CONNECTION_CONFIRMED),
+                                TcpConnectionEvent::TcpCRAcked(stream) => self.handle_tcp_connect(stream, msg_event_tx.clone(), peer_down_signal.clone(), Event::CONNECTION_TCP_CR_ACKED),
+                                TcpConnectionEvent::TcpConnectionConfirmed(stream) => self.handle_tcp_connect(stream, msg_event_tx.clone(), peer_down_signal.clone(), Event::CONNECTION_TCP_CONNECTION_CONFIRMED),
                                 TcpConnectionEvent::TcpConnectionFail => self.tcp_connection_fail(),
                                 _ => unimplemented!(),
                             },
@@ -206,7 +207,10 @@ impl Peer {
                         }
                     }
                 }
-                // message handling
+                _ = peer_down_signal.notified().fuse() => {
+                    self.release().unwrap();
+                    self.move_state(Event::CONNECTION_TCP_CONNECTION_FAIL);
+                }
             };
         }
     }
@@ -226,6 +230,7 @@ impl Peer {
         &mut self,
         stream: TcpStream,
         msg_event_tx: UnboundedSender<BgpMessageEvent>,
+        peer_down_signal: Arc<Notify>,
     ) -> Result<(), Error> {
         let codec = Framed::new(stream, Codec::new(true, false));
         let (msg_tx, mut msg_rx) = unbounded_channel::<Message>();
@@ -296,6 +301,10 @@ impl Peer {
                                     }
                                 },
                             }
+                        } else {
+                            tracing::error!(peer.addr=peer_addr, peer.asn=peer_as, error="connection is lost");
+                            peer_down_signal.notify_one();
+                            return;
                         }
                     }
                     msg = msg_rx.recv().fuse() => {
@@ -482,6 +491,7 @@ impl Peer {
         &mut self,
         stream: TcpStream,
         msg_event_tx: UnboundedSender<BgpMessageEvent>,
+        peer_down_signal: Arc<Notify>,
         event: u8,
     ) -> Result<(), Error> {
         match self.state() {
@@ -501,7 +511,7 @@ impl Peer {
                 //   - sends an OPEN message to its peer,
                 //   - sets the HoldTimer to a large value, and
                 //   - changes its state to OpenSent.
-                self.initialize(stream, msg_event_tx)?;
+                self.initialize(stream, msg_event_tx, peer_down_signal)?;
                 let msg = self.build_open_msg()?;
                 self.send(msg)?;
                 let hold_time = { self.info.lock().unwrap().hold_time };
@@ -522,7 +532,7 @@ impl Peer {
                 //   - sets its HoldTimer to a large value, and
                 //   - changes its state to OpenSent.
                 // A HoldTimer value of 4 minutes is suggested as a "large value" for the HoldTimer.
-                self.initialize(stream, msg_event_tx)?;
+                self.initialize(stream, msg_event_tx, peer_down_signal)?;
                 let msg = self.build_open_msg()?;
                 self.send(msg)?;
                 let hold_time = { self.info.lock().unwrap().hold_time };
@@ -569,7 +579,7 @@ impl Peer {
                 // continues to listen for a connection that may be initiated by the remote BGP peer, and
                 // changes its state to Active.
 
-                // nothing to do here
+                self.drop_connection();
             }
             State::Established => {
                 // sets the ConnectRetryTimer to zero,
@@ -909,6 +919,10 @@ impl Peer {
                 // processes the message,
                 // restarts its HoldTimer, if the negotiated HoldTime value is non-zero, and
                 // remains in the Established state.
+                if self.negotiated_hold_time != 0 {
+                    self.hold_timer.push(self.negotiated_hold_time);
+                }
+                self.handle_update_msg()?;
             }
             _ => {
                 // sets the ConnectRetryTimer to zero,
@@ -1050,6 +1064,10 @@ impl Peer {
     fn build_keepalive_msg() -> Result<Message, Error> {
         let builder = MessageBuilder::builder(MessageType::Keepalive);
         builder.build()
+    }
+
+    fn handle_update_msg(&self) -> Result<(), Error> {
+        Ok(())
     }
 }
 
