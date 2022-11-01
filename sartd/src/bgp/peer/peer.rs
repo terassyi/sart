@@ -159,6 +159,8 @@ impl Peer {
                 }
                 event = msg_event_rx.recv().fuse() => {
                     if let Some(event) = event {
+                        let current_state = self.state();
+                        tracing::info!(peer.addr=peer_addr, peer.asn=peer_as, state=?current_state, event=%event);
                         match event {
                             BgpMessageEvent::BgpOpen(msg) => self.bgp_open(msg).unwrap(),
                             BgpMessageEvent::BgpHeaderError(e) => self.bgp_header_error(e).unwrap(),
@@ -346,12 +348,14 @@ impl Peer {
     }
 
     // Event 11
-    fn keepalive_timer_expire(&self) -> Result<(), Error> {
+    fn keepalive_timer_expire(&mut self) -> Result<(), Error> {
         match self.state() {
             State::Established => {
                 // sends a KEEPALIVE message
                 // restarts its KeepaliveTimer, unless the negotiated HoldTime value is zero.
                 // Each time the local system sends a KEEPALIVE or UPDATE message, it restarts its KeepaliveTimer, unless the negotiated HoldTime value is zero.
+                let msg = Self::build_keepalive_msg()?;
+                self.send(msg)?;
             }
             State::OpenSent => {
                 // sends the NOTIFICATION with the Error Code Finite State Machine Error,
@@ -359,11 +363,21 @@ impl Peer {
                 // releases all BGP resources,
                 // drops the TCP connection,
                 // increments the ConnectRetryCounter by 1,
+                let mut builder = MessageBuilder::builder(MessageType::Notification);
+                let msg = builder
+                    .code(NotificationCode::FiniteStateMachine)?
+                    .build()?;
+                self.send(msg)?;
+                self.release()?;
+                self.drop_connection();
+                self.connect_retry_counter += 1;
             }
             State::OpenConfirm => {
                 // sends a KEEPALIVE message,
                 // restarts the KeepaliveTimer, and
                 // remains in the OpenConfirmed state
+                let msg = Self::build_keepalive_msg()?;
+                self.send(msg)?;
             }
             _ => {
                 // if the ConnectRetryTimer is running, stops and resets the ConnectRetryTimer (sets to zero),
@@ -371,6 +385,9 @@ impl Peer {
                 // drops the TCP connection,
                 // increments the ConnectRetryCounter by 1,
                 // changes its state to Idle.
+                self.release()?;
+                self.drop_connection();
+                self.connect_retry_counter += 1;
             }
         }
         self.fsm
@@ -706,7 +723,7 @@ impl Peer {
     }
 
     // Event 25
-    fn notification_msg(&self) -> Result<(), Error> {
+    fn notification_msg(&mut self) -> Result<(), Error> {
         match self.state() {
             State::OpenSent => {
                 // sends the NOTIFICATION with the Error Code Finite State Machine Error,
@@ -715,6 +732,14 @@ impl Peer {
                 // drops the TCP connection,
                 // increments the ConnectRetryCounter by 1,
                 // changes its state to Idle.
+                let mut builder = MessageBuilder::builder(MessageType::Notification);
+                let msg = builder
+                    .code(NotificationCode::FiniteStateMachine)?
+                    .build()?;
+                self.send(msg)?;
+                self.release()?;
+                self.drop_connection();
+                self.connect_retry_counter += 1;
             }
             State::Established => {
                 // sets the ConnectRetryTimer to zero,
@@ -723,6 +748,9 @@ impl Peer {
                 // drops the TCP connection,
                 // increments the ConnectRetryCounter by 1,
                 // changes its state to Idle.
+                self.release()?;
+                self.drop_connection();
+                self.connect_retry_counter += 1;
             }
             _ => {
                 // sets the ConnectRetryTimer to zero,
@@ -730,6 +758,9 @@ impl Peer {
                 // drops the TCP connection,
                 // increments the ConnectRetryCounter by 1,
                 // changes its state to Idle.
+                self.release()?;
+                self.drop_connection();
+                self.connect_retry_counter += 1;
             }
         }
         self.fsm.lock().unwrap().mv(Event::MESSAGE_NOTIF_MSG);
@@ -737,7 +768,7 @@ impl Peer {
     }
 
     // Event 26
-    fn keepalive_msg(&self) -> Result<(), Error> {
+    fn keepalive_msg(&mut self) -> Result<(), Error> {
         match self.state() {
             State::OpenSent => {
                 // sends the NOTIFICATION with the Error Code Finite State Machine Error,
@@ -745,6 +776,14 @@ impl Peer {
                 // releases all BGP resources,
                 // drops the TCP connection,
                 // increments the ConnectRetryCounter by 1,
+                let mut builder = MessageBuilder::builder(MessageType::Notification);
+                let msg = builder
+                    .code(NotificationCode::FiniteStateMachine)?
+                    .build()?;
+                self.send(msg)?;
+                self.release()?;
+                self.drop_connection();
+                self.connect_retry_counter += 1;
             }
             State::OpenConfirm | State::Established => {
                 // restarts the HoldTimer and if the negotiated HoldTime value is non-zero, and
@@ -756,6 +795,9 @@ impl Peer {
                 // drops the TCP connection,
                 // increments the ConnectRetryCounter by one,
                 // changes its state to Idle.
+                self.release()?;
+                self.drop_connection();
+                self.connect_retry_counter += 1;
             }
         }
         self.fsm.lock().unwrap().mv(Event::MESSAGE_KEEPALIVE_MSG);
@@ -763,10 +805,18 @@ impl Peer {
     }
 
     // Event 27
-    fn update_msg(&self) -> Result<(), Error> {
+    fn update_msg(&mut self) -> Result<(), Error> {
         match self.state() {
             State::OpenSent | State::OpenConfirm => {
                 // sends a NOTIFICATION with a code of Finite State Machine Error,
+                let mut builder = MessageBuilder::builder(MessageType::Notification);
+                let msg = builder
+                    .code(NotificationCode::FiniteStateMachine)?
+                    .build()?;
+                self.send(msg)?;
+                self.release()?;
+                self.drop_connection();
+                self.connect_retry_counter += 1;
             }
             State::Established => {
                 // processes the message,
@@ -779,6 +829,9 @@ impl Peer {
                 // drops the TCP connection,
                 // increments the ConnectRetryCounter by one,
                 // changes its state to Idle.
+                self.release()?;
+                self.drop_connection();
+                self.connect_retry_counter += 1;
             }
         }
         self.fsm.lock().unwrap().mv(Event::MESSAGE_UPDATE_MSG);
@@ -786,10 +839,18 @@ impl Peer {
     }
 
     // Event 28
-    fn update_msg_error(&self, e: UpdateMessageError) -> Result<(), Error> {
+    fn update_msg_error(&mut self, e: UpdateMessageError) -> Result<(), Error> {
         match self.state() {
             State::OpenSent | State::OpenConfirm => {
                 // sends a NOTIFICATION with a code of Finite State Machine Error,
+                let mut builder = MessageBuilder::builder(MessageType::Notification);
+                let msg = builder
+                    .code(NotificationCode::FiniteStateMachine)?
+                    .build()?;
+                self.send(msg)?;
+                self.release()?;
+                self.drop_connection();
+                self.connect_retry_counter += 1;
             }
             State::Established => {
                 // sends a NOTIFICATION message with an Update error,
@@ -799,6 +860,19 @@ impl Peer {
                 // drops the TCP connection,
                 // increments the ConnectRetryCounter by 1,
                 // changes its state to Idle.
+                let mut builder = MessageBuilder::builder(MessageType::Notification);
+                builder.code(NotificationCode::UpdateMessage)?;
+                if let Some(subcode) = NotificationSubCode::try_from_with_code(
+                    e.into(),
+                    NotificationCode::MessageHeader,
+                )? {
+                    builder.subcode(subcode)?;
+                }
+                let msg = builder.build()?;
+                self.send(msg)?;
+                self.release()?;
+                self.drop_connection();
+                self.connect_retry_counter += 1;
             }
             _ => {
                 // sets the ConnectRetryTimer to zero,
@@ -806,6 +880,8 @@ impl Peer {
                 // drops the TCP connection,
                 // increments the ConnectRetryCounter by one,
                 // changes its state to Idle.
+                self.release()?;
+                self.drop_connection();
             }
         }
         self.fsm.lock().unwrap().mv(Event::MESSAGE_UPDATE_MSG_ERROR);
@@ -817,6 +893,10 @@ impl Peer {
     }
 
     fn route_refresh_msg_error(&self) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn negotiate(&mut self) -> Result<(), Error> {
         Ok(())
     }
 

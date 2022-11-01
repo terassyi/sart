@@ -95,7 +95,6 @@ impl Decoder for Codec {
                                 let length = src.get_u8();
                                 l += length + 2;
                                 let cap = Capability::decode(code, length, src)?;
-                                println!("{:?}", cap);
                                 capabilities.push(cap);
                             }
                         }
