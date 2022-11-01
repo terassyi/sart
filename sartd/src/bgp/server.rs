@@ -233,8 +233,6 @@ impl Bgp {
                     {
                         active_conn_tx.send(stream).unwrap();
                         return;
-                    } else {
-                        println!("timeout !");
                     }
                     sleep(Duration::from_secs(connect_retry_time / 2)).await;
                     event_tx

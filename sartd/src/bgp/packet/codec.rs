@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::Ipv4Addr;
 use std::sync::{Arc, RwLock};
 
@@ -61,123 +61,6 @@ impl Decoder for Codec {
             let msg = decode_msg(src, &self.family, self.as4_enabled, self.path_id_enabled)?;
             messages.push(msg);
         }
-        // if src.remaining() < Message::HEADER_LENGTH as usize {
-        //     return Err(Error::MessageHeader(MessageHeaderError::BadMessageLength {
-        //         length: src.remaining() as u16,
-        //     }));
-        // }
-        // while src.len() > 0 {
-
-        // }
-        // let marker = src.get_u128();
-        // let header_length = src.get_u16();
-        // if marker != Message::MARKER || header_length < Message::HEADER_LENGTH {
-        //     println!("second");
-        //     return Err(Error::MessageHeader(MessageHeaderError::BadMessageLength {
-        //         length: header_length,
-        //     }));
-        // }
-        // let message_type = MessageType::try_from(src.get_u8())?;
-        // let message: Option<Self::Item> = match message_type {
-        //     MessageType::Open => {
-        //         let version = src.get_u8();
-        //         let my_asn = src.get_u16();
-        //         let hold_time = src.get_u16();
-        //         let router_id = Ipv4Addr::from(src.get_u32());
-        //         let mut capabilities = vec![];
-        //         let optional_parameters_length = src.get_u8();
-        //         if optional_parameters_length != src.remaining() as u8 {
-        //             println!("open message bad message length");
-        //             println!("{:?}", src.to_vec());
-        //             return Err(Error::MessageHeader(MessageHeaderError::BadMessageLength {
-        //                 length: src.len() as u16,
-        //             }));
-        //         }
-        //         while src.remaining() > 0 {
-        //             let option_type = src.get_u8();
-        //             let option_length = src.get_u8();
-        //             match option_type {
-        //                 Message::OPTION_TYPE_CAPABILITIES => {
-        //                     let mut l = 0;
-        //                     while option_length > l {
-        //                         let code = src.get_u8();
-        //                         let length = src.get_u8();
-        //                         l += length + 2;
-        //                         let cap = Capability::decode(code, length, src)?;
-        //                         capabilities.push(cap);
-        //                     }
-        //                 }
-        //                 _ => {
-        //                     return Err(Error::OpenMessage(
-        //                         OpenMessageError::UnsupportedOptionalParameter,
-        //                     ))
-        //                 }
-        //             }
-        //         }
-
-        //         Some(Message::Open {
-        //             version,
-        //             as_num: my_asn as u32,
-        //             hold_time,
-        //             identifier: router_id,
-        //             capabilities,
-        //         })
-        //     }
-        //     MessageType::Update => {
-        //         let withdrawn_routes_length = src.get_u16() as usize;
-        //         let withdrawn_routes = if withdrawn_routes_length > 0 {
-        //             let mut routes = Vec::new();
-        //             let remain = src.remaining();
-        //             while src.remaining() > remain - withdrawn_routes_length {
-        //                 routes.push(Prefix::decode(self.family, false, src)?);
-        //             }
-        //             Some(routes)
-        //         } else {
-        //             None
-        //         };
-        //         let total_path_attribute_length = src.get_u16() as usize;
-        //         let attributes = if total_path_attribute_length > 0 {
-        //             let mut attributes = Vec::new();
-        //             let remain = src.remaining();
-        //             while src.remaining() > remain - (total_path_attribute_length) {
-        //                 attributes.push(Attribute::decode(src, self.as4_enabled, false)?);
-        //                 // TODO
-        //             }
-        //             Some(attributes)
-        //         } else {
-        //             None
-        //         };
-        //         let nlri = if src.remaining() > 0 {
-        //             let mut prefixes = Vec::new();
-        //             while src.remaining() > 0 {
-        //                 prefixes.push(Prefix::decode(self.family, false, src)?)
-        //             }
-        //             Some(prefixes)
-        //         } else {
-        //             None
-        //         };
-        //         Some(Message::Update {
-        //             withdrawn_routes,
-        //             attributes,
-        //             nlri,
-        //         })
-        //     }
-        //     MessageType::Keepalive => Some(Message::Keepalive {}),
-        //     MessageType::Notification => {
-        //         let code = NotificationCode::try_from(src.get_u8())?;
-        //         let subcode = NotificationSubCode::try_from_with_code(src.get_u8(), code)?;
-        //         Some(Message::Notification {
-        //             code,
-        //             subcode,
-        //             data: src.to_vec(),
-        //         })
-        //     }
-        //     MessageType::RouteRefresh => {
-        //         let family = AddressFamily::try_from(src.get_u32())
-        //             .map_err(|_| Error::RouteRefreshMessageError)?;
-        //         Some(Message::RouteRefresh { family })
-        //     }
-        // };
         Ok(Some(messages))
     }
 }
@@ -195,7 +78,6 @@ fn decode_msg(
     let message_tail = buf_length - message_length as usize;
 
     if marker != Message::MARKER || message_length < Message::HEADER_LENGTH {
-        println!("second");
         return Err(Error::MessageHeader(MessageHeaderError::BadMessageLength {
             length: message_length,
         }));
@@ -204,15 +86,21 @@ fn decode_msg(
     let message: Message = match message_type {
         MessageType::Open => {
             let version = src.get_u8();
-            let my_asn = src.get_u16();
+            if version != Message::VERSION {
+                return Err(Error::OpenMessage(
+                    OpenMessageError::UnsupportedVersionNumber,
+                ));
+            }
+            let asn = src.get_u16();
+            if asn == 0 {
+                return Err(Error::OpenMessage(OpenMessageError::BadPeerAS));
+            }
             let hold_time = src.get_u16();
             let router_id = Ipv4Addr::from(src.get_u32());
 
             let mut capabilities = vec![];
             let optional_parameters_length = src.get_u8();
             if optional_parameters_length > src.remaining() as u8 {
-                println!("open message bad message length");
-                println!("{:?}", src.to_vec());
                 return Err(Error::MessageHeader(MessageHeaderError::BadMessageLength {
                     length: src.len() as u16,
                 }));
@@ -241,7 +129,7 @@ fn decode_msg(
 
             Message::Open {
                 version,
-                as_num: my_asn as u32,
+                as_num: asn as u32,
                 hold_time,
                 identifier: router_id,
                 capabilities,
@@ -264,9 +152,33 @@ fn decode_msg(
             let attributes = if total_path_attribute_length > 0 {
                 let mut attributes = Vec::new();
                 let remain = src.remaining();
+                let mut attribute_set = HashSet::new();
                 while src.remaining() > remain - (total_path_attribute_length) {
-                    attributes.push(Attribute::decode(src, as4_enabled, false)?);
-                    // TODO
+                    let attr = Attribute::decode(src, as4_enabled, false)?;
+                    // check well-known mandatory attributes exists
+                    if !attribute_set.insert(attr.code()) {
+                        return Err(Error::UpdateMessage(
+                            UpdateMessageError::MalformedAttributeList,
+                        ));
+                    }
+                    attributes.push(attr);
+                }
+                if !attribute_set.contains(&Attribute::ORIGIN) {
+                    return Err(Error::UpdateMessage(
+                        UpdateMessageError::MissingWellKnownAttribute(Attribute::ORIGIN),
+                    ));
+                }
+                if !attribute_set.contains(&Attribute::AS_PATH) {
+                    return Err(Error::UpdateMessage(
+                        UpdateMessageError::MissingWellKnownAttribute(Attribute::AS_PATH),
+                    ));
+                }
+                if !attribute_set.contains(&Attribute::NEXT_HOP)
+                    && !attribute_set.contains(&Attribute::MP_REACH_NLRI)
+                {
+                    return Err(Error::UpdateMessage(
+                        UpdateMessageError::MissingWellKnownAttribute(Attribute::NEXT_HOP),
+                    ));
                 }
                 Some(attributes)
             } else {
@@ -644,7 +556,12 @@ mod tests {
             ],
         ),
     )]
-    fn works_codec_decode_multiple_messages(paths: Vec<&str>, as4_enabled: bool, path_id_enabled: bool, expected: Vec<Message>) {
+    fn works_codec_decode_multiple_messages(
+        paths: Vec<&str>,
+        as4_enabled: bool,
+        path_id_enabled: bool,
+        expected: Vec<Message>,
+    ) {
         let mut data = Vec::new();
         for path in paths.iter() {
             let mut d = Vec::new();
@@ -656,7 +573,6 @@ mod tests {
         let mut buf = BytesMut::from(data.as_slice());
         let msgs = codec.decode(&mut buf).unwrap().unwrap();
         assert_eq!(expected, msgs);
-
     }
 
     // #[rstest(

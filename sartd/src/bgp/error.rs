@@ -55,8 +55,8 @@ impl Into<u8> for MessageHeaderError {
     fn into(self) -> u8 {
         match self {
             Self::ConnectionNotSynchronized => 1,
-            Self::BadMessageLength { length } => 2,
-            Self::BadMessageType { val } => 3,
+            Self::BadMessageLength { length: _ } => 2,
+            Self::BadMessageType { val: _ } => 3,
         }
     }
 }
@@ -97,15 +97,15 @@ pub(crate) enum UpdateMessageError {
     #[error("Malformed attribute list")]
     MalformedAttributeList,
     #[error("Unrecognized well known attribute")]
-    UnrecognizedWellknownAttribute,
+    UnrecognizedWellknownAttribute(u8),
     #[error("Missing well known attribute")]
-    MissingWellKnownAttribute,
+    MissingWellKnownAttribute(u8),
     #[error("Attribute flags error")]
-    AttributeFlagsError,
+    AttributeFlagsError { code: u8, length: usize, value: u8 },
     #[error("Attribute length error")]
-    AttributeLengthError,
+    AttributeLengthError { code: u8, length: usize, value: u8 },
     #[error("Invalid ORIGIN attribute")]
-    InvalidOriginAttribute,
+    InvalidOriginAttribute(u8),
     #[error("Invalid NEXT_HOP attribute")]
     InvalidNextHopAttribute,
     #[error("Optional attribute error")]
@@ -120,11 +120,19 @@ impl Into<u8> for UpdateMessageError {
     fn into(self) -> u8 {
         match self {
             Self::MalformedAttributeList => 1,
-            Self::UnrecognizedWellknownAttribute => 2,
-            Self::MissingWellKnownAttribute => 3,
-            Self::AttributeFlagsError => 4,
-            Self::AttributeLengthError => 5,
-            Self::InvalidOriginAttribute => 6,
+            Self::UnrecognizedWellknownAttribute(_) => 2,
+            Self::MissingWellKnownAttribute(_) => 3,
+            Self::AttributeFlagsError {
+                code: _,
+                length: _,
+                value: _,
+            } => 4,
+            Self::AttributeLengthError {
+                code: _,
+                length: _,
+                value: _,
+            } => 5,
+            Self::InvalidOriginAttribute(u8) => 6,
             Self::InvalidNextHopAttribute => 8,
             Self::OptionalAttributeError => 9,
             Self::InvalidNetworkField => 10,
