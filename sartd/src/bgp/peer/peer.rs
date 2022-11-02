@@ -139,41 +139,47 @@ impl Peer {
                     if self.hold_timer.last.elapsed().as_secs() >= self.hold_timer.interval {
                         let current_state = self.state();
                         tracing::warn!(peer.addr=peer_addr, peer.asn=peer_as, state=?current_state, event=%TimerEvent::HoldTimerExpire);
-                        self.hold_timer_expire().unwrap();
+                        match self.hold_timer_expire() {
+                            Ok(_) => {},
+                            Err(e) => tracing::error!(level="peer",peer.addr=peer_addr, peer.asn=peer_as,state=?current_state,error=?e),
+                        };
                     }
                 }
                 _ = self.keepalive_timer.tick().fuse() => {
                     let current_state = self.state();
                     tracing::debug!(peer.addr=peer_addr, peer.asn=peer_as, state=?current_state, event=%TimerEvent::KeepaliveTimerExpire);
-                    self.keepalive_timer_expire().unwrap();
+                    match self.keepalive_timer_expire() {
+                        Ok(_) => {},
+                        Err(e) => tracing::error!(level="peer",peer.addr=peer_addr, peer.asn=peer_as,state=?current_state,error=?e),
+                    };
                 }
                 // event handling
                 event = self.admin_rx.recv().fuse() => {
                     if let Some(event) = event {
                         let current_state = self.state();
                         tracing::info!(peer.addr=peer_addr, peer.asn=peer_as, state=?current_state, event=%event);
-                        match event {
+                        let res = match event {
                             Event::Admin(event) => match event {
-                                AdministrativeEvent::ManualStart => self.manual_start().unwrap(),
+                                AdministrativeEvent::ManualStart => self.manual_start(),
                                 _ => unimplemented!(),
                             },
                             Event::Connection(event) => match event {
-                                TcpConnectionEvent::TcpCRAcked(stream) => {
-                                    self.handle_tcp_connect(stream, msg_event_tx.clone(), Event::CONNECTION_TCP_CR_ACKED).unwrap();
-                                },
-                                TcpConnectionEvent::TcpConnectionConfirmed(stream) => {
-                                    self.handle_tcp_connect(stream, msg_event_tx.clone(), Event::CONNECTION_TCP_CONNECTION_CONFIRMED).unwrap();
-                                },
-                                TcpConnectionEvent::TcpConnectionFail => self.tcp_connection_fail().unwrap(),
+                                TcpConnectionEvent::TcpCRAcked(stream) => self.handle_tcp_connect(stream, msg_event_tx.clone(), Event::CONNECTION_TCP_CR_ACKED),
+                                TcpConnectionEvent::TcpConnectionConfirmed(stream) => self.handle_tcp_connect(stream, msg_event_tx.clone(), Event::CONNECTION_TCP_CONNECTION_CONFIRMED),
+                                TcpConnectionEvent::TcpConnectionFail => self.tcp_connection_fail(),
                                 _ => unimplemented!(),
                             },
                             Event::Timer(event) => match event {
-                                TimerEvent::ConnectRetryTimerExpire => self.connect_retry_timer_expire().unwrap(),
-                                TimerEvent::HoldTimerExpire => {}, // don't handle here
-                                TimerEvent::KeepaliveTimerExpire => {}, // don't handle here
+                                TimerEvent::ConnectRetryTimerExpire => self.connect_retry_timer_expire(),
+                                TimerEvent::HoldTimerExpire => Ok(()), // don't handle here
+                                TimerEvent::KeepaliveTimerExpire => Ok(()), // don't handle here
                                 _ => unimplemented!(),
                             },
-                            _ => panic!("unhandlable event"),
+                            _ => Err(Error::InvalidEvent{val: (&event).into()}),
+                        };
+                        match res {
+                            Ok(_) => {},
+                            Err(e) => tracing::error!(level="peer",peer.addr=peer_addr, peer.asn=peer_as,state=?current_state,error=?e),
                         }
                     }
                 }
@@ -181,19 +187,23 @@ impl Peer {
                     if let Some(event) = event {
                         let current_state = self.state();
                         tracing::info!(peer.addr=peer_addr, peer.asn=peer_as, state=?current_state, event=%event);
-                        match event {
-                            BgpMessageEvent::BgpOpen(msg) => self.bgp_open(msg).unwrap(),
-                            BgpMessageEvent::BgpHeaderError(e) => self.bgp_header_error(e).unwrap(),
-                            BgpMessageEvent::BgpOpenMsgErr(e) => self.bgp_open_msg_error(e).unwrap(),
-                            BgpMessageEvent::NotifMsgVerErr => self.notification_msg_ver_error().unwrap(),
-                            BgpMessageEvent::NotifMsg(msg) => self.notification_msg(msg).unwrap(),
-                            BgpMessageEvent::KeepAliveMsg => self.keepalive_msg().unwrap(),
-                            BgpMessageEvent::UpdateMsg(msg) => self.update_msg().unwrap(),
-                            BgpMessageEvent::UpdateMsgErr(e) => self.update_msg_error(e).unwrap(),
-                            BgpMessageEvent::RouteRefreshMsg(msg) => self.route_refresh_msg().unwrap(),
-                            BgpMessageEvent::RouteRefreshMsgErr => self.route_refresh_msg_error().unwrap(),
+                        let res = match event {
+                            BgpMessageEvent::BgpOpen(msg) => self.bgp_open(msg),
+                            BgpMessageEvent::BgpHeaderError(e) => self.bgp_header_error(e),
+                            BgpMessageEvent::BgpOpenMsgErr(e) => self.bgp_open_msg_error(e),
+                            BgpMessageEvent::NotifMsgVerErr => self.notification_msg_ver_error(),
+                            BgpMessageEvent::NotifMsg(msg) => self.notification_msg(msg),
+                            BgpMessageEvent::KeepAliveMsg => self.keepalive_msg(),
+                            BgpMessageEvent::UpdateMsg(msg) => self.update_msg(),
+                            BgpMessageEvent::UpdateMsgErr(e) => self.update_msg_error(e),
+                            BgpMessageEvent::RouteRefreshMsg(msg) => self.route_refresh_msg(),
+                            BgpMessageEvent::RouteRefreshMsgErr => self.route_refresh_msg_error(),
                             _ => unimplemented!(),
                         };
+                        match res {
+                            Ok(_) => {},
+                            Err(e) => tracing::error!(level="peer",peer.addr=peer_addr, peer.asn=peer_as,state=?current_state,error=?e),
+                        }
                     }
                 }
                 // message handling
@@ -236,45 +246,53 @@ impl Peer {
                             match msg_result {
                                 Ok(msgs) => {
                                     for msg in msgs.into_iter() {
-                                        match msg.msg_type() {
+                                        let res = match msg.msg_type() {
                                             MessageType::Open => {
                                                 recv_counter.lock().unwrap().open += 1;
-                                                msg_event_tx.send(BgpMessageEvent::BgpOpen(msg)).unwrap();
+                                                msg_event_tx.send(BgpMessageEvent::BgpOpen(msg))
                                             },
                                             MessageType::Update => {
                                                 recv_counter.lock().unwrap().update += 1;
-                                                msg_event_tx.send(BgpMessageEvent::UpdateMsg(msg)).unwrap();
+                                                msg_event_tx.send(BgpMessageEvent::UpdateMsg(msg))
                                             },
                                             MessageType::Keepalive => {
                                                 recv_counter.lock().unwrap().keepalive += 1;
-                                                msg_event_tx.send(BgpMessageEvent::KeepAliveMsg).unwrap();
+                                                msg_event_tx.send(BgpMessageEvent::KeepAliveMsg)
                                             },
                                             MessageType::Notification => {
                                                 recv_counter.lock().unwrap().notification += 1;
-                                                msg_event_tx.send(BgpMessageEvent::NotifMsg(msg)).unwrap();
+                                                msg_event_tx.send(BgpMessageEvent::NotifMsg(msg))
                                             },
                                             MessageType::RouteRefresh => {
                                                 recv_counter.lock().unwrap().route_refresh += 1;
-                                                msg_event_tx.send(BgpMessageEvent::RouteRefreshMsg(msg)).unwrap();
+                                                msg_event_tx.send(BgpMessageEvent::RouteRefreshMsg(msg))
                                             },
                                         };
+                                        match res {
+                                            Ok(_) => {},
+                                            Err(e) => tracing::error!(level="peer",peer.addr=peer_addr, peer.asn=peer_as,error=?e),
+                                        }
                                     }
                                 },
                                 Err(e) => {
-                                    match e {
+                                    let res = match e {
                                         Error::MessageHeader(e) => {
                                             tracing::error!("{:?}", e);
-                                            msg_event_tx.send(BgpMessageEvent::BgpHeaderError(e)).unwrap();
+                                            msg_event_tx.send(BgpMessageEvent::BgpHeaderError(e))
                                         },
                                         Error::OpenMessage(e) => {
                                             tracing::error!("{:?}", e);
-                                            msg_event_tx.send(BgpMessageEvent::BgpOpenMsgErr(e)).unwrap();
+                                            msg_event_tx.send(BgpMessageEvent::BgpOpenMsgErr(e))
                                         },
                                         Error::UpdateMessage(e) => {
                                             tracing::error!("{:?}", e);
-                                            msg_event_tx.send(BgpMessageEvent::UpdateMsgErr(e)).unwrap();
+                                            msg_event_tx.send(BgpMessageEvent::UpdateMsgErr(e))
                                         },
-                                        _ => tracing::error!("{:?}", e),
+                                        _ => Ok(()),
+                                    };
+                                    match res {
+                                        Ok(_) => {},
+                                        Err(e) => tracing::error!(level="peer",peer.addr=peer_addr, peer.asn=peer_as,error=?e),
                                     }
                                 },
                             }
@@ -370,10 +388,7 @@ impl Peer {
                 self.connect_retry_counter += 1;
             }
         }
-        self.fsm
-            .lock()
-            .unwrap()
-            .mv(Event::TIMER_CONNECT_RETRY_TIMER_EXPIRE);
+        self.move_state(Event::TIMER_CONNECT_RETRY_TIMER_EXPIRE);
         Ok(())
     }
 
@@ -568,10 +583,7 @@ impl Peer {
                 self.connect_retry_counter += 1;
             }
         }
-        self.fsm
-            .lock()
-            .unwrap()
-            .mv(Event::CONNECTION_TCP_CONNECTION_FAIL);
+        self.move_state(Event::CONNECTION_TCP_CONNECTION_FAIL);
         Ok(())
     }
 
@@ -745,10 +757,7 @@ impl Peer {
             }
             _ => {}
         }
-        self.fsm
-            .lock()
-            .unwrap()
-            .mv(Event::MESSAGE_BGP_OPEN_MSG_ERROR);
+        self.move_state(Event::MESSAGE_BGP_OPEN_MSG_ERROR);
         Ok(())
     }
 
@@ -1069,7 +1078,7 @@ impl Timer {
     }
 
     fn stop(&mut self) {
-        self.interval = 0;
+        self.interval = u32::MAX.into();
         self.last = Instant::now();
     }
 }

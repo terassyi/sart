@@ -161,4 +161,6 @@ pub(crate) enum PeerError {
     ConnectionNotEstablished,
     #[error("failed to send message")]
     FailedToSendMessage,
+    #[error("peer is down")]
+    Down,
 }
