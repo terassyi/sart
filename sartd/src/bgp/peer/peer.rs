@@ -76,6 +76,7 @@ pub(crate) struct Peer {
     admin_rx: UnboundedReceiver<Event>,
     msg_tx: Option<UnboundedSender<Message>>,
     keepalive_timer: Interval,
+    keepalive_time: u64,
     hold_timer: Timer,
     uptime: Instant,
     negotiated_hold_time: u64,
@@ -96,6 +97,7 @@ impl Peer {
                 Instant::now() + Duration::new(u32::MAX.into(), 0),
                 Duration::from_secs(keepalive_time),
             ),
+            keepalive_time,
             uptime: Instant::now(),
             negotiated_hold_time: Bgp::DEFAULT_HOLD_TIME,
             connect_retry_counter: 0,
@@ -151,12 +153,12 @@ impl Peer {
                                 TcpConnectionEvent::TcpConnectionFail => self.tcp_connection_fail().unwrap(),
                                 _ => unimplemented!(),
                             },
-                            // Event::Timer(event) => match event {
-                            //     TimerEvent::ConnectRetryTimerExpire => self.connect_retry_timer_expire().unwrap(),
-                            //     TimerEvent::HoldTimerExpire => self.hold_timer_expire().unwrap(),
-                            //     TimerEvent::KeepaliveTimerExpire => self.keepalive_timer_expire().unwrap(),
-                            //     _ => unimplemented!(),
-                            // },
+                            Event::Timer(event) => match event {
+                                TimerEvent::ConnectRetryTimerExpire => self.connect_retry_timer_expire().unwrap(),
+                                TimerEvent::HoldTimerExpire => {}, // don't handle here
+                                TimerEvent::KeepaliveTimerExpire => {}, // don't handle here
+                                _ => unimplemented!(),
+                            },
                             _ => panic!("unhandlable event"),
                         }
                     }
@@ -170,7 +172,7 @@ impl Peer {
                             BgpMessageEvent::BgpHeaderError(e) => self.bgp_header_error(e).unwrap(),
                             BgpMessageEvent::BgpOpenMsgErr(e) => self.bgp_open_msg_error(e).unwrap(),
                             BgpMessageEvent::NotifMsgVerErr => self.notification_msg_ver_error().unwrap(),
-                            BgpMessageEvent::NotifMsg(msg) => self.notification_msg().unwrap(),
+                            BgpMessageEvent::NotifMsg(msg) => self.notification_msg(msg).unwrap(),
                             BgpMessageEvent::KeepAliveMsg => self.keepalive_msg().unwrap(),
                             BgpMessageEvent::UpdateMsg(msg) => self.update_msg().unwrap(),
                             BgpMessageEvent::UpdateMsgErr(e) => self.update_msg_error(e).unwrap(),
@@ -205,6 +207,10 @@ impl Peer {
         let (msg_tx, mut msg_rx) = unbounded_channel::<Message>();
         self.msg_tx = Some(msg_tx);
         let drop_signal = self.drop_signal.clone();
+        let (peer_addr, peer_as) = {
+            let c = self.config.lock().unwrap();
+            (c.neighbor.get_addr().to_string(), c.neighbor.get_asn())
+        };
         tokio::spawn(async move {
             let (mut sender, mut receiver) = codec.split();
             loop {
@@ -246,9 +252,10 @@ impl Peer {
                             sender.send(msg).await;
                         }
                     }
-                    // _ = drop_signal.notified().fuse() => {
-
-                    // }
+                    _ = drop_signal.notified().fuse() => {
+                        tracing::warn!(peer.addr=peer_addr, peer.asn=peer_as, "drop connection");
+                        return;
+                    }
                 }
             }
         });
@@ -358,6 +365,9 @@ impl Peer {
                 // sends a KEEPALIVE message
                 // restarts its KeepaliveTimer, unless the negotiated HoldTime value is zero.
                 // Each time the local system sends a KEEPALIVE or UPDATE message, it restarts its KeepaliveTimer, unless the negotiated HoldTime value is zero.
+                if self.keepalive_time == 0 {
+                    return Ok(())
+                }
                 let msg = Self::build_keepalive_msg()?;
                 self.send(msg)?;
             }
@@ -517,7 +527,7 @@ impl Peer {
 
     // Event 19
     fn bgp_open(&mut self, recv: Message) -> Result<(), Error> {
-        let (version, asn, hold_time, router_id, caps) = recv.to_open()?;
+        let (_version, _asn, hold_time, _router_id, _caps) = recv.to_open()?;
         match self.state() {
             State::Active => {
                 // stops the ConnectRetryTimer (if running) and sets the ConnectRetryTimer to zero,
@@ -546,6 +556,7 @@ impl Peer {
                 // sets the HoldTimer according to the negotiated value (see Section 4.2),
                 // changes its state to OpenConfirm
                 let msg = Self::build_keepalive_msg()?;
+                let _negotiated_hold_time = self.negotiate_hold_time(hold_time as u64)?;
                 self.send(msg)?;
             }
             State::Established => {
@@ -729,7 +740,14 @@ impl Peer {
     }
 
     // Event 25
-    fn notification_msg(&mut self) -> Result<(), Error> {
+    #[tracing::instrument(skip(self, msg))]
+    fn notification_msg(&mut self, msg: Message) -> Result<(), Error> {
+        let (code, subcode, data) = msg.to_notification()?;
+        let (peer_addr, peer_as) = {
+            let conf = self.config.lock().unwrap();
+            (conf.neighbor.get_addr().to_string(), conf.neighbor.get_asn())
+        };
+        tracing::warn!(peer.addr=peer_addr, peer.asn=peer_as, notification_code=?code, notification_subcode=?subcode);
         match self.state() {
             State::OpenSent => {
                 // sends the NOTIFICATION with the Error Code Finite State Machine Error,
@@ -794,6 +812,7 @@ impl Peer {
             State::OpenConfirm | State::Established => {
                 // restarts the HoldTimer and if the negotiated HoldTime value is non-zero, and
                 // changes(remains) its state to Established.
+                self.hold_timer.push(self.negotiated_hold_time);
             }
             _ => {
                 // sets the ConnectRetryTimer to zero,
@@ -902,6 +921,7 @@ impl Peer {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self, received_hold_time))]
     fn negotiate_hold_time(&mut self, received_hold_time: u64) -> Result<u64, Error> {
         // This 2-octet unsigned integer indicates the number of seconds
         // the sender proposes for the value of the Hold Timer.  Upon
@@ -925,9 +945,20 @@ impl Peer {
         if negotiated_hold_time != 0 {
             self.negotiated_hold_time = negotiated_hold_time;
             self.hold_timer.push(negotiated_hold_time);
+            self.keepalive_time = negotiated_hold_time / 3;
             self.keepalive_timer =
-                interval_at(Instant::now(), Duration::new(negotiated_hold_time, 0));
+                interval_at(Instant::now(), Duration::new(negotiated_hold_time / 3, 0));
+        } else {
+            self.hold_timer.stop();
+            self.keepalive_time = 0;
+            self.keepalive_timer =
+                interval_at(Instant::now(), Duration::new(u64::MAX, 0));
         }
+        let (peer_addr, peer_as) = {
+            let conf = self.config.lock().unwrap();
+            (conf.neighbor.get_addr().to_string(), conf.neighbor.get_asn())
+        };
+        tracing::info!(peer.addr=peer_addr, peer.asn=peer_as, hold_time=negotiated_hold_time, keepalive_time=self.keepalive_time);
 
         Ok(negotiated_hold_time)
     }
@@ -974,6 +1005,11 @@ impl Timer {
     fn push(&mut self, t: u64) {
         self.ticker.push(sleep(Duration::new(t, 0)));
         self.interval = t;
+        self.last = Instant::now();
+    }
+
+    fn stop(&mut self) {
+        self.interval = 0;
         self.last = Instant::now();
     }
 }
