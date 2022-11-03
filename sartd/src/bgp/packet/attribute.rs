@@ -91,6 +91,10 @@ impl Attribute {
         }
     }
 
+    pub fn code(&self) -> u8 {
+        self.get_base().code
+    }
+
     pub fn decode(
         data: &mut BytesMut,
         as4_enabled: bool,
@@ -106,9 +110,26 @@ impl Attribute {
         } else {
             data.get_u8() as usize
         };
+        if !b.validate_attribute_flag() {
+            return Err(Error::UpdateMessage(
+                UpdateMessageError::AttributeFlagsError {
+                    code: b.code,
+                    length,
+                    value: b.flag,
+                },
+            ));
+        }
         let remain = data.remaining();
         match b.code {
-            Self::ORIGIN => Ok(Self::Origin(b, data.get_u8())),
+            Self::ORIGIN => {
+                let val = data.get_u8();
+                if val > 2 {
+                    return Err(Error::UpdateMessage(
+                        UpdateMessageError::InvalidOriginAttribute(val),
+                    ));
+                }
+                Ok(Self::Origin(b, val))
+            }
             Self::AS_PATH => {
                 let mut segments = Vec::new();
                 loop {
@@ -130,9 +151,12 @@ impl Attribute {
                         segments: segs,
                     })
                 }
+                if segments.is_empty() {
+                    return Err(Error::UpdateMessage(UpdateMessageError::MalformedASPath));
+                }
                 Ok(Self::ASPath(b, segments))
             }
-            Self::NEXT_HOP => Ok(Self::NextHop(b, Ipv4Addr::from(data.get_u32()))),
+            Self::NEXT_HOP => Ok(Self::NextHop(b, Ipv4Addr::from(data.get_u32()))), // validate whether next_hop value is correct
             Self::MULTI_EXIT_DISC => Ok(Self::MultiExitDisc(b, data.get_u32())),
             Self::LOCAL_PREF => Ok(Self::LocalPref(b, data.get_u32())),
             Self::ATOMIC_AGGREGATE => Ok(Self::AtomicAggregate(b)),
@@ -228,6 +252,11 @@ impl Attribute {
                 )),
             },
             _ => {
+                if !b.is_optional() {
+                    return Err(Error::UpdateMessage(
+                        UpdateMessageError::UnrecognizedWellknownAttribute(b.code),
+                    ));
+                }
                 let mut taken = data.take(length as usize);
                 let mut d = vec![];
                 d.put(&mut taken);
@@ -468,6 +497,32 @@ impl Base {
 
     fn is_partial(&self) -> bool {
         (self.flag & Attribute::FLAG_PARTIAL) != 0
+    }
+
+    fn validate_attribute_flag(&self) -> bool {
+        match self.code {
+            // ORIGIN is a well-known mandatory attribute.
+            Attribute::ORIGIN => !self.is_optional(),
+            // AS_PATH is a well-known mandatory attribute.
+            Attribute::AS_PATH => !self.is_optional(),
+            // NEXT_HOP is a well-known mandatory attribute.
+            Attribute::NEXT_HOP => !self.is_optional(),
+            // MULTI_EXIT_DISC is an optional non-transitive attribute
+            Attribute::MULTI_EXIT_DISC => self.is_optional() && !self.is_transitive(),
+            // LOCAL_PREF is a well-known attribute
+            Attribute::LOCAL_PREF => true,
+            // ATOMIC_AGGREGATE is a well-known discretionary attribute.
+            Attribute::ATOMIC_AGGREGATE => true,
+            // AGGREGATOR is an optional transitive attribute,
+            Attribute::AGGREGATOR => self.is_optional(),
+            Attribute::COMMUNITIES => self.is_optional(),
+            Attribute::MP_REACH_NLRI => self.is_optional(),
+            Attribute::MP_UNREACH_NLRI => self.is_optional(),
+            Attribute::EXTENDED_COMMUNITIES => self.is_optional(),
+            Attribute::AS4_PATH => self.is_optional(),
+            Attribute::AS4_AGGREGATOR => self.is_optional(),
+            _ => false,
+        }
     }
 }
 
