@@ -1,13 +1,16 @@
 pub(crate) mod bgp;
-pub(crate) mod parser;
+pub(crate) mod proto;
 
 use std::{net::Ipv4Addr, str::FromStr};
+use tracing_subscriber;
 
 use crate::bgp::config::Config;
 use crate::bgp::server;
 use clap::{App, Arg};
 
 fn main() -> Result<(), std::io::Error> {
+    let subscriber = tracing_subscriber::FmtSubscriber::new();
+    tracing::subscriber::set_global_default(subscriber).expect("failed to initialize logger");
     let app = App::new("sartd-bgp")
         .version("v0.0.1")
         .arg(
@@ -30,7 +33,7 @@ fn main() -> Result<(), std::io::Error> {
             Arg::with_name("port")
                 .short('p')
                 .long("port")
-                .takes_value(false)
+                .takes_value(true)
                 .required(false)
                 .help("port for daemon"),
         )
@@ -55,7 +58,7 @@ fn main() -> Result<(), std::io::Error> {
         let mut conf = Config::load(file).expect("failed to load config");
         match app.value_of("as_number") {
             Some(asn) => {
-                conf.as_number = asn.parse::<u32>().unwrap();
+                conf.asn = asn.parse::<u32>().unwrap();
             }
             None => {}
         }

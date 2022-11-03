@@ -24,6 +24,12 @@ impl TryFrom<u32> for AddressFamily {
     }
 }
 
+impl Into<u32> for AddressFamily {
+    fn into(self) -> u32 {
+        (((self.afi as u16) as u32) << 16) + ((self.safi as u8) as u32)
+    }
+}
+
 impl<'a> Into<u32> for &'a AddressFamily {
     fn into(self) -> u32 {
         (((self.afi as u16) as u32) << 16) + ((self.safi as u8) as u32)

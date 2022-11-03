@@ -1,0 +1,10 @@
+port: 179
+asn: 6550
+router_id: 1.1.1.1
+neighbors:
+  - asn: 100
+    router_id: 2.2.2.2
+    address: 127.0.0.1
+  - asn: 200
+    router_id: 127.0.0.1
+    address: '::1'

@@ -6,6 +6,7 @@ use byteorder::{NetworkEndian, WriteBytesExt};
 use bytes::{Buf, BufMut, BytesMut};
 use tokio_util::codec::{Decoder, Encoder};
 
+use crate::bgp::capability::CapabilitySet;
 use crate::bgp::family::{AddressFamily, Afi, Safi};
 use crate::bgp::packet::attribute::Attribute;
 use crate::bgp::packet::message::{Message, MessageType, NotificationCode, NotificationSubCode};
@@ -29,7 +30,7 @@ impl Codec {
                 afi: Afi::IPv4,
                 safi: Safi::Unicast,
             },
-            capabilities: Arc::new(RwLock::new(HashMap::new())),
+            capabilities: Arc::new(RwLock::new(CapabilitySet::with_empty())),
             as4_enabled,
             path_id_enabled,
         }
@@ -41,7 +42,7 @@ impl Codec {
                 afi: Afi::IPv4,
                 safi: Safi::Unicast,
             },
-            capabilities: Arc::new(RwLock::new(HashMap::new())),
+            capabilities: Arc::new(RwLock::new(CapabilitySet::with_empty())),
             as4_enabled: true,
             path_id_enabled: false,
         }
@@ -49,126 +50,276 @@ impl Codec {
 }
 
 impl Decoder for Codec {
-    type Item = Message;
+    type Item = Vec<Message>;
     type Error = Error;
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if src.remaining() < Message::HEADER_LENGTH as usize {
-            return Err(Error::MessageHeader(MessageHeaderError::BadMessageLength {
-                length: src.remaining() as u16,
-            }));
+        if src.is_empty() {
+            return Ok(None);
         }
-        let marker = src.get_u128();
-        let header_length = src.get_u16();
-        if marker != Message::MARKER || header_length < Message::HEADER_LENGTH {
-            return Err(Error::MessageHeader(MessageHeaderError::BadMessageLength {
-                length: header_length,
-            }));
+        let mut messages = Vec::new();
+        while src.remaining() > 0 {
+            let msg = decode_msg(src, &self.family, self.as4_enabled, self.path_id_enabled)?;
+            messages.push(msg);
         }
-        let message_type = MessageType::try_from(src.get_u8())?;
-        let message: Option<Self::Item> = match message_type {
-            MessageType::Open => {
-                let version = src.get_u8();
-                let my_asn = src.get_u16();
-                let hold_time = src.get_u16();
-                let router_id = Ipv4Addr::from(src.get_u32());
-                let mut capabilities = vec![];
-                let capability_length = src.get_u8();
-                if capability_length != src.remaining() as u8 {
-                    return Err(Error::MessageHeader(MessageHeaderError::BadMessageLength {
-                        length: src.len() as u16,
-                    }));
-                }
-                while src.remaining() > 0 {
-                    let option_type = src.get_u8();
-                    let _option_length = src.get_u8();
-                    match option_type {
-                        Message::OPTION_TYPE_CAPABILITIES => {
-                            let cap = Capability::decode(src.get_u8(), src.get_u8(), src)?;
-                            capabilities.push(cap);
-                        }
-                        _ => {
-                            return Err(Error::OpenMessage(
-                                OpenMessageError::UnsupportedOptionalParameter,
-                            ))
-                        }
-                    }
-                }
+        // if src.remaining() < Message::HEADER_LENGTH as usize {
+        //     return Err(Error::MessageHeader(MessageHeaderError::BadMessageLength {
+        //         length: src.remaining() as u16,
+        //     }));
+        // }
+        // while src.len() > 0 {
 
-                Some(Message::Open {
-                    version,
-                    as_num: my_asn as u32,
-                    hold_time,
-                    identifier: router_id,
-                    capabilities,
-                })
-            }
-            MessageType::Update => {
-                let withdrawn_routes_length = src.get_u16() as usize;
-                let withdrawn_routes = if withdrawn_routes_length > 0 {
-                    let mut routes = Vec::new();
-                    let remain = src.remaining();
-                    while src.remaining() > remain - withdrawn_routes_length {
-                        routes.push(Prefix::decode(self.family, false, src)?);
-                    }
-                    Some(routes)
-                } else {
-                    None
-                };
-                let total_path_attribute_length = src.get_u16() as usize;
-                let attributes = if total_path_attribute_length > 0 {
-                    let mut attributes = Vec::new();
-                    let remain = src.remaining();
-                    while src.remaining() > remain - (total_path_attribute_length) {
-                        attributes.push(Attribute::decode(src, self.as4_enabled, false)?);
-                        // TODO
-                    }
-                    Some(attributes)
-                } else {
-                    None
-                };
-                let nlri = if src.remaining() > 0 {
-                    let mut prefixes = Vec::new();
-                    while src.remaining() > 0 {
-                        prefixes.push(Prefix::decode(self.family, false, src)?)
-                    }
-                    Some(prefixes)
-                } else {
-                    None
-                };
-                Some(Message::Update {
-                    withdrawn_routes,
-                    attributes,
-                    nlri,
-                })
-            }
-            MessageType::Keepalive => Some(Message::Keepalive {}),
-            MessageType::Notification => {
-                let code = NotificationCode::try_from(src.get_u8())?;
-                let subcode = NotificationSubCode::try_from_with_code(src.get_u8(), code)?;
-                Some(Message::Notification {
-                    code,
-                    subcode,
-                    data: src.to_vec(),
-                })
-            }
-            MessageType::RouteRefresh => {
-                let family = AddressFamily::try_from(src.get_u32())
-                    .map_err(|_| Error::RouteRefreshMessageError)?;
-                Some(Message::RouteRefresh { family })
-            }
-        };
-        Ok(message)
+        // }
+        // let marker = src.get_u128();
+        // let header_length = src.get_u16();
+        // if marker != Message::MARKER || header_length < Message::HEADER_LENGTH {
+        //     println!("second");
+        //     return Err(Error::MessageHeader(MessageHeaderError::BadMessageLength {
+        //         length: header_length,
+        //     }));
+        // }
+        // let message_type = MessageType::try_from(src.get_u8())?;
+        // let message: Option<Self::Item> = match message_type {
+        //     MessageType::Open => {
+        //         let version = src.get_u8();
+        //         let my_asn = src.get_u16();
+        //         let hold_time = src.get_u16();
+        //         let router_id = Ipv4Addr::from(src.get_u32());
+        //         let mut capabilities = vec![];
+        //         let optional_parameters_length = src.get_u8();
+        //         if optional_parameters_length != src.remaining() as u8 {
+        //             println!("open message bad message length");
+        //             println!("{:?}", src.to_vec());
+        //             return Err(Error::MessageHeader(MessageHeaderError::BadMessageLength {
+        //                 length: src.len() as u16,
+        //             }));
+        //         }
+        //         while src.remaining() > 0 {
+        //             let option_type = src.get_u8();
+        //             let option_length = src.get_u8();
+        //             match option_type {
+        //                 Message::OPTION_TYPE_CAPABILITIES => {
+        //                     let mut l = 0;
+        //                     while option_length > l {
+        //                         let code = src.get_u8();
+        //                         let length = src.get_u8();
+        //                         l += length + 2;
+        //                         let cap = Capability::decode(code, length, src)?;
+        //                         capabilities.push(cap);
+        //                     }
+        //                 }
+        //                 _ => {
+        //                     return Err(Error::OpenMessage(
+        //                         OpenMessageError::UnsupportedOptionalParameter,
+        //                     ))
+        //                 }
+        //             }
+        //         }
+
+        //         Some(Message::Open {
+        //             version,
+        //             as_num: my_asn as u32,
+        //             hold_time,
+        //             identifier: router_id,
+        //             capabilities,
+        //         })
+        //     }
+        //     MessageType::Update => {
+        //         let withdrawn_routes_length = src.get_u16() as usize;
+        //         let withdrawn_routes = if withdrawn_routes_length > 0 {
+        //             let mut routes = Vec::new();
+        //             let remain = src.remaining();
+        //             while src.remaining() > remain - withdrawn_routes_length {
+        //                 routes.push(Prefix::decode(self.family, false, src)?);
+        //             }
+        //             Some(routes)
+        //         } else {
+        //             None
+        //         };
+        //         let total_path_attribute_length = src.get_u16() as usize;
+        //         let attributes = if total_path_attribute_length > 0 {
+        //             let mut attributes = Vec::new();
+        //             let remain = src.remaining();
+        //             while src.remaining() > remain - (total_path_attribute_length) {
+        //                 attributes.push(Attribute::decode(src, self.as4_enabled, false)?);
+        //                 // TODO
+        //             }
+        //             Some(attributes)
+        //         } else {
+        //             None
+        //         };
+        //         let nlri = if src.remaining() > 0 {
+        //             let mut prefixes = Vec::new();
+        //             while src.remaining() > 0 {
+        //                 prefixes.push(Prefix::decode(self.family, false, src)?)
+        //             }
+        //             Some(prefixes)
+        //         } else {
+        //             None
+        //         };
+        //         Some(Message::Update {
+        //             withdrawn_routes,
+        //             attributes,
+        //             nlri,
+        //         })
+        //     }
+        //     MessageType::Keepalive => Some(Message::Keepalive {}),
+        //     MessageType::Notification => {
+        //         let code = NotificationCode::try_from(src.get_u8())?;
+        //         let subcode = NotificationSubCode::try_from_with_code(src.get_u8(), code)?;
+        //         Some(Message::Notification {
+        //             code,
+        //             subcode,
+        //             data: src.to_vec(),
+        //         })
+        //     }
+        //     MessageType::RouteRefresh => {
+        //         let family = AddressFamily::try_from(src.get_u32())
+        //             .map_err(|_| Error::RouteRefreshMessageError)?;
+        //         Some(Message::RouteRefresh { family })
+        //     }
+        // };
+        Ok(Some(messages))
     }
 }
 
-impl Encoder<&Message> for Codec {
+fn decode_msg(
+    src: &mut BytesMut,
+    family: &AddressFamily,
+    as4_enabled: bool,
+    add_path_enabled: bool,
+) -> Result<Message, Error> {
+    let buf_length = src.len();
+    let marker = src.get_u128();
+    let message_length = src.get_u16();
+
+    let message_tail = buf_length - message_length as usize;
+
+    if marker != Message::MARKER || message_length < Message::HEADER_LENGTH {
+        println!("second");
+        return Err(Error::MessageHeader(MessageHeaderError::BadMessageLength {
+            length: message_length,
+        }));
+    }
+    let message_type = MessageType::try_from(src.get_u8())?;
+    let message: Message = match message_type {
+        MessageType::Open => {
+            let version = src.get_u8();
+            let my_asn = src.get_u16();
+            let hold_time = src.get_u16();
+            let router_id = Ipv4Addr::from(src.get_u32());
+
+            let mut capabilities = vec![];
+            let optional_parameters_length = src.get_u8();
+            if optional_parameters_length > src.remaining() as u8 {
+                println!("open message bad message length");
+                println!("{:?}", src.to_vec());
+                return Err(Error::MessageHeader(MessageHeaderError::BadMessageLength {
+                    length: src.len() as u16,
+                }));
+            }
+            while src.remaining() > message_tail {
+                let option_type = src.get_u8();
+                let option_length = src.get_u8();
+                match option_type {
+                    Message::OPTION_TYPE_CAPABILITIES => {
+                        let mut l = 0;
+                        while option_length > l {
+                            let code = src.get_u8();
+                            let length = src.get_u8();
+                            l += length + 2;
+                            let cap = Capability::decode(code, length, src)?;
+                            capabilities.push(cap);
+                        }
+                    }
+                    _ => {
+                        return Err(Error::OpenMessage(
+                            OpenMessageError::UnsupportedOptionalParameter,
+                        ))
+                    }
+                }
+            }
+
+            Message::Open {
+                version,
+                as_num: my_asn as u32,
+                hold_time,
+                identifier: router_id,
+                capabilities,
+            }
+        }
+        MessageType::Update => {
+            let withdrawn_routes_length = src.get_u16() as usize;
+            let withdrawn_routes = if withdrawn_routes_length > 0 {
+                let mut routes = Vec::new();
+                let remain = src.remaining();
+                while src.remaining() > remain - withdrawn_routes_length {
+                    routes.push(Prefix::decode(family, false, src)?);
+                }
+                Some(routes)
+            } else {
+                None
+            };
+
+            let total_path_attribute_length = src.get_u16() as usize;
+            let attributes = if total_path_attribute_length > 0 {
+                let mut attributes = Vec::new();
+                let remain = src.remaining();
+                while src.remaining() > remain - (total_path_attribute_length) {
+                    attributes.push(Attribute::decode(src, as4_enabled, false)?);
+                    // TODO
+                }
+                Some(attributes)
+            } else {
+                None
+            };
+
+            let nlri = if src.remaining() > message_tail {
+                let mut prefixes = Vec::new();
+                while src.remaining() > message_tail {
+                    prefixes.push(Prefix::decode(family, false, src)?)
+                }
+                Some(prefixes)
+            } else {
+                None
+            };
+
+            Message::Update {
+                withdrawn_routes,
+                attributes,
+                nlri,
+            }
+        }
+        MessageType::Keepalive => Message::Keepalive {},
+        MessageType::Notification => {
+            let code = NotificationCode::try_from(src.get_u8())?;
+            let subcode = NotificationSubCode::try_from_with_code(src.get_u8(), code)?;
+            let mut data = vec![];
+            let data_length = message_length - Message::HEADER_LENGTH - 2;
+            let taken = src.take(data_length as usize);
+            data.put(taken);
+            Message::Notification {
+                code,
+                subcode,
+                data,
+            }
+        }
+        MessageType::RouteRefresh => {
+            let family = AddressFamily::try_from(src.get_u32())
+                .map_err(|_| Error::RouteRefreshMessageError)?;
+            Message::RouteRefresh { family }
+        }
+    };
+    Ok(message)
+}
+
+impl Encoder<Message> for Codec {
     type Error = Error;
-    fn encode(&mut self, item: &Message, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(&mut self, item: Message, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let msg_head = dst.len();
         dst.put_u128(Message::MARKER);
         let header_length_head = dst.len();
         dst.put_u16(Message::HEADER_LENGTH);
-        let msg_type: MessageType = item.into();
+        let msg_type: MessageType = (&item).into();
         dst.put_u8(msg_type as u8);
         match item {
             Message::Open {
@@ -178,13 +329,13 @@ impl Encoder<&Message> for Codec {
                 identifier,
                 capabilities,
             } => {
-                dst.put_u8(*version);
-                dst.put_u16(if *as_num > 65535 {
+                dst.put_u8(version);
+                dst.put_u16(if as_num > 65535 {
                     Message::AS_TRANS
                 } else {
-                    *as_num
+                    as_num
                 } as u16);
-                dst.put_u16(*hold_time);
+                dst.put_u16(hold_time);
                 dst.put_slice(&identifier.octets());
                 dst.put_u8(capabilities.iter().fold(0, |l, cap| l + 2 + 2 + cap.len()) as u8);
                 for cap in capabilities.iter() {
@@ -229,13 +380,13 @@ impl Encoder<&Message> for Codec {
                 subcode,
                 data,
             } => {
-                dst.put_u8(*code as u8);
+                dst.put_u8(code as u8);
                 if let Some(subcode) = subcode {
                     dst.put_u8(subcode.into());
                 } else {
                 }
                 if data.len() > 0 {
-                    dst.put_slice(data);
+                    dst.put_slice(&data);
                 }
             }
             Message::RouteRefresh { family } => {
@@ -281,7 +432,7 @@ mod tests {
             let codec = Codec::default();
             let mut reader = FramedRead::new(mock_stream, codec);
             let msg = reader.next().await.unwrap().unwrap();
-            assert_eq!(expected, msg)
+            assert_eq!(expected, msg[0])
         }
     }
 
@@ -344,6 +495,18 @@ mod tests {
                 Capability::Unsupported(0x80, Vec::new()), // Unsupported Route Refresh Cisco
                 Capability::RouteRefresh,
             ]
+        }),
+        case("testdata/messages/open-optional-parameters", true, false, Message::Open {
+            version: 4,
+            as_num: 200,
+            hold_time: 90,
+            identifier: Ipv4Addr::new(2, 2, 2, 2),
+            capabilities: vec![
+                Capability::RouteRefresh,
+                Capability::MultiProtocol(AddressFamily{ afi: Afi::IPv4, safi: Safi::Unicast }),
+                Capability::FourOctetASNumber(200),
+                Capability::ExtendedNextHop(vec![(AddressFamily{ afi: Afi::IPv4, safi: Safi::Unicast }, 2)]),
+            ],
         }),
         case("testdata/messages/route-refresh", true, false, Message::RouteRefresh { family: AddressFamily{ afi: Afi::IPv4, safi: Safi::Unicast} }),
         case("testdata/messages/update-as-set", false, false, Message::Update {
@@ -411,7 +574,7 @@ mod tests {
             ]),
         }),
     )]
-    fn works_codec_decode(
+    fn works_codec_decode_single_message(
         input: &str,
         as4_enabled: bool,
         path_id_enabled: bool,
@@ -423,8 +586,110 @@ mod tests {
         let mut codec = Codec::new(as4_enabled, path_id_enabled);
         let mut buf = BytesMut::from(data.as_slice());
         let msg = codec.decode(&mut buf).unwrap().unwrap();
-        assert_eq!(expected, msg);
+        assert_eq!(expected, msg[0]);
     }
+
+    #[rstest(
+        paths,
+        as4_enabled,
+        path_id_enabled,
+        expected,
+        case(vec!["testdata/messages/open-2bytes-asn", "testdata/messages/keepalive"], false, false, 
+            vec![
+                Message::Open {
+                    version: 4,
+                    as_num: 65100,
+                    hold_time: 180,
+                    identifier: Ipv4Addr::new(10, 10, 3, 1),
+                    capabilities: vec![
+                        Capability::MultiProtocol(AddressFamily{ afi: Afi::IPv4, safi: Safi::Unicast }),
+                        Capability::Unsupported(0x80, Vec::new()), // Unsupported Route Refresh Cisco
+                        Capability::RouteRefresh,
+                    ]
+                },
+                Message::Keepalive,
+            ],
+        ),
+        case(vec!["testdata/messages/update-as4-path-aggregator", "testdata/messages/update-nlri"], false, false, 
+            vec![
+                Message::Update {
+                    withdrawn_routes: None,
+                    attributes: Some(vec![
+                        Attribute::Origin(Base::new(Attribute::FLAG_TRANSITIVE, Attribute::ORIGIN), Attribute::ORIGIN_IGP),
+                        Attribute::ASPath(Base::new(Attribute::FLAG_TRANSITIVE + Attribute::FLAG_EXTENDED, Attribute::AS_PATH), vec![ASSegment{ segment_type: Attribute::AS_SEQUENCE, segments: vec![100, 23456]}]),
+                        Attribute::NextHop(Base::new(Attribute::FLAG_TRANSITIVE, Attribute::NEXT_HOP), Ipv4Addr::new(10, 0, 0, 2)),
+                        Attribute::MultiExitDisc(Base::new(Attribute::FLAG_OPTIONAL, Attribute::MULTI_EXIT_DISC), 0),
+                        Attribute::Aggregator(Base::new(Attribute::FLAG_OPTIONAL + Attribute::FLAG_TRANSITIVE + Attribute::FLAG_PARTIAL, Attribute::AGGREGATOR), 23456, IpAddr::V4(Ipv4Addr::new(2, 2, 2, 2))),
+                        Attribute::AS4Path(Base::new(Attribute::FLAG_TRANSITIVE + Attribute::FLAG_OPTIONAL + Attribute::FLAG_PARTIAL + Attribute::FLAG_EXTENDED, Attribute::AS4_PATH), vec![ASSegment{ segment_type: Attribute::AS_SEQUENCE, segments: vec![655200]}]),
+                        Attribute::AS4Aggregator(Base::new(Attribute::FLAG_OPTIONAL + Attribute::FLAG_TRANSITIVE + Attribute::FLAG_PARTIAL, Attribute::AS4_AGGREGATOR), 655200, IpAddr::V4(Ipv4Addr::new(2, 2, 2, 2))),
+                    ]),
+                    nlri: Some(vec![
+                        Prefix::new(IpNet::V4(Ipv4Net::new(Ipv4Addr::new(192, 168, 0, 0), 16).unwrap()), None),
+                    ]),
+                },
+                Message::Update {
+                    withdrawn_routes: None,
+                    attributes: Some(vec![
+                        Attribute::Origin(Base::new(Attribute::FLAG_TRANSITIVE, Attribute::ORIGIN), Attribute::ORIGIN_IGP),
+                        Attribute::ASPath(Base::new(Attribute::FLAG_TRANSITIVE, Attribute::AS_PATH), vec![ASSegment{ segment_type: Attribute::AS_SEQUENCE, segments: vec![65100]}]),
+                        Attribute::NextHop(Base::new(Attribute::FLAG_TRANSITIVE, Attribute::NEXT_HOP), Ipv4Addr::new(1, 1, 1, 1)),
+                        Attribute::MultiExitDisc(Base::new(Attribute::FLAG_OPTIONAL, Attribute::MULTI_EXIT_DISC), 0),
+                    ]),
+                    nlri: Some(vec![
+                        Prefix::new(IpNet::V4(Ipv4Net::new(Ipv4Addr::new(10, 10, 3, 0), 24).unwrap()), None),
+                        Prefix::new(IpNet::V4(Ipv4Net::new(Ipv4Addr::new(10, 10, 2, 0), 24).unwrap()), None),
+                        Prefix::new(IpNet::V4(Ipv4Net::new(Ipv4Addr::new(10, 10, 1, 0), 24).unwrap()), None),
+                    ]),
+                },
+            ],
+        ),
+    )]
+    fn works_codec_decode_multiple_messages(paths: Vec<&str>, as4_enabled: bool, path_id_enabled: bool, expected: Vec<Message>) {
+        let mut data = Vec::new();
+        for path in paths.iter() {
+            let mut d = Vec::new();
+            let mut file = std::fs::File::open(path).unwrap();
+            file.read_to_end(&mut d).unwrap();
+            data.append(&mut d);
+        }
+        let mut codec = Codec::new(as4_enabled, path_id_enabled);
+        let mut buf = BytesMut::from(data.as_slice());
+        let msgs = codec.decode(&mut buf).unwrap().unwrap();
+        assert_eq!(expected, msgs);
+
+    }
+
+    // #[rstest(
+    //     input,
+    //     as4_enabled,
+    //     path_id_enabled,
+    //     expected,
+    //     case("testdata/messages/open-bad-message-length", false, false, Message::Open {
+    //         version: 4,
+    //         as_num: 300,
+    //         hold_time: 90,
+    //         identifier: Ipv4Addr::new(3, 3, 3, 3),
+    //         capabilities: vec![
+    //             Capability::RouteRefresh,
+    //             Capability::MultiProtocol(AddressFamily{ afi: Afi::IPv4, safi: Safi::Unicast }),
+    //             Capability::FourOctetASNumber(300),
+    //         ]
+    //     }),
+    // )]
+    // fn fail_codec_decode(
+    //     input: &str,
+    //     as4_enabled: bool,
+    //     path_id_enabled: bool,
+    //     expected: Message,
+    // ) {
+    //     let mut file = std::fs::File::open(input).unwrap();
+    //     let mut data = Vec::new();
+    //     file.read_to_end(&mut data).unwrap();
+    //     let mut codec = Codec::new(as4_enabled, path_id_enabled);
+    //     let mut buf = BytesMut::from(data.as_slice());
+    //     let msg = codec.decode(&mut buf).unwrap().unwrap();
+    //     assert_eq!(expected, msg);
+    // }
 
     #[rstest(
         path,
@@ -559,7 +824,7 @@ mod tests {
         let mut codec = Codec::new(as4_enabled, path_id_enabled);
         let mut b: Vec<u8> = Vec::new();
         let mut buf = BytesMut::from(b.as_slice());
-        codec.encode(&msg, &mut buf).unwrap();
+        codec.encode(msg, &mut buf).unwrap();
         assert_eq!(expected_data, buf.to_vec());
     }
 }
