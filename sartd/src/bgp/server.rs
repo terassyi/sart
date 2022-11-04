@@ -28,7 +28,7 @@ use crate::proto::sart::bgp_api_server::BgpApiServer;
 
 use super::capability::{Capability, CapabilitySet};
 use super::config::NeighborConfig;
-use super::error::ControlError;
+use super::error::{ControlError, PeerError};
 use super::event::{AdministrativeEvent, ControlEvent, Event};
 use super::peer::peer::{Peer, PeerInfo, PeerManager};
 
@@ -124,6 +124,7 @@ impl Bgp {
         let init_event: Vec<ControlEvent> = { server.config.lock().unwrap().get_control_event() };
 
         for e in init_event.into_iter() {
+            tracing::info!(level="global",event=?e);
             init_tx.send(e).await.unwrap();
         }
 
@@ -154,13 +155,19 @@ impl Bgp {
                     if let Some(stream) = stream {
                         let sock = stream.peer_addr().unwrap();
                         if let Some(manager) = server.peer_managers.get(&sock.ip()) {
-                            manager.event_tx.send(Event::Connection(TcpConnectionEvent::TcpCRAcked(stream))).unwrap();
+                            match manager.event_tx.send(Event::Connection(TcpConnectionEvent::TcpCRAcked(stream))) {
+                                Ok(_) => {},
+                                Err(e) => tracing::error!(level="global",error=?e),
+                            };
                         }
                     }
                 }
                 event = ctrl_rx.recv().fuse() => {
                     if let Some(event) = event {
-                        server.handle_event(event);
+                        match server.handle_event(event) {
+                            Ok(_) => {},
+                            Err(e) => tracing::error!(level="global",error=?e),
+                        };
                     }
                 }
                 _ = peer_management_interval.tick().fuse() => {
@@ -177,16 +184,17 @@ impl Bgp {
     }
 
     #[tracing::instrument(skip(self, event))]
-    fn handle_event(&mut self, event: ControlEvent) {
-        tracing::info!(global="global", event=%event);
+    fn handle_event(&mut self, event: ControlEvent) -> Result<(), Error> {
+        tracing::info!(level="global", event=%event);
         match event {
             ControlEvent::Health => {}
             ControlEvent::AddPeer(neighbor) => {
-                self.add_peer(neighbor).unwrap();
+                self.add_peer(neighbor)?;
             }
             _ => tracing::error!("undefined control event"),
         }
         self.event_signal.notify_one();
+        Ok(())
     }
 
     fn add_peer(&mut self, neighbor: NeighborConfig) -> Result<(), Error> {
@@ -217,7 +225,7 @@ impl Bgp {
             manager
                 .event_tx
                 .send(Event::Admin(AdministrativeEvent::ManualStart))
-                .unwrap();
+                .map_err(|_| Error::Peer(PeerError::Down))?;
 
             // start to connect to the remote peer
             let active_conn_tx = self.active_conn_tx.clone();
@@ -231,7 +239,10 @@ impl Bgp {
                     )
                     .await
                     {
-                        active_conn_tx.send(stream).unwrap();
+                        match active_conn_tx.send(stream) {
+                            Ok(_) => {},
+                            Err(e) => tracing::error!(level="global",error=?e),
+                        };
                         return;
                     }
                     sleep(Duration::from_secs(connect_retry_time / 2)).await;
