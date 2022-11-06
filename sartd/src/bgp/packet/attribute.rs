@@ -72,7 +72,37 @@ impl Attribute {
         self.get_base().is_extended()
     }
 
+    pub fn is_recognized(&self) -> bool {
+        match self {
+            Self::Unsupported(_, _) => false,
+            _ => true,
+        }
+    }
+
+    pub fn set_partial(&mut self) {
+        self.get_base_mut().flag += Attribute::FLAG_PARTIAL;
+    }
+
     fn get_base(&self) -> &Base {
+        match self {
+            Self::Origin(b, _) => b,
+            Self::ASPath(b, _) => b,
+            Self::NextHop(b, _) => b,
+            Self::MultiExitDisc(b, _) => b,
+            Self::LocalPref(b, _) => b,
+            Self::AtomicAggregate(b) => b,
+            Self::Aggregator(b, _, _) => b,
+            Self::Communities(b, _) => b,
+            Self::ExtendedCommunities(b, _, _) => b,
+            Self::MPReachNLRI(b, _, _, _) => b,
+            Self::MPUnReachNLRI(b, _, _) => b,
+            Self::AS4Path(b, _) => b,
+            Self::AS4Aggregator(b, _, _) => b,
+            Self::Unsupported(b, _) => b,
+        }
+    }
+
+    fn get_base_mut(&mut self) -> &mut Base {
         match self {
             Self::Origin(b, _) => b,
             Self::ASPath(b, _) => b,
@@ -487,16 +517,20 @@ impl Base {
         (self.flag & Attribute::FLAG_EXTENDED) != 0
     }
 
-    fn is_transitive(&self) -> bool {
+    pub fn is_transitive(&self) -> bool {
         (self.flag & Attribute::FLAG_TRANSITIVE) != 0
     }
 
-    fn is_optional(&self) -> bool {
+    pub fn is_optional(&self) -> bool {
         (self.flag & Attribute::FLAG_OPTIONAL) != 0
     }
 
     fn is_partial(&self) -> bool {
         (self.flag & Attribute::FLAG_PARTIAL) != 0
+    }
+
+    pub fn set_partial(&mut self) {
+        self.flag += Attribute::FLAG_PARTIAL;
     }
 
     fn validate_attribute_flag(&self) -> bool {

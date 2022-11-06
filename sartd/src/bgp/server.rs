@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::ops::Add;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};
@@ -30,6 +31,7 @@ use super::capability::{Capability, CapabilitySet};
 use super::config::NeighborConfig;
 use super::error::{ControlError, PeerError};
 use super::event::{AdministrativeEvent, ControlEvent, Event};
+use super::family::AddressFamily;
 use super::peer::peer::{Peer, PeerInfo, PeerManager};
 
 #[derive(Debug)]
@@ -37,6 +39,7 @@ pub(crate) struct Bgp {
     pub config: Arc<Mutex<Config>>,
     pub peer_managers: HashMap<IpAddr, PeerManager>,
     global_capabilities: CapabilitySet,
+    families: Vec<AddressFamily>,
     api_server_port: u16,
     connect_retry_time: u64,
     active_conn_rx: UnboundedReceiver<TcpStream>,
@@ -59,6 +62,7 @@ impl Bgp {
             config: Arc::new(Mutex::new(conf)),
             peer_managers: HashMap::new(),
             global_capabilities: CapabilitySet::default(asn),
+            families: vec![AddressFamily::ipv4_unicast(), AddressFamily::ipv6_unicast()],
             connect_retry_time: Self::DEFAULT_CONNECT_RETRY_TIME,
             api_server_port: Self::API_SERVER_PORT,
             event_signal: Arc::new(Notify::new()),
@@ -96,7 +100,7 @@ impl Bgp {
         let ipv4_listener = {
             create_tcp_listener(
                 "0.0.0.0".to_string(),
-                server.config.lock().unwrap().port,
+                Self::BGP_PORT,
                 Afi::IPv4,
             )
             .expect("cannot bind Ipv4 tcp listener")
@@ -104,7 +108,7 @@ impl Bgp {
         let ipv6_listener = {
             create_tcp_listener(
                 "[::]".to_string(),
-                server.config.lock().unwrap().port,
+                Self::BGP_PORT,
                 Afi::IPv6,
             )
             .expect("cannot bind ipv6 listener")
@@ -114,7 +118,7 @@ impl Bgp {
             .into_iter()
             .map(|l| TcpListenerStream::new(TcpListener::from_std(l).unwrap()))
             .collect::<Vec<TcpListenerStream>>();
-        let port = { server.config.lock().unwrap().port };
+        let port = Bgp::BGP_PORT;
 
         tracing::info!(
             "Sartd BGP server is running at 0.0.0.0:{} and [::]:{}",
@@ -128,7 +132,7 @@ impl Bgp {
             init_tx.send(e).await.unwrap();
         }
 
-        let mut peer_management_interval = interval_at(Instant::now(), Duration::new(10, 0));
+        let mut peer_management_interval = interval_at(Instant::now(), Duration::new(server.connect_retry_time, 0));
 
         loop {
             let mut future_streams = FuturesUnordered::new();
@@ -206,14 +210,15 @@ impl Bgp {
             let conf = self.config.lock().unwrap();
             (conf.asn, conf.router_id)
         };
-        let config = Arc::new(Mutex::new(PeerInfo::new(
+        let info = Arc::new(Mutex::new(PeerInfo::new(
             local_as,
             local_router_id,
             neighbor,
             self.global_capabilities.clone(),
+            self.families.clone(),
         )));
-        let mut peer = Peer::new(config.clone(), rx);
-        let manager = PeerManager::new(config, tx);
+        let mut peer = Peer::new(info.clone(), rx);
+        let manager = PeerManager::new(info, tx);
         self.peer_managers.insert(neighbor.address, manager);
 
         // start to handle peer event.
@@ -245,7 +250,7 @@ impl Bgp {
                         };
                         return;
                     }
-                    sleep(Duration::from_secs(connect_retry_time / 2)).await;
+                    sleep(Duration::from_secs(connect_retry_time)).await;
                     event_tx
                         .send(Event::Timer(TimerEvent::ConnectRetryTimerExpire))
                         .expect("event channel is not worked.");
@@ -266,6 +271,7 @@ impl TryFrom<Config> for Bgp {
             config: Arc::new(Mutex::new(conf)),
             peer_managers: HashMap::new(),
             global_capabilities: CapabilitySet::default(asn),
+            families: vec![AddressFamily::ipv4_unicast(), AddressFamily::ipv6_unicast()],
             connect_retry_time: Self::DEFAULT_CONNECT_RETRY_TIME,
             api_server_port: Self::API_SERVER_PORT,
             event_signal: Arc::new(Notify::new()),

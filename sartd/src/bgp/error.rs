@@ -164,3 +164,9 @@ pub(crate) enum PeerError {
     #[error("peer is down")]
     Down,
 }
+
+#[derive(Debug, Error)]
+pub(crate) enum RibError {
+    #[error("address family is not set")]
+    AddressFamilyNotSet,
+}

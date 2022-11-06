@@ -112,7 +112,7 @@ impl From<IpNet> for Prefix {
     }
 }
 
-impl Into<IpNet> for Prefix {
+impl Into<IpNet> for &Prefix {
     fn into(self) -> IpNet {
         self.inner
     }

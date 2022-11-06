@@ -1,6 +1,6 @@
 #!/bin/bash
-set -e
 
+set -e
 
 sudo ip netns del core || true
 sudo ip netns del spine1 || true
@@ -27,6 +27,11 @@ sudo ip netns exec core ip addr add 10.0.1.1/24 dev c-s2
 sudo ip netns exec spine1 ip addr add 10.0.0.2/24 dev s1-c
 sudo ip netns exec spine2 ip addr add 10.0.1.2/24 dev s2-c
 
+sudo ip netns exec core ip addr add 2001:db8:1::1/64 dev c-s1
+sudo ip netns exec core ip addr add 2001:db8:2::1/64 dev c-s2
+sudo ip netns exec spine1 ip addr add 2001:db8:1::2/64 dev s1-c
+sudo ip netns exec spine2 ip addr add 2001:db8:2::2/64 dev s2-c
+
 sudo ip netns exec core ip link set up dev lo
 sudo ip netns exec spine1 ip link set up dev lo
 sudo ip netns exec spine2 ip link set up dev lo
@@ -35,8 +40,3 @@ sudo ip netns exec core ip link set up dev c-s1
 sudo ip netns exec core ip link set up dev c-s2
 sudo ip netns exec spine1 ip link set up dev s1-c
 sudo ip netns exec spine2 ip link set up dev s2-c
-
-sudo ip netns exec core ip route add 2.2.2.2/32 via 10.0.0.1 dev c-s1
-sudo ip netns exec core ip route add 3.3.3.3/32 via 10.0.1.1 dev c-s2
-sudo ip netns exec spine1 ip route add 1.1.1.1/32 via 10.0.0.2 dev s1-c
-sudo ip netns exec spine2 ip route add 1.1.1.1/32 via 10.0.1.2 dev s2-c

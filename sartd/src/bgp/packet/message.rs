@@ -25,9 +25,9 @@ pub(crate) enum Message {
     },
     // https://www.rfc-editor.org/rfc/rfc4271#section-4.3
     Update {
-        withdrawn_routes: Option<Vec<Prefix>>,
-        attributes: Option<Vec<Attribute>>,
-        nlri: Option<Vec<Prefix>>,
+        withdrawn_routes: Vec<Prefix>,
+        attributes: Vec<Attribute>,
+        nlri: Vec<Prefix>,
     },
     // https://www.rfc-editor.org/rfc/rfc4271#section-4.4
     Keepalive,
@@ -94,9 +94,9 @@ impl Message {
         self,
     ) -> Result<
         (
-            Option<Vec<Prefix>>,
-            Option<Vec<Attribute>>,
-            Option<Vec<Prefix>>,
+            Vec<Prefix>,
+            Vec<Attribute>,
+            Vec<Prefix>,
         ),
         Error,
     > {
@@ -373,21 +373,9 @@ impl MessageBuilder {
                 })
             }
             MessageType::Update => Ok(Message::Update {
-                withdrawn_routes: if self.withdrawn_routes.is_empty() {
-                    Some(self.withdrawn_routes.clone())
-                } else {
-                    None
-                },
-                attributes: if self.attributes.is_empty() {
-                    Some(self.attributes.clone())
-                } else {
-                    None
-                },
-                nlri: if self.nlri.is_empty() {
-                    Some(self.nlri.clone())
-                } else {
-                    None
-                },
+                withdrawn_routes: self.withdrawn_routes.clone(),
+                attributes: self.attributes.clone(),
+                nlri: self.nlri.clone(),
             }),
             MessageType::Keepalive => Ok(Message::Keepalive),
             MessageType::Notification => Ok(Message::Notification {

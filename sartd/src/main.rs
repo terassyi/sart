@@ -30,14 +30,6 @@ fn main() -> Result<(), std::io::Error> {
                 .help("version of sartd-bgp"),
         )
         .arg(
-            Arg::with_name("port")
-                .short('p')
-                .long("port")
-                .takes_value(true)
-                .required(false)
-                .help("port for daemon"),
-        )
-        .arg(
             Arg::with_name("as_number")
                 .short('a')
                 .long("as")
@@ -68,12 +60,6 @@ fn main() -> Result<(), std::io::Error> {
             }
             None => {}
         }
-        match app.value_of("port") {
-            Some(local_port) => {
-                conf.port = local_port.parse::<u16>().unwrap();
-            }
-            None => {}
-        }
         conf
     } else {
         let mut conf = Config::default();
@@ -83,10 +69,6 @@ fn main() -> Result<(), std::io::Error> {
         }
         match app.value_of("router_id") {
             Some(router_id) => conf.set_router_id(Ipv4Addr::from_str(router_id).unwrap()),
-            None => {}
-        }
-        match app.value_of("port") {
-            Some(local_port) => conf.set_local_port(local_port.parse::<u16>().unwrap()),
             None => {}
         }
         conf

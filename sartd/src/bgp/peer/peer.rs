@@ -18,10 +18,15 @@ use crate::bgp::error::{
 use crate::bgp::event::{
     AdministrativeEvent, BgpMessageEvent, Event, TcpConnectionEvent, TimerEvent,
 };
+use crate::bgp::family::AddressFamily;
+use crate::bgp::packet::attribute::Attribute;
 use crate::bgp::packet::codec::Codec;
 use crate::bgp::packet::message::{
     Message, MessageBuilder, MessageType, NotificationCode, NotificationSubCode,
 };
+use crate::bgp::packet::prefix::Prefix;
+use crate::bgp::path::PathBuilder;
+use crate::bgp::rib::{AdjRibIn, AdjRibOut};
 use crate::bgp::server::Bgp;
 
 use super::fsm::State;
@@ -51,6 +56,7 @@ pub(crate) struct PeerInfo {
     pub keepalive_time: u64,
     pub connect_retry_time: u64,
     pub local_capabilities: CapabilitySet,
+    pub families: Vec<AddressFamily>,
     pub state: State,
 }
 
@@ -60,6 +66,7 @@ impl PeerInfo {
         local_router_id: Ipv4Addr,
         neighbor: NeighborConfig,
         local_capabilities: CapabilitySet,
+        families: Vec<AddressFamily>,
     ) -> Self {
         Self {
             neighbor: Neighbor::from(neighbor),
@@ -69,6 +76,7 @@ impl PeerInfo {
             keepalive_time: Bgp::DEFAULT_KEEPALIVE_TIME,
             connect_retry_time: Bgp::DEFAULT_CONNECT_RETRY_TIME,
             local_capabilities,
+            families,
             state: State::Idle,
         }
     }
@@ -89,13 +97,18 @@ pub(crate) struct Peer {
     drop_signal: Arc<Notify>,
     send_counter: Arc<Mutex<MessageCounter>>,
     recv_counter: Arc<Mutex<MessageCounter>>,
+    adj_rib_in: AdjRibIn,
+    adj_rib_out: AdjRibOut,
 }
 
 impl Peer {
-    pub fn new(config: Arc<Mutex<PeerInfo>>, rx: UnboundedReceiver<Event>) -> Self {
-        let keepalive_time = { config.lock().unwrap().keepalive_time };
+    pub fn new(info: Arc<Mutex<PeerInfo>>, rx: UnboundedReceiver<Event>) -> Self {
+        let (keepalive_time, families )= { 
+            let info = info.lock().unwrap();
+            (info.keepalive_time, info.families.clone())
+        };
         Self {
-            info: config,
+            info,
             fsm: Mutex::new(FiniteStateMachine::new()),
             admin_rx: rx,
             msg_tx: None,
@@ -111,6 +124,8 @@ impl Peer {
             drop_signal: Arc::new(Notify::new()),
             send_counter: Arc::new(Mutex::new(MessageCounter::new())),
             recv_counter: Arc::new(Mutex::new(MessageCounter::new())),
+            adj_rib_in: AdjRibIn::new(families.clone()),
+            adj_rib_out: AdjRibOut::new(families),
         }
     }
 
@@ -195,7 +210,7 @@ impl Peer {
                             BgpMessageEvent::NotifMsgVerErr => self.notification_msg_ver_error(),
                             BgpMessageEvent::NotifMsg(msg) => self.notification_msg(msg),
                             BgpMessageEvent::KeepAliveMsg => self.keepalive_msg(),
-                            BgpMessageEvent::UpdateMsg(msg) => self.update_msg(),
+                            BgpMessageEvent::UpdateMsg(msg) => self.update_msg(msg),
                             BgpMessageEvent::UpdateMsgErr(e) => self.update_msg_error(e),
                             BgpMessageEvent::RouteRefreshMsg(msg) => self.route_refresh_msg(),
                             BgpMessageEvent::RouteRefreshMsgErr => self.route_refresh_msg_error(),
@@ -282,15 +297,15 @@ impl Peer {
                                 Err(e) => {
                                     let res = match e {
                                         Error::MessageHeader(e) => {
-                                            tracing::error!("{:?}", e);
+                                            tracing::error!(level="peer",peer.addr=peer_addr, peer.asn=peer_as,error=?e);
                                             msg_event_tx.send(BgpMessageEvent::BgpHeaderError(e))
                                         },
                                         Error::OpenMessage(e) => {
-                                            tracing::error!("{:?}", e);
+                                            tracing::error!(level="peer",peer.addr=peer_addr, peer.asn=peer_as,error=?e);
                                             msg_event_tx.send(BgpMessageEvent::BgpOpenMsgErr(e))
                                         },
                                         Error::UpdateMessage(e) => {
-                                            tracing::error!("{:?}", e);
+                                            tracing::error!(level="peer",peer.addr=peer_addr, peer.asn=peer_as,error=?e);
                                             msg_event_tx.send(BgpMessageEvent::UpdateMsgErr(e))
                                         },
                                         _ => Ok(()),
@@ -902,7 +917,7 @@ impl Peer {
     }
 
     // Event 27
-    fn update_msg(&mut self) -> Result<(), Error> {
+    fn update_msg(&mut self, msg: Message) -> Result<(), Error> {
         match self.state() {
             State::OpenSent | State::OpenConfirm => {
                 // sends a NOTIFICATION with a code of Finite State Machine Error,
@@ -919,10 +934,11 @@ impl Peer {
                 // processes the message,
                 // restarts its HoldTimer, if the negotiated HoldTime value is non-zero, and
                 // remains in the Established state.
+                let (withdrawn_rotes, attributes, nlri) = msg.to_update()?;
                 if self.negotiated_hold_time != 0 {
                     self.hold_timer.push(self.negotiated_hold_time);
                 }
-                self.handle_update_msg()?;
+                self.handle_update_msg(withdrawn_rotes, attributes, nlri)?;
             }
             _ => {
                 // sets the ConnectRetryTimer to zero,
@@ -1066,7 +1082,55 @@ impl Peer {
         builder.build()
     }
 
-    fn handle_update_msg(&self) -> Result<(), Error> {
+    fn handle_update_msg(&self, withdrawn_routes: Vec<Prefix>, attributes: Vec<Attribute>, nlri: Vec<Prefix>) -> Result<(), Error> {
+        let (local_id, local_asn, peer_id, peer_addr, peer_asn) = {
+            let info = self.info.lock().unwrap();
+            (info.router_id, info.asn, info.neighbor.get_router_id(), info.neighbor.get_addr(), info.neighbor.get_asn())
+        };
+        let mut builder = PathBuilder::builder(local_id, local_asn, peer_id, peer_addr, peer_asn);
+        for attr in attributes.iter() {
+            // if attr.is_optional() && !attr.is_recognized() { 
+            //     if attr.is_transitive() {
+            //         attr.set_partial();
+            //         propagate_attr.push(attr)
+            //     }
+            //     // ignore
+            // }
+            // process
+            self.process_attr(attr)?;
+        }
+        for attr in attributes.into_iter() {
+            builder.attr(attr)?;
+        }
+        // if withdrawn_routes is non empty, the previously advertised prefixes will be removed from adj-rib-in
+        // and run Decision Process
+
+        // If the UPDATE message contains a feasible route, the Adj-RIB-In will
+        // be updated with this route as follows: if the NLRI of the new route
+        // is identical to the one the route currently has stored in the Adj-
+        // RIB-In, then the new route SHALL replace the older route in the Adj-
+        // RIB-In, thus implicitly withdrawing the older route from service.
+        // Otherwise, if the Adj-RIB-In.
+        Ok(())
+    }
+
+    fn process_attr(&self, attr: &Attribute) -> Result<(), Error> {
+        match attr {
+            Attribute::Origin(_, _) => {},
+            Attribute::ASPath(_, segments) => {},
+            Attribute::NextHop(_, next_hop) => {},
+            Attribute::MultiExitDisc(_, _) => {},
+            Attribute::LocalPref(_, _) => {},
+            Attribute::AtomicAggregate(_) => {},
+            Attribute::Aggregator(_, _, _) => {},
+            Attribute::Communities(_, _) => {},
+            Attribute::MPReachNLRI(_, _, _, _) => {},
+            Attribute::MPUnReachNLRI(_, _, _) => {},
+            Attribute::ExtendedCommunities(_, _, _) => {},
+            Attribute::AS4Path(_, segments) => {},
+            Attribute::AS4Aggregator(_, _, _) => {},
+            Attribute::Unsupported(_, _) => {},
+        }
         Ok(())
     }
 }
@@ -1147,6 +1211,7 @@ mod tests {
         config::NeighborConfig,
         packet::{self, message::Message},
     };
+    use crate::bgp::family::{AddressFamily, Afi, Safi};
 
     use super::{Peer, PeerInfo};
     use rstest::rstest;
@@ -1169,6 +1234,7 @@ mod tests {
                 router_id: Ipv4Addr::new(2, 2, 2, 2),
             },
             CapabilitySet::default(100),
+            vec![AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast}, AddressFamily{afi: Afi::IPv6, safi: Safi::Unicast}],
         )));
         let (_, rx) = tokio::sync::mpsc::unbounded_channel();
         let mut peer = Peer::new(info, rx);
@@ -1189,6 +1255,7 @@ mod tests {
                 router_id: Ipv4Addr::new(2, 2, 2, 2),
             },
             CapabilitySet::default(100),
+            vec![AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast}, AddressFamily{afi: Afi::IPv6, safi: Safi::Unicast}],
         )));
         let (_, rx) = tokio::sync::mpsc::unbounded_channel();
         let peer = Peer::new(info, rx);
@@ -1200,6 +1267,7 @@ mod tests {
                 hold_time: Bgp::DEFAULT_HOLD_TIME as u16,
                 identifier: Ipv4Addr::new(1, 1, 1, 1),
                 capabilities: vec![
+                    packet::capability::Capability::MultiProtocol(AddressFamily::ipv6_unicast()),
                     packet::capability::Capability::RouteRefresh,
                     packet::capability::Capability::FourOctetASNumber(100),
                 ]

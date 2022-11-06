@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::family::AddressFamily;
+use super::family::{AddressFamily, Safi, Afi};
 use super::packet;
 
 #[derive(Debug, Clone)]
@@ -18,6 +18,10 @@ impl CapabilitySet {
         inner.insert(
             packet::capability::Capability::ROUTE_REFRESH,
             Capability::RouteRefresh,
+        );
+        inner.insert(
+            packet::capability::Capability::MULTI_PROTOCOL,
+            Capability::MultiProtocol(MultiProtocol { family: AddressFamily{afi: Afi::IPv6, safi: Safi::Unicast} })
         );
         Self { inner }
     }
@@ -219,6 +223,6 @@ mod tests {
             .filter(|(&k, _)| k == packet::capability::Capability::FOUR_OCTET_AS_NUMBER);
         assert_eq!(1, a.count());
         let keys = capset.keys();
-        assert_eq!(2, keys.len());
+        assert_eq!(3, keys.len());
     }
 }

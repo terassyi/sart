@@ -11,7 +11,6 @@ use super::event::ControlEvent;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Config {
-    pub port: u16,
     pub asn: u32,
     pub router_id: Ipv4Addr,
     pub neighbors: Vec<NeighborConfig>,
@@ -20,7 +19,6 @@ pub(crate) struct Config {
 impl Config {
     pub fn default() -> Self {
         Config {
-            port: Bgp::BGP_PORT,
             asn: 0,
             router_id: Ipv4Addr::new(1, 1, 1, 1),
             neighbors: Vec::new(),
@@ -35,13 +33,11 @@ impl Config {
     pub fn set_as_number(&mut self, asn: u32) {
         self.asn = asn;
     }
+
     pub fn set_router_id(&mut self, router_id: Ipv4Addr) {
         self.router_id = router_id;
-    }
-    pub fn set_local_port(&mut self, port: u16) {
-        self.port = port;
-    }
 
+    }
     pub fn get_control_event(&self) -> Vec<ControlEvent> {
         self.into()
     }
@@ -70,8 +66,7 @@ mod tests {
     use std::net::Ipv4Addr;
     #[test]
     fn work_serd_yaml_from_str() {
-        let yaml_str = r"port: 179
-asn: 6550
+        let yaml_str = r"asn: 6550
 router_id: 1.1.1.1
 neighbors:
   - asn: 100
@@ -82,7 +77,6 @@ neighbors:
     address: '::1'
 ";
         let conf: Config = serde_yaml::from_str(yaml_str).unwrap();
-        assert_eq!(179, conf.port);
         assert_eq!(6550, conf.asn);
         assert_eq!(Ipv4Addr::new(1, 1, 1, 1), conf.router_id);
     }

@@ -1,26 +1,15 @@
 #!/bin/bash
-
 set -e
+
 
 echo "==== Test to establish BGP session ===="
 
-sartd/test/simple/topology.sh
-sartd/test/simple/gobgp_run.sh
+sartd/test/simple_ipv6/topology.sh
+# sudo ip netns exec core tcpdump -i lo -i c-s1 -i c-s2 -vvv -w $WIN_MNT/Downloads/test.pcap &
+sartd/test/simple_ipv6/gobgp_run.sh
 
 echo "==== RUN SARTD BGP ===="
-sudo ip netns exec core sartd/target/debug/sartd -f sartd/test/simple/config.yaml &
-
-echo "==== SLEEP 10s ===="
-sleep 10s
-
-echo "==== STOP GOBGP ===="
-sartd/test/simple/gobgp_stop.sh
-
-echo "==== WAIT FOR RESTARTING SARTD PEER HANDLING"
-sleep 30
-
-echo "==== RESTART GOBGP ===="
-sartd/test/simple/gobgp_run.sh
+sudo ip netns exec core sartd/target/debug/sartd -f sartd/test/simple_ipv6/config.yaml &
 
 echo "==== SLEEP 10s ===="
 sleep 10s
@@ -45,9 +34,9 @@ else
 fi
 
 echo "==== CREANUP ===="
-sartd/test/simple/gobgp_stop.sh
+sartd/test/simple_ipv6/gobgp_stop.sh
 sartd/test/sartd_stop.sh
-sartd/test/simple/clean_topology.sh
+sartd/test/simple_ipv6/clean_topology.sh
 
 if [ $RES -ne 2 ]; then
 	false
