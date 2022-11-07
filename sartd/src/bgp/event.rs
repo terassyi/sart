@@ -300,3 +300,8 @@ impl std::fmt::Display for ControlEvent {
         }
     }
 }
+
+#[derive(Debug, Clone)]
+pub(crate) enum RibEvent {
+
+}

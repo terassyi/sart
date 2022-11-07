@@ -1,7 +1,9 @@
 use std::{collections::HashMap, ops::Add};
+use futures::FutureExt;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use ipnet::IpNet;
 
-use super::{path::Path, family::AddressFamily, error::{Error, RibError}};
+use super::{path::Path, family::AddressFamily, error::{Error, RibError}, event::RibEvent, config::NeighborConfig, peer::neighbor::NeighborPair};
 
 #[derive(Debug)]
 pub(crate) struct Table {
@@ -126,15 +128,77 @@ impl AdjRibOut {
 
 #[derive(Debug)]
 pub(crate) struct LocRib {
+	table: Table,
+}
+
+impl LocRib {
+	pub fn new() -> Self {
+		Self {
+			table: Table::new(),
+		}
+	}
+}
+
+#[derive(Debug)]
+pub(crate) struct RibManager {
+	loc_rib: LocRib,
+	endpoint: String,
+	event_rx: UnboundedReceiver<RibEvent>,
+	peers_tx: HashMap<NeighborPair, UnboundedSender<RibEvent>>,
+}
+
+impl RibManager {
+	pub fn new(endpoint: String) -> (Self, UnboundedSender<RibEvent>) {
+		let (tx, rx) = unbounded_channel::<RibEvent>();
+		(Self {
+			loc_rib: LocRib::new(),
+			endpoint,
+			event_rx: rx,
+			peers_tx: HashMap::new(),
+		}, tx)
+	}
+
+	pub fn add_peer(&mut self, neighbor: NeighborPair, tx: UnboundedSender<RibEvent>) -> Result<(), RibError> {
+		match self.peers_tx.get(&neighbor) {
+			Some(_) => Err(RibError::PeerAlreadyRegistered),
+			None => {
+				self.peers_tx.insert(neighbor, tx);
+				Ok(())
+			}
+		}
+	}
+
+	pub async fn serve(&mut self) {
+		loop {
+			futures::select_biased! {
+				event = self.event_rx.recv().fuse() => {
+
+				}
+			}
+		}
+	}
+
 
 }
 
 #[cfg(test)]
 mod tests {
-    use super::Table;
+    use tokio::sync::mpsc::unbounded_channel;
+	use std::net::{IpAddr, Ipv4Addr};
+
+    use crate::bgp::{event::RibEvent, peer::neighbor::NeighborPair};
+
+    use super::{Table, RibManager};
 
 	#[test]
 	fn works_table() {
 		let mut table = Table::new();
+	}
+
+	#[test]
+	fn works_rib_manager_add_peer() {
+		let (mut manager, event_tx) = RibManager::new("test_endpoint".to_string());
+		let (tx, rx) = unbounded_channel::<RibEvent>();
+		manager.add_peer(NeighborPair::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 100), tx).unwrap();
 	}
 }

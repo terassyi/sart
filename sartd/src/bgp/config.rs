@@ -13,6 +13,7 @@ use super::event::ControlEvent;
 pub(crate) struct Config {
     pub asn: u32,
     pub router_id: Ipv4Addr,
+    pub rib_endpoint: String,
     pub neighbors: Vec<NeighborConfig>,
 }
 
@@ -20,6 +21,7 @@ impl Config {
     pub fn default() -> Self {
         Config {
             asn: 0,
+            rib_endpoint: "".to_string(),
             router_id: Ipv4Addr::new(1, 1, 1, 1),
             neighbors: Vec::new(),
         }
@@ -53,7 +55,7 @@ impl Into<Vec<ControlEvent>> for &Config {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
 pub(crate) struct NeighborConfig {
     pub asn: u32,
     pub address: IpAddr,
@@ -68,6 +70,7 @@ mod tests {
     fn work_serd_yaml_from_str() {
         let yaml_str = r"asn: 6550
 router_id: 1.1.1.1
+rib_endpoint: test
 neighbors:
   - asn: 100
     router_id: 2.2.2.2

@@ -3,6 +3,36 @@ use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::{Arc, Mutex};
 
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub(crate) struct NeighborPair {
+    addr: IpAddr,
+    asn: u32,
+}
+
+impl NeighborPair {
+    pub fn new(addr: IpAddr, asn: u32) -> Self {
+        Self {addr, asn}
+    }
+}
+
+impl From<&NeighborConfig> for NeighborPair {
+    fn from(c: &NeighborConfig) -> Self {
+        Self {
+            addr: c.address,
+            asn: c.asn,
+        }
+    }
+}
+
+impl From<&Neighbor> for NeighborPair {
+    fn from(n: &Neighbor) -> Self {
+        Self {
+            addr: n.get_addr(),
+            asn: n.get_asn(),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct Neighbor {
     asn: u32,

@@ -38,6 +38,8 @@ pub(crate) enum Error {
     UndesiredMessage,
     #[error("peer error")]
     Peer(#[from] PeerError),
+    #[error("rib error")]
+    Rib(#[from] RibError),
 }
 
 // https://www.rfc-editor.org/rfc/rfc1771#section-6.1
@@ -169,4 +171,6 @@ pub(crate) enum PeerError {
 pub(crate) enum RibError {
     #[error("address family is not set")]
     AddressFamilyNotSet,
+    #[error("peer is already registered")]
+    PeerAlreadyRegistered,
 }

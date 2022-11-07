@@ -30,9 +30,10 @@ use crate::proto::sart::bgp_api_server::BgpApiServer;
 use super::capability::{Capability, CapabilitySet};
 use super::config::NeighborConfig;
 use super::error::{ControlError, PeerError};
-use super::event::{AdministrativeEvent, ControlEvent, Event};
+use super::event::{AdministrativeEvent, ControlEvent, Event, RibEvent};
 use super::family::AddressFamily;
 use super::peer::peer::{Peer, PeerInfo, PeerManager};
+use super::rib::RibManager;
 
 #[derive(Debug)]
 pub(crate) struct Bgp {
@@ -44,6 +45,8 @@ pub(crate) struct Bgp {
     connect_retry_time: u64,
     active_conn_rx: UnboundedReceiver<TcpStream>,
     active_conn_tx: UnboundedSender<TcpStream>,
+    rib_manager: RibManager,
+    rib_tx: UnboundedSender<RibEvent>,
     event_signal: Arc<Notify>,
 }
 
@@ -58,6 +61,7 @@ impl Bgp {
         let (active_conn_tx, mut active_conn_rx) =
             tokio::sync::mpsc::unbounded_channel::<TcpStream>();
         let asn = conf.asn;
+        let (rib_manager, rib_tx) = RibManager::new(conf.rib_endpoint.clone());
         Self {
             config: Arc::new(Mutex::new(conf)),
             peer_managers: HashMap::new(),
@@ -68,6 +72,8 @@ impl Bgp {
             event_signal: Arc::new(Notify::new()),
             active_conn_rx,
             active_conn_tx,
+            rib_manager,
+            rib_tx,
         }
     }
 
@@ -217,7 +223,7 @@ impl Bgp {
             self.global_capabilities.clone(),
             self.families.clone(),
         )));
-        let mut peer = Peer::new(info.clone(), rx);
+        let mut peer = Peer::new(info.clone(), rx, self.rib_tx.clone());
         let manager = PeerManager::new(info, tx);
         self.peer_managers.insert(neighbor.address, manager);
 
@@ -258,26 +264,6 @@ impl Bgp {
             });
         }
         Ok(())
-    }
-}
-
-impl TryFrom<Config> for Bgp {
-    type Error = Error;
-    fn try_from(conf: Config) -> Result<Self, Self::Error> {
-        let (active_conn_tx, mut active_conn_rx) =
-            tokio::sync::mpsc::unbounded_channel::<TcpStream>();
-        let asn = conf.asn;
-        Ok(Self {
-            config: Arc::new(Mutex::new(conf)),
-            peer_managers: HashMap::new(),
-            global_capabilities: CapabilitySet::default(asn),
-            families: vec![AddressFamily::ipv4_unicast(), AddressFamily::ipv6_unicast()],
-            connect_retry_time: Self::DEFAULT_CONNECT_RETRY_TIME,
-            api_server_port: Self::API_SERVER_PORT,
-            event_signal: Arc::new(Notify::new()),
-            active_conn_rx,
-            active_conn_tx,
-        })
     }
 }
 

@@ -7,7 +7,7 @@ use crate::bgp::family::{AddressFamily, Afi};
 use bytes::{Buf, BufMut, BytesMut};
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Hash)]
 pub(crate) struct Prefix {
     inner: ipnet::IpNet,
     path_id: Option<u32>,

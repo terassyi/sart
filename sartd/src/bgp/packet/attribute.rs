@@ -11,7 +11,7 @@ use crate::bgp::packet::prefix::Prefix;
 
 use super::capability::Capability;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Hash)]
 pub(crate) enum Attribute {
     Origin(Base, u8),
     ASPath(Base, Vec<ASSegment>),
@@ -502,7 +502,7 @@ impl Into<u8> for Attribute {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct Base {
     flag: u8,
     code: u8,
@@ -566,7 +566,7 @@ impl<'a> Into<u16> for &'a Base {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Hash)]
 pub(crate) struct ASSegment {
     pub segment_type: u8,
     pub segments: Vec<u32>,
