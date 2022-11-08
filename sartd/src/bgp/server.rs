@@ -10,7 +10,7 @@ use std::ops::Add;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::mpsc::{channel, Receiver, UnboundedSender};
+use tokio::sync::mpsc::{channel, Receiver, UnboundedSender, Sender};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tokio::sync::Notify;
 use tokio::time::{interval_at, sleep, timeout, Instant};
@@ -29,9 +29,10 @@ use crate::proto::sart::bgp_api_server::BgpApiServer;
 
 use super::capability::{Capability, CapabilitySet};
 use super::config::NeighborConfig;
-use super::error::{ControlError, PeerError};
+use super::error::{ControlError, PeerError, RibError};
 use super::event::{AdministrativeEvent, ControlEvent, Event, RibEvent};
 use super::family::AddressFamily;
+use super::peer::neighbor::NeighborPair;
 use super::peer::peer::{Peer, PeerInfo, PeerManager};
 use super::rib::RibManager;
 
@@ -45,9 +46,8 @@ pub(crate) struct Bgp {
     connect_retry_time: u64,
     active_conn_rx: UnboundedReceiver<TcpStream>,
     active_conn_tx: UnboundedSender<TcpStream>,
-    rib_manager: RibManager,
-    rib_tx: UnboundedSender<RibEvent>,
     event_signal: Arc<Notify>,
+    rib_event_tx: Sender<RibEvent>,
 }
 
 impl Bgp {
@@ -57,11 +57,10 @@ impl Bgp {
     pub const DEFAULT_KEEPALIVE_TIME: u64 = 60;
     const API_SERVER_PORT: u16 = 5000;
 
-    pub fn new(conf: Config) -> Self {
+    pub fn new(conf: Config, rib_event_tx: Sender<RibEvent>) -> Self {
         let (active_conn_tx, mut active_conn_rx) =
             tokio::sync::mpsc::unbounded_channel::<TcpStream>();
         let asn = conf.asn;
-        let (rib_manager, rib_tx) = RibManager::new(conf.rib_endpoint.clone());
         Self {
             config: Arc::new(Mutex::new(conf)),
             peer_managers: HashMap::new(),
@@ -72,16 +71,24 @@ impl Bgp {
             event_signal: Arc::new(Notify::new()),
             active_conn_rx,
             active_conn_tx,
-            rib_manager,
-            rib_tx,
+            rib_event_tx,
         }
     }
 
     #[tracing::instrument(skip(conf))]
     pub async fn serve(conf: Config) {
-        let mut server = Self::new(conf);
+        let rib_endpoint_conf = conf.rib_endpoint.clone();
 
-        let (ctrl_tx, mut ctrl_rx) = tokio::sync::mpsc::channel::<ControlEvent>(128);
+        let (rib_event_tx, rib_event_rx) = channel::<RibEvent>(128);
+        let mut rib_manager = RibManager::new(rib_endpoint_conf, rib_event_rx);
+
+        tokio::spawn(async move {
+            rib_manager.serve().await;
+        });
+
+        let mut server = Self::new(conf, rib_event_tx);
+
+        let (ctrl_tx, mut ctrl_rx) = channel::<ControlEvent>(128);
         let init_tx = ctrl_tx.clone();
 
         let signal_api = server.event_signal.clone();
@@ -174,7 +181,7 @@ impl Bgp {
                 }
                 event = ctrl_rx.recv().fuse() => {
                     if let Some(event) = event {
-                        match server.handle_event(event) {
+                        match server.handle_event(event).await {
                             Ok(_) => {},
                             Err(e) => tracing::error!(level="global",error=?e),
                         };
@@ -194,20 +201,20 @@ impl Bgp {
     }
 
     #[tracing::instrument(skip(self, event))]
-    fn handle_event(&mut self, event: ControlEvent) -> Result<(), Error> {
+    async fn handle_event(&mut self, event: ControlEvent) -> Result<(), Error> {
         tracing::info!(level="global", event=%event);
         match event {
             ControlEvent::Health => {}
             ControlEvent::AddPeer(neighbor) => {
-                self.add_peer(neighbor)?;
-            }
+                self.add_peer(neighbor).await?;
+            },
             _ => tracing::error!("undefined control event"),
         }
         self.event_signal.notify_one();
         Ok(())
     }
 
-    fn add_peer(&mut self, neighbor: NeighborConfig) -> Result<(), Error> {
+    async fn add_peer(&mut self, neighbor: NeighborConfig) -> Result<(), Error> {
         if let Some(_) = self.peer_managers.get(&neighbor.address) {
             return Err(Error::Control(ControlError::PeerAlreadyExists));
         }
@@ -223,7 +230,14 @@ impl Bgp {
             self.global_capabilities.clone(),
             self.families.clone(),
         )));
-        let mut peer = Peer::new(info.clone(), rx, self.rib_tx.clone());
+
+        let (rib_event_tx, rib_event_rx) = channel(128);
+        self.rib_event_tx.send(RibEvent::AddPeer{neighbor: NeighborPair::from(&neighbor)}).await
+            .map_err(|e| {
+                tracing::error!(level="peer",error=?e);
+                Error::Rib(RibError::ManagerDown)})?;
+
+        let mut peer = Peer::new(info.clone(), rx, self.rib_event_tx.clone(), rib_event_rx);
         let manager = PeerManager::new(info, tx);
         self.peer_managers.insert(neighbor.address, manager);
 

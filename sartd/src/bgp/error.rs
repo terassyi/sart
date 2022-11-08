@@ -173,4 +173,6 @@ pub(crate) enum RibError {
     AddressFamilyNotSet,
     #[error("peer is already registered")]
     PeerAlreadyRegistered,
+    #[error("loc-rib manager down")]
+    ManagerDown,
 }

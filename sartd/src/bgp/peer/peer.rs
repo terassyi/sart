@@ -5,7 +5,7 @@ use std::time::Duration;
 use futures::stream::{FuturesUnordered, Next};
 use futures::{FutureExt, SinkExt, Stream, StreamExt};
 use tokio::net::TcpStream;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender, Sender, Receiver};
 use tokio::sync::Notify;
 use tokio::time::{interval_at, sleep, Instant, Interval, Sleep};
 use tokio_util::codec::{Framed, FramedRead};
@@ -99,11 +99,12 @@ pub(crate) struct Peer {
     recv_counter: Arc<Mutex<MessageCounter>>,
     adj_rib_in: AdjRibIn,
     adj_rib_out: AdjRibOut,
-    rib_tx: UnboundedSender<RibEvent>,
+    rib_tx: Sender<RibEvent>,
+    rib_rx: Receiver<RibEvent>,
 }
 
 impl Peer {
-    pub fn new(info: Arc<Mutex<PeerInfo>>, rx: UnboundedReceiver<Event>, rib_tx: UnboundedSender<RibEvent>) -> Self {
+    pub fn new(info: Arc<Mutex<PeerInfo>>, rx: UnboundedReceiver<Event>, rib_tx: Sender<RibEvent>, rib_rx: Receiver<RibEvent>) -> Self {
         let (keepalive_time, families )= { 
             let info = info.lock().unwrap();
             (info.keepalive_time, info.families.clone())
@@ -128,6 +129,7 @@ impl Peer {
             adj_rib_in: AdjRibIn::new(families.clone()),
             adj_rib_out: AdjRibOut::new(families),
             rib_tx,
+            rib_rx,
         }
     }
 
@@ -1247,8 +1249,8 @@ mod tests {
             vec![AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast}, AddressFamily{afi: Afi::IPv6, safi: Safi::Unicast}],
         )));
         let (_, rx) = tokio::sync::mpsc::unbounded_channel();
-        let (rib_tx, _) = tokio::sync::mpsc::unbounded_channel();
-        let mut peer = Peer::new(info, rx, rib_tx);
+        let (rib_tx, rib_rx) = tokio::sync::mpsc::channel(128);
+        let mut peer = Peer::new(info, rx, rib_tx, rib_rx);
         for e in event.into_iter() {
             peer.move_state(e);
         }
@@ -1269,8 +1271,8 @@ mod tests {
             vec![AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast}, AddressFamily{afi: Afi::IPv6, safi: Safi::Unicast}],
         )));
         let (_, rx) = tokio::sync::mpsc::unbounded_channel();
-        let (rib_tx, _) = tokio::sync::mpsc::unbounded_channel();
-        let peer = Peer::new(info, rx, rib_tx);
+        let (rib_tx, rib_rx) = tokio::sync::mpsc::channel(128);
+        let peer = Peer::new(info, rx, rib_tx, rib_rx);
         let msg = peer.build_open_msg().unwrap();
         assert_eq!(
             Message::Open {

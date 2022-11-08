@@ -1,14 +1,14 @@
 use tokio::net::TcpStream;
+use tokio::sync::mpsc::Sender;
+use tokio::sync::mpsc::UnboundedSender;
 
-use crate::bgp::error::Error;
-use std::convert::TryFrom;
-use std::convert::TryInto;
 
 use super::config::NeighborConfig;
 use super::error::MessageHeaderError;
 use super::error::OpenMessageError;
 use super::error::UpdateMessageError;
 use super::packet::message::Message;
+use super::peer::neighbor::NeighborPair;
 
 #[derive(Debug)]
 pub(crate) enum Event {
@@ -303,5 +303,6 @@ impl std::fmt::Display for ControlEvent {
 
 #[derive(Debug, Clone)]
 pub(crate) enum RibEvent {
-
+    // AddPeer{neighbor: NeighborPair, rib_event_tx: Sender<RibEvent>},
+    AddPeer{neighbor: NeighborPair},
 }

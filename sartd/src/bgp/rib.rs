@@ -1,6 +1,6 @@
 use std::{collections::HashMap, ops::Add};
 use futures::FutureExt;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender, Receiver, Sender, channel};
 use ipnet::IpNet;
 
 use super::{path::Path, family::AddressFamily, error::{Error, RibError}, event::RibEvent, config::NeighborConfig, peer::neighbor::NeighborPair};
@@ -143,22 +143,24 @@ impl LocRib {
 pub(crate) struct RibManager {
 	loc_rib: LocRib,
 	endpoint: String,
-	event_rx: UnboundedReceiver<RibEvent>,
-	peers_tx: HashMap<NeighborPair, UnboundedSender<RibEvent>>,
+	event_rx: Receiver<RibEvent>,
+	peers_tx: HashMap<NeighborPair, Sender<RibEvent>>,
 }
 
 impl RibManager {
-	pub fn new(endpoint: String) -> (Self, UnboundedSender<RibEvent>) {
-		let (tx, rx) = unbounded_channel::<RibEvent>();
-		(Self {
+	pub fn new(endpoint: String, event_rx: Receiver<RibEvent>) -> Self {
+		let (tx, rx) = channel::<RibEvent>(128);
+		Self {
 			loc_rib: LocRib::new(),
 			endpoint,
 			event_rx: rx,
 			peers_tx: HashMap::new(),
-		}, tx)
+		}
 	}
 
-	pub fn add_peer(&mut self, neighbor: NeighborPair, tx: UnboundedSender<RibEvent>) -> Result<(), RibError> {
+	#[tracing::instrument(skip(self,tx))]
+	pub fn add_peer(&mut self, neighbor: NeighborPair, tx: Sender<RibEvent>) -> Result<(), RibError> {
+		tracing::info!(level="rib",event="AddPeer");
 		match self.peers_tx.get(&neighbor) {
 			Some(_) => Err(RibError::PeerAlreadyRegistered),
 			None => {
@@ -168,22 +170,31 @@ impl RibManager {
 		}
 	}
 
+	#[tracing::instrument(skip(self))]
 	pub async fn serve(&mut self) {
+		tracing::info!("hhhhh");
 		loop {
 			futures::select_biased! {
 				event = self.event_rx.recv().fuse() => {
-
+					if let Some(event) = event {
+						let (rib_event_tx, _) = channel::<RibEvent>(128);
+						let res = match event {
+							RibEvent::AddPeer{neighbor} => self.add_peer(neighbor, rib_event_tx),
+						};
+						match res {
+							Ok(_) => {},
+							Err(e) => tracing::error!(level="rib",error=?e),
+						}
+					}
 				}
 			}
 		}
 	}
-
-
 }
 
 #[cfg(test)]
 mod tests {
-    use tokio::sync::mpsc::unbounded_channel;
+    use tokio::sync::mpsc::{unbounded_channel, channel};
 	use std::net::{IpAddr, Ipv4Addr};
 
     use crate::bgp::{event::RibEvent, peer::neighbor::NeighborPair};
@@ -197,8 +208,9 @@ mod tests {
 
 	#[test]
 	fn works_rib_manager_add_peer() {
-		let (mut manager, event_tx) = RibManager::new("test_endpoint".to_string());
-		let (tx, rx) = unbounded_channel::<RibEvent>();
+		let (event_tx, event_rx) = channel::<RibEvent>(128);
+		let mut manager = RibManager::new("test_endpoint".to_string(), event_rx);
+		let (tx, rx) = channel::<RibEvent>(128);
 		manager.add_peer(NeighborPair::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 100), tx).unwrap();
 	}
 }
