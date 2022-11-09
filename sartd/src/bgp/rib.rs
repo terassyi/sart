@@ -1,6 +1,6 @@
-use std::{collections::HashMap, ops::Add};
+use std::{collections::HashMap, ops::Add, sync::Arc};
 use futures::FutureExt;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender, Receiver, Sender, channel};
+use tokio::sync::{mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender, Receiver, Sender, channel}, Notify};
 use ipnet::IpNet;
 
 use super::{path::Path, family::AddressFamily, error::{Error, RibError}, event::RibEvent, config::NeighborConfig, peer::neighbor::NeighborPair};
@@ -143,7 +143,7 @@ impl LocRib {
 pub(crate) struct RibManager {
 	loc_rib: LocRib,
 	endpoint: String,
-	event_rx: Receiver<RibEvent>,
+	pub event_rx: Receiver<RibEvent>,
 	peers_tx: HashMap<NeighborPair, Sender<RibEvent>>,
 }
 
@@ -159,10 +159,10 @@ impl RibManager {
 	}
 
 	#[tracing::instrument(skip(self,tx))]
-	pub fn add_peer(&mut self, neighbor: NeighborPair, tx: Sender<RibEvent>) -> Result<(), RibError> {
+	pub fn add_peer(&mut self, neighbor: NeighborPair, tx: Sender<RibEvent>) -> Result<(), Error> {
 		tracing::info!(level="rib",event="AddPeer");
 		match self.peers_tx.get(&neighbor) {
-			Some(_) => Err(RibError::PeerAlreadyRegistered),
+			Some(_) => Err(Error::Rib(RibError::PeerAlreadyRegistered)),
 			None => {
 				self.peers_tx.insert(neighbor, tx);
 				Ok(())
@@ -171,15 +171,16 @@ impl RibManager {
 	}
 
 	#[tracing::instrument(skip(self))]
-	pub async fn serve(&mut self) {
+	pub async fn serve(&mut self, signal: Arc<Notify>) {
 		tracing::info!("hhhhh");
+		signal.notify_one();
 		loop {
 			futures::select_biased! {
 				event = self.event_rx.recv().fuse() => {
 					if let Some(event) = event {
 						let (rib_event_tx, _) = channel::<RibEvent>(128);
 						let res = match event {
-							RibEvent::AddPeer{neighbor} => self.add_peer(neighbor, rib_event_tx),
+							RibEvent::AddPeer{neighbor, rib_event_tx} => self.add_peer(neighbor, rib_event_tx),
 						};
 						match res {
 							Ok(_) => {},
@@ -188,6 +189,14 @@ impl RibManager {
 					}
 				}
 			}
+		}
+	}
+
+	#[tracing::instrument(skip(self))]
+	pub fn handle(&mut self, event: RibEvent) -> Result<(), Error> {
+		tracing::info!("incomming event");
+		match event {
+			RibEvent::AddPeer{neighbor, rib_event_tx} => self.add_peer(neighbor, rib_event_tx),
 		}
 	}
 }

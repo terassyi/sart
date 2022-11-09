@@ -82,9 +82,9 @@ impl Bgp {
         let (rib_event_tx, rib_event_rx) = channel::<RibEvent>(128);
         let mut rib_manager = RibManager::new(rib_endpoint_conf, rib_event_rx);
 
-        tokio::spawn(async move {
-            rib_manager.serve().await;
-        });
+        // tokio::spawn(async move {
+        //     rib_manager.serve(rib_signal2).await;
+        // });
 
         let mut server = Self::new(conf, rib_event_tx);
 
@@ -187,6 +187,14 @@ impl Bgp {
                         };
                     }
                 }
+                rib_event = rib_manager.event_rx.recv().fuse() => {
+                    if let Some(rib_event) = rib_event {
+                        match rib_manager.handle(rib_event) {
+                            Ok(_) => {},
+                            Err(e) => tracing::error!(level="global",error=?e),
+                        }
+                    }
+                }
                 _ = peer_management_interval.tick().fuse() => {
                     for peer_manager in server.peer_managers.values() {
                         let info = peer_manager.info.lock().unwrap();
@@ -232,10 +240,14 @@ impl Bgp {
         )));
 
         let (rib_event_tx, rib_event_rx) = channel(128);
-        self.rib_event_tx.send(RibEvent::AddPeer{neighbor: NeighborPair::from(&neighbor)}).await
-            .map_err(|e| {
-                tracing::error!(level="peer",error=?e);
-                Error::Rib(RibError::ManagerDown)})?;
+
+        // self.rib_event_tx.send(RibEvent::AddPeer{neighbor: NeighborPair::from(&neighbor), rib_event_tx}).await
+        //     .map_err(|e| {
+        //         tracing::error!(level="peer",error=?e);
+        //         Error::Rib(RibError::ManagerDown)})?;
+        while let Ok(()) = self.rib_event_tx.send(RibEvent::AddPeer { neighbor: NeighborPair::from(&neighbor), rib_event_tx: rib_event_tx.clone()}).await {
+            tracing::error!("failed to send rib_event");
+        };
 
         let mut peer = Peer::new(info.clone(), rx, self.rib_event_tx.clone(), rib_event_rx);
         let manager = PeerManager::new(info, tx);

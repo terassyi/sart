@@ -303,6 +303,5 @@ impl std::fmt::Display for ControlEvent {
 
 #[derive(Debug, Clone)]
 pub(crate) enum RibEvent {
-    // AddPeer{neighbor: NeighborPair, rib_event_tx: Sender<RibEvent>},
-    AddPeer{neighbor: NeighborPair},
+    AddPeer{neighbor: NeighborPair, rib_event_tx: Sender<RibEvent>},
 }
