@@ -23,7 +23,7 @@ echo "==== RESTART GOBGP ===="
 sartd/test/simple/gobgp_run.sh
 
 echo "==== SLEEP 10s ===="
-sleep 10s
+sleep 30s
 
 SPINE1_SESSION_STATE=$(sudo ip netns exec spine1 gobgp neighbor --json | jq .[].state.session_state)
 RES=0
