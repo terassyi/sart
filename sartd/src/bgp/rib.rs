@@ -143,23 +143,27 @@ impl LocRib {
 pub(crate) struct RibManager {
 	loc_rib: LocRib,
 	endpoint: String,
-	pub event_rx: Receiver<RibEvent>,
 	peers_tx: HashMap<NeighborPair, Sender<RibEvent>>,
 }
 
 impl RibManager {
-	pub fn new(endpoint: String, event_rx: Receiver<RibEvent>) -> Self {
-		let (tx, rx) = channel::<RibEvent>(128);
+	pub fn new(endpoint: String) -> Self {
 		Self {
 			loc_rib: LocRib::new(),
 			endpoint,
-			event_rx: rx,
 			peers_tx: HashMap::new(),
 		}
 	}
 
+	#[tracing::instrument(skip(self))]
+	pub fn handle(&mut self, event: RibEvent) -> Result<(), Error> {
+		match event {
+			RibEvent::AddPeer{neighbor, rib_event_tx} => self.add_peer(neighbor, rib_event_tx),
+		}
+	}
+
 	#[tracing::instrument(skip(self,tx))]
-	pub fn add_peer(&mut self, neighbor: NeighborPair, tx: Sender<RibEvent>) -> Result<(), Error> {
+	fn add_peer(&mut self, neighbor: NeighborPair, tx: Sender<RibEvent>) -> Result<(), Error> {
 		tracing::info!(level="rib",event="AddPeer");
 		match self.peers_tx.get(&neighbor) {
 			Some(_) => Err(Error::Rib(RibError::PeerAlreadyRegistered)),
@@ -170,34 +174,8 @@ impl RibManager {
 		}
 	}
 
-	#[tracing::instrument(skip(self))]
-	pub async fn serve(&mut self, signal: Arc<Notify>) {
-		tracing::info!("hhhhh");
-		signal.notify_one();
-		loop {
-			futures::select_biased! {
-				event = self.event_rx.recv().fuse() => {
-					if let Some(event) = event {
-						let (rib_event_tx, _) = channel::<RibEvent>(128);
-						let res = match event {
-							RibEvent::AddPeer{neighbor, rib_event_tx} => self.add_peer(neighbor, rib_event_tx),
-						};
-						match res {
-							Ok(_) => {},
-							Err(e) => tracing::error!(level="rib",error=?e),
-						}
-					}
-				}
-			}
-		}
-	}
-
-	#[tracing::instrument(skip(self))]
-	pub fn handle(&mut self, event: RibEvent) -> Result<(), Error> {
-		tracing::info!("incomming event");
-		match event {
-			RibEvent::AddPeer{neighbor, rib_event_tx} => self.add_peer(neighbor, rib_event_tx),
-		}
+	fn add_network(&mut self, network: String) -> Result<(), Error> {
+		Ok(())
 	}
 }
 
@@ -217,9 +195,8 @@ mod tests {
 
 	#[test]
 	fn works_rib_manager_add_peer() {
-		let (event_tx, event_rx) = channel::<RibEvent>(128);
-		let mut manager = RibManager::new("test_endpoint".to_string(), event_rx);
-		let (tx, rx) = channel::<RibEvent>(128);
+		let mut manager = RibManager::new("test_endpoint".to_string());
+		let (tx, _rx) = channel::<RibEvent>(128);
 		manager.add_peer(NeighborPair::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 100), tx).unwrap();
 	}
 }

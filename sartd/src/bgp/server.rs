@@ -80,11 +80,8 @@ impl Bgp {
         let rib_endpoint_conf = conf.rib_endpoint.clone();
 
         let (rib_event_tx, mut rib_event_rx) = channel::<RibEvent>(128);
-        // let mut rib_manager = RibManager::new(rib_endpoint_conf, rib_event_rx);
+        let mut rib_manager = RibManager::new(rib_endpoint_conf);
 
-        // tokio::spawn(async move {
-        //     rib_manager.serve(rib_signal2).await;
-        // });
 
         let mut server = Self::new(conf, rib_event_tx);
 
@@ -189,11 +186,10 @@ impl Bgp {
                 }
                 rib_event = rib_event_rx.recv().fuse() => {
                     if let Some(rib_event) = rib_event {
-                        tracing::info!(level="global",event=?rib_event,"rib_event is comming");
-                        // match rib_manager.handle(rib_event) {
-                        //     Ok(_) => {},
-                        //     Err(e) => tracing::error!(level="global",error=?e),
-                        // }
+                        match rib_manager.handle(rib_event) {
+                            Ok(_) => {},
+                            Err(e) => tracing::error!(level="global",error=?e),
+                        }
                     }
                 }
                 _ = peer_management_interval.tick().fuse() => {
@@ -242,14 +238,10 @@ impl Bgp {
 
         let (rib_event_tx, rib_event_rx) = channel(128);
 
-        // self.rib_event_tx.send(RibEvent::AddPeer{neighbor: NeighborPair::from(&neighbor), rib_event_tx}).await
-        //     .map_err(|e| {
-        //         tracing::error!(level="peer",error=?e);
-        //         Error::Rib(RibError::ManagerDown)})?;
-        while let Err(e) = self.rib_event_tx.send(RibEvent::AddPeer { neighbor: NeighborPair::from(&neighbor), rib_event_tx: rib_event_tx.clone()}).await {
-            tracing::error!(error=?e,"failed to send rib_event");
-        };
-        tracing::info!(level="global","sent rib_event add peer");
+        self.rib_event_tx.send(RibEvent::AddPeer{neighbor: NeighborPair::from(&neighbor), rib_event_tx}).await
+            .map_err(|e| {
+                tracing::error!(level="peer",error=?e);
+                Error::Rib(RibError::ManagerDown)})?;
 
         let mut peer = Peer::new(info.clone(), rx, self.rib_event_tx.clone(), rib_event_rx);
         let manager = PeerManager::new(info, tx);
