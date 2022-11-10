@@ -3,7 +3,7 @@ use futures::FutureExt;
 use tokio::sync::{mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender, Receiver, Sender, channel}, Notify};
 use ipnet::IpNet;
 
-use super::{path::Path, family::AddressFamily, error::{Error, RibError}, event::RibEvent, config::NeighborConfig, peer::neighbor::NeighborPair};
+use super::{path::Path, family::{AddressFamily, Afi}, error::{Error, RibError}, event::RibEvent, config::NeighborConfig, peer::neighbor::NeighborPair};
 
 #[derive(Debug)]
 pub(crate) struct Table {
@@ -128,13 +128,27 @@ impl AdjRibOut {
 
 #[derive(Debug)]
 pub(crate) struct LocRib {
-	table: Table,
+	table: HashMap<Afi, Table>
 }
 
 impl LocRib {
-	pub fn new() -> Self {
-		Self {
-			table: Table::new(),
+	pub fn new(protocols: Vec<Afi>) -> Self {
+		let mut loc_rib = Self {
+			table: HashMap::new(),
+		};
+		for protocol in protocols.into_iter() {
+			loc_rib.table.insert(protocol, Table::new());
+		}
+		loc_rib
+	}
+
+	fn set_protocol(&mut self, protocol: Afi) -> Result<(), Error> {
+		match self.table.get(&protocol) {
+			Some(_) => Err(Error::Rib(RibError::ProtocolIsAlreadyRegistered)),
+			None => {
+				self.table.insert(protocol, Table::new());
+				Ok(())
+			}
 		}
 	}
 }
@@ -147,9 +161,9 @@ pub(crate) struct RibManager {
 }
 
 impl RibManager {
-	pub fn new(endpoint: String) -> Self {
+	pub fn new(endpoint: String, protocols: Vec<Afi>) -> Self {
 		Self {
-			loc_rib: LocRib::new(),
+			loc_rib: LocRib::new(protocols),
 			endpoint,
 			peers_tx: HashMap::new(),
 		}
@@ -184,7 +198,7 @@ mod tests {
     use tokio::sync::mpsc::{unbounded_channel, channel};
 	use std::net::{IpAddr, Ipv4Addr};
 
-    use crate::bgp::{event::RibEvent, peer::neighbor::NeighborPair};
+    use crate::bgp::{event::RibEvent, peer::neighbor::NeighborPair, family::Afi};
 
     use super::{Table, RibManager};
 
@@ -195,7 +209,7 @@ mod tests {
 
 	#[test]
 	fn works_rib_manager_add_peer() {
-		let mut manager = RibManager::new("test_endpoint".to_string());
+		let mut manager = RibManager::new("test_endpoint".to_string(), vec![Afi::IPv4]);
 		let (tx, _rx) = channel::<RibEvent>(128);
 		manager.add_peer(NeighborPair::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 100), tx).unwrap();
 	}

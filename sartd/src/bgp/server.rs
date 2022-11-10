@@ -80,7 +80,7 @@ impl Bgp {
         let rib_endpoint_conf = conf.rib_endpoint.clone();
 
         let (rib_event_tx, mut rib_event_rx) = channel::<RibEvent>(128);
-        let mut rib_manager = RibManager::new(rib_endpoint_conf);
+        let mut rib_manager = RibManager::new(rib_endpoint_conf, vec![Afi::IPv4, Afi::IPv6]); // TODO: enable to disable ipv6 or ipv4 by config or event
 
 
         let mut server = Self::new(conf, rib_event_tx);

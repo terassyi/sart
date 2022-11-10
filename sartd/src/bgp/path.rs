@@ -1,6 +1,7 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::net::{IpAddr, Ipv4Addr};
+use std::str::FromStr;
 
 use ipnet::IpNet;
 
@@ -73,6 +74,27 @@ impl PathBuilder {
 			med: 0,
 			propagate_attrs: Vec::new(),
 			nlri: Vec::new(),
+		}
+	}
+
+	pub fn builder_local(network: &str, local_id: Ipv4Addr, local_asn: u32) -> Self {
+		Self {
+			local_id,
+			local_asn,
+			peer_id: Ipv4Addr::new(0, 0, 0, 0),
+			peer_addr: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+			peer_asn: 0,
+			family: AddressFamily::ipv4_unicast(),
+			next_hop: Vec::new(),
+			origin: Attribute::ORIGIN_IGP,
+			as_sequence: Vec::new(),
+			as_set: Vec::new(),
+			as4_sequence: Vec::new(),
+			as4_set: Vec::new(),
+			local_pref: 0,
+			med: 0,
+			propagate_attrs: Vec::new(),
+			nlri: vec![Prefix::from(IpNet::from_str(network).unwrap())],
 		}
 	}
 

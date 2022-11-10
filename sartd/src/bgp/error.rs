@@ -175,4 +175,6 @@ pub(crate) enum RibError {
     PeerAlreadyRegistered,
     #[error("loc-rib manager down")]
     ManagerDown,
+    #[error("protocol is already registered in Loc-RIB")]
+    ProtocolIsAlreadyRegistered,
 }
