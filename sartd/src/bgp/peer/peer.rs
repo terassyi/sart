@@ -1114,7 +1114,11 @@ impl Peer {
         // is identical to the one the route currently has stored in the Adj-
         // RIB-In, then the new route SHALL replace the older route in the Adj-
         // RIB-In, thus implicitly withdrawing the older route from service.
-        // Otherwise, if the Adj-RIB-In.
+        // Otherwise, if the Adj-RIB-In has no route with NLRI identical to the
+        // new route, the new route SHALL be placed in the Adj-RIB-In.
+
+        // Once the BGP speaker updates the Adj-RIB-In, the speaker SHALL run
+        // its Decision Process.
         Ok(())
     }
 

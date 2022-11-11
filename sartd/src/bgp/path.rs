@@ -33,6 +33,9 @@ pub(crate) struct Path {
 }
 
 impl Path {
+	pub fn prefix(&self) -> IpNet {
+		self.prefix
+	}
 }
 
 #[derive(Debug, Hash)]
