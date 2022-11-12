@@ -3,7 +3,7 @@ use futures::FutureExt;
 use tokio::sync::{mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender, Receiver, Sender, channel}, Notify};
 use ipnet::IpNet;
 
-use super::{path::Path, family::{AddressFamily, Afi}, error::{Error, RibError}, event::RibEvent, config::NeighborConfig, peer::neighbor::NeighborPair};
+use super::{path::Path, family::{AddressFamily, Afi}, error::{Error, RibError}, event::RibEvent, config::NeighborConfig, peer::neighbor::NeighborPair, packet::prefix::Prefix};
 
 #[derive(Debug)]
 pub(crate) struct Table {
@@ -42,11 +42,11 @@ impl Table {
 
 
 #[derive(Debug)]
-pub(crate) struct AdjRibIn {
+pub(crate) struct AdjRib {
 	table: HashMap<AddressFamily, Table>
 }
 
-impl AdjRibIn {
+impl AdjRib {
 	pub fn new(families: Vec<AddressFamily>) -> Self {
 		let mut table = HashMap::new();
 		for family in families.into_iter() {
@@ -104,23 +104,6 @@ impl AdjRibIn {
 }
 
 #[derive(Debug)]
-pub(crate) struct AdjRibOut {
-	table: HashMap<AddressFamily, Table>
-}
-
-impl AdjRibOut {
-	pub fn new(families: Vec<AddressFamily>) -> Self {
-		let mut table = HashMap::new();
-		for family in families.into_iter() {
-			table.insert(family, Table::new());
-		}
-		Self {
-			table,
-		}
-	}
-}
-
-#[derive(Debug)]
 pub(crate) struct LocRib {
 	table: HashMap<Afi, HashMap<IpNet, Vec<Path>>>,
 	received: usize,
@@ -171,6 +154,9 @@ impl RibManager {
 	pub fn handle(&mut self, event: RibEvent) -> Result<(), Error> {
 		match event {
 			RibEvent::AddPeer{neighbor, rib_event_tx} => self.add_peer(neighbor, rib_event_tx),
+			RibEvent::AddNetwork(networks) => self.add_network(networks),
+			RibEvent::InstallPaths(paths) => self.install_paths(paths),
+			RibEvent::DropPaths(paths) => self.drop_paths(paths),
 		}
 	}
 
@@ -186,7 +172,19 @@ impl RibManager {
 		}
 	}
 
-	fn add_network(&mut self, network: String) -> Result<(), Error> {
+	fn add_network(&mut self, networks: Vec<String>) -> Result<(), Error> {
+		Ok(())
+	}
+
+	#[tracing::instrument(skip(self))]
+	fn install_paths(&mut self, paths: Vec<Path>) -> Result<(), Error> {
+		tracing::info!(level="rib");
+		Ok(())
+	}
+
+	#[tracing::instrument(skip(self))]
+	fn drop_paths(&mut self, paths: Vec<Prefix>) -> Result<(), Error> {
+		tracing::info!(level="rib");
 		Ok(())
 	}
 }

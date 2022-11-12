@@ -8,6 +8,8 @@ use super::error::MessageHeaderError;
 use super::error::OpenMessageError;
 use super::error::UpdateMessageError;
 use super::packet::message::Message;
+use super::packet::prefix::Prefix;
+use super::path::Path;
 use super::peer::neighbor::NeighborPair;
 
 #[derive(Debug)]
@@ -304,4 +306,7 @@ impl std::fmt::Display for ControlEvent {
 #[derive(Debug, Clone)]
 pub(crate) enum RibEvent {
     AddPeer{neighbor: NeighborPair, rib_event_tx: Sender<RibEvent>},
+    AddNetwork(Vec<String>),
+    InstallPaths(Vec<Path>),
+    DropPaths(Vec<Prefix>),
 }

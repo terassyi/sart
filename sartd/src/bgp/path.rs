@@ -13,7 +13,7 @@ use crate::bgp::error::Error;
 use super::family::AddressFamily;
 use super::packet::message::Message;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub(crate) struct Path {
 	id: u64,
 	local_id: Ipv4Addr,
@@ -35,6 +35,28 @@ pub(crate) struct Path {
 impl Path {
 	pub fn prefix(&self) -> IpNet {
 		self.prefix
+	}
+
+	pub fn family(&self) -> AddressFamily {
+		self.family
+	}
+
+	pub fn is_external(&self) -> bool {
+		self.local_asn == self.peer_asn
+	}
+
+	pub fn has_as(&self, asn: u32) -> bool {
+		if self.as_sequence.contains(&asn) {
+			return true;
+		}
+		if self.as_set.contains(&asn) {
+			return true;
+		}
+		false
+	}
+
+	pub fn has_own_as(&self) -> bool {
+		self.has_as(self.local_asn)
 	}
 }
 
@@ -506,5 +528,99 @@ use super::PathBuilder;
 					path
 				}).collect();
 		assert_eq!(expected, paths);
+	}
+
+	#[rstest(
+		path,
+		asn,
+		expected,
+		case(
+			Path{
+				id: 0,
+				local_id: Ipv4Addr::new(1, 1, 1, 1),
+				local_asn: 100,
+				peer_id: Ipv4Addr::new(2, 2, 2, 2),
+				peer_addr: IpAddr::V4(Ipv4Addr::new(2, 2, 2, 2)),
+				peer_asn: 200,
+				family: AddressFamily::ipv4_unicast(),
+				origin: Attribute::ORIGIN_IGP,
+				local_pref: 0,
+				med: 0,
+				as_sequence: vec![65100],
+				as_set: vec![],
+				next_hops: vec![IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))],
+				propagate_attributes: Vec::new(),
+				prefix: IpNet::V4(Ipv4Net::new(Ipv4Addr::new(10, 10, 1, 0), 24).unwrap()),
+			},
+			65200,
+			false,
+		),
+		case(
+			Path{
+				id: 0,
+				local_id: Ipv4Addr::new(1, 1, 1, 1),
+				local_asn: 65200,
+				peer_id: Ipv4Addr::new(2, 2, 2, 2),
+				peer_addr: IpAddr::V4(Ipv4Addr::new(2, 2, 2, 2)),
+				peer_asn: 65100,
+				family: AddressFamily::ipv4_unicast(),
+				origin: Attribute::ORIGIN_IGP,
+				local_pref: 0,
+				med: 0,
+				as_sequence: vec![65100, 65200],
+				as_set: vec![],
+				next_hops: vec![IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))],
+				propagate_attributes: Vec::new(),
+				prefix: IpNet::V4(Ipv4Net::new(Ipv4Addr::new(10, 10, 1, 0), 24).unwrap()),
+			},
+			65200,
+			true,
+		),
+		case(
+			Path{
+				id: 0,
+				local_id: Ipv4Addr::new(1, 1, 1, 1),
+				local_asn: 100,
+				peer_id: Ipv4Addr::new(2, 2, 2, 2),
+				peer_addr: IpAddr::V4(Ipv4Addr::new(2, 2, 2, 2)),
+				peer_asn: 200,
+				family: AddressFamily::ipv4_unicast(),
+				origin: Attribute::ORIGIN_IGP,
+				local_pref: 0,
+				med: 0,
+				as_sequence: vec![200],
+				as_set: vec![65100, 65200],
+				next_hops: vec![IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))],
+				propagate_attributes: Vec::new(),
+				prefix: IpNet::V4(Ipv4Net::new(Ipv4Addr::new(10, 10, 1, 0), 24).unwrap()),
+			},
+			100,
+			false,
+		),
+		case(
+			Path{
+				id: 0,
+				local_id: Ipv4Addr::new(1, 1, 1, 1),
+				local_asn: 100,
+				peer_id: Ipv4Addr::new(2, 2, 2, 2),
+				peer_addr: IpAddr::V4(Ipv4Addr::new(2, 2, 2, 2)),
+				peer_asn: 200,
+				family: AddressFamily::ipv4_unicast(),
+				origin: Attribute::ORIGIN_IGP,
+				local_pref: 0,
+				med: 0,
+				as_sequence: vec![200],
+				as_set: vec![65100, 65200],
+				next_hops: vec![IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))],
+				propagate_attributes: Vec::new(),
+				prefix: IpNet::V4(Ipv4Net::new(Ipv4Addr::new(10, 10, 1, 0), 24).unwrap()),
+			},
+			65100,
+			true,
+		),
+	)]
+	fn works_has_as(path: Path, asn: u32, expected: bool) {
+		assert_eq!(expected, path.has_as(asn));
+
 	}
 }

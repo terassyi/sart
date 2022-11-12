@@ -3,7 +3,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::stream::{FuturesUnordered, Next};
-use futures::{FutureExt, SinkExt, Stream, StreamExt};
+use futures::{FutureExt, SinkExt, Stream, StreamExt, TryFutureExt};
+use ipnet::IpNet;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender, Sender, Receiver};
 use tokio::sync::Notify;
@@ -25,8 +26,8 @@ use crate::bgp::packet::message::{
     Message, MessageBuilder, MessageType, NotificationCode, NotificationSubCode,
 };
 use crate::bgp::packet::prefix::Prefix;
-use crate::bgp::path::PathBuilder;
-use crate::bgp::rib::{AdjRibIn, AdjRibOut};
+use crate::bgp::path::{PathBuilder, Path};
+use crate::bgp::rib::{AdjRib};
 use crate::bgp::server::Bgp;
 
 use super::fsm::State;
@@ -97,8 +98,8 @@ pub(crate) struct Peer {
     drop_signal: Arc<Notify>,
     send_counter: Arc<Mutex<MessageCounter>>,
     recv_counter: Arc<Mutex<MessageCounter>>,
-    adj_rib_in: AdjRibIn,
-    adj_rib_out: AdjRibOut,
+    adj_rib_in: AdjRib,
+    adj_rib_out: AdjRib,
     rib_tx: Sender<RibEvent>,
     rib_rx: Receiver<RibEvent>,
 }
@@ -126,11 +127,16 @@ impl Peer {
             drop_signal: Arc::new(Notify::new()),
             send_counter: Arc::new(Mutex::new(MessageCounter::new())),
             recv_counter: Arc::new(Mutex::new(MessageCounter::new())),
-            adj_rib_in: AdjRibIn::new(families.clone()),
-            adj_rib_out: AdjRibOut::new(families),
+            adj_rib_in: AdjRib::new(families.clone()),
+            adj_rib_out: AdjRib::new(families),
             rib_tx,
             rib_rx,
         }
+    }
+
+    fn is_ebgp(&self) -> bool {
+        let info = self.info.lock().unwrap();
+        info.asn != info.neighbor.get_asn()
     }
 
     fn state(&self) -> State {
@@ -214,7 +220,7 @@ impl Peer {
                             BgpMessageEvent::NotifMsgVerErr => self.notification_msg_ver_error(),
                             BgpMessageEvent::NotifMsg(msg) => self.notification_msg(msg),
                             BgpMessageEvent::KeepAliveMsg => self.keepalive_msg(),
-                            BgpMessageEvent::UpdateMsg(msg) => self.update_msg(msg),
+                            BgpMessageEvent::UpdateMsg(msg) => self.update_msg(msg).await,
                             BgpMessageEvent::UpdateMsgErr(e) => self.update_msg_error(e),
                             BgpMessageEvent::RouteRefreshMsg(msg) => self.route_refresh_msg(),
                             BgpMessageEvent::RouteRefreshMsgErr => self.route_refresh_msg_error(),
@@ -921,7 +927,7 @@ impl Peer {
     }
 
     // Event 27
-    fn update_msg(&mut self, msg: Message) -> Result<(), Error> {
+    async fn update_msg(&mut self, msg: Message) -> Result<(), Error> {
         match self.state() {
             State::OpenSent | State::OpenConfirm => {
                 // sends a NOTIFICATION with a code of Finite State Machine Error,
@@ -942,7 +948,7 @@ impl Peer {
                 if self.negotiated_hold_time != 0 {
                     self.hold_timer.push(self.negotiated_hold_time);
                 }
-                self.handle_update_msg(withdrawn_rotes, attributes, nlri)?;
+                self.handle_update_msg(withdrawn_rotes, attributes, nlri).await?;
             }
             _ => {
                 // sets the ConnectRetryTimer to zero,
@@ -1086,28 +1092,35 @@ impl Peer {
         builder.build()
     }
 
-    fn handle_update_msg(&self, withdrawn_routes: Vec<Prefix>, attributes: Vec<Attribute>, nlri: Vec<Prefix>) -> Result<(), Error> {
+    #[tracing::instrument(skip(self,withdrawn_routes,attributes,nlri))]
+    async fn handle_update_msg(&mut self, withdrawn_routes: Vec<Prefix>, attributes: Vec<Attribute>, nlri: Vec<Prefix>) -> Result<(), Error> {
+
+        // if withdrawn_routes is non empty, the previously advertised prefixes will be removed from adj-rib-in
+        // and run Decision Process
+        let mut withdraw_paths: Vec<Prefix> = Vec::new();
+        for withdraw in withdrawn_routes.into_iter() {
+            let family = match (&withdraw).into() {
+                IpNet::V4(_) => AddressFamily::ipv4_unicast(),
+                IpNet::V6(_) => AddressFamily::ipv6_unicast(),
+            };
+            self.adj_rib_in.remove(&family, &withdraw.into());
+            withdraw_paths.push(withdraw.into());
+        }
+
+        if !withdraw_paths.is_empty() {
+            return self.rib_tx.send(RibEvent::DropPaths(withdraw_paths)).await
+                    .map_err(|_| Error::InvalidEvent{val: 0});
+        }
+
         let (local_id, local_asn, peer_id, peer_addr, peer_asn) = {
             let info = self.info.lock().unwrap();
             (info.router_id, info.asn, info.neighbor.get_router_id(), info.neighbor.get_addr(), info.neighbor.get_asn())
         };
         let mut builder = PathBuilder::builder(local_id, local_asn, peer_id, peer_addr, peer_asn);
-        for attr in attributes.iter() {
-            // if attr.is_optional() && !attr.is_recognized() { 
-            //     if attr.is_transitive() {
-            //         attr.set_partial();
-            //         propagate_attr.push(attr)
-            //     }
-            //     // ignore
-            // }
-            // process
-            self.process_attr(attr)?;
-        }
         for attr in attributes.into_iter() {
+            self.process_attr(&attr)?;
             builder.attr(attr)?;
         }
-        // if withdrawn_routes is non empty, the previously advertised prefixes will be removed from adj-rib-in
-        // and run Decision Process
 
         // If the UPDATE message contains a feasible route, the Adj-RIB-In will
         // be updated with this route as follows: if the NLRI of the new route
@@ -1119,6 +1132,25 @@ impl Peer {
 
         // Once the BGP speaker updates the Adj-RIB-In, the speaker SHALL run
         // its Decision Process.
+
+        let mut propagate_paths = Vec::new();
+        for path in builder.nlri(nlri).build()?.into_iter() {
+            tracing::debug!(level="peer",peer.addr=peer_addr.to_string(),peer.asn=peer_asn,path=?path);
+            // detect the path has own AS loop
+            if path.has_own_as() {
+                continue;
+            }
+            match self.adj_rib_in.insert(&path.family(), path.prefix(), path.clone()) {
+                Ok(_) => {},
+                Err(e) => tracing::error!(level="peer",peer.addr=peer_addr.to_string(), peer.asn=peer_asn,error=?e),
+            }
+            // TODO: apply import policy
+            propagate_paths.push(path);
+        }
+
+        self.rib_tx.send(RibEvent::InstallPaths(propagate_paths)).await
+            .map_err(|_| Error::InvalidEvent { val: 0 })?;
+
         Ok(())
     }
 
@@ -1142,12 +1174,20 @@ impl Peer {
         Ok(())
     }
 
-    fn update_path(&mut self) -> Result<(), Error> {
+    fn decision_process(&mut self) -> Result<(), Error> {
         Ok(())
     }
 
-    fn withdraw_path(&mut self) -> Result<(), Error> {
+    fn select(&mut self) -> Result<(), Error> {
         Ok(())
+    }
+
+    fn calculate(&mut self, path: &mut Path) -> Result<(bool), Error> {
+        // TODO: checking the policy for local preference(AD values)
+        if self.is_ebgp() {
+            return Ok(true);
+        }
+        Ok(true)
     }
 }
 
