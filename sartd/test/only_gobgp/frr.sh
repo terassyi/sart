@@ -13,7 +13,7 @@ no service integrated-vtysh-config
 hostname $1
 __EOF__
 	sudo sed -e 's/#watchfrr_options=""/watchfrr_options="--netns=NS_NAME"/' < /etc/frr/daemons > /etc/frr/$1/daemons
-	sudo sed -e "s/NS_NAME/$1/" /etc/frr/$1/daemons
+	sudo sed -i -e "s/NS_NAME/$1/" /etc/frr/$1/daemons
 	sudo chown -R frr.frr "/etc/frr/$1"
 
 }
