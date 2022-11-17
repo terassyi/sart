@@ -2,9 +2,9 @@
 
 set -e
 
-sudo ip netns exec spine1 gobgpd -f sartd/test/simple/gobgp_spine1.conf &
-sudo ip netns exec spine2 gobgpd -f sartd/test/simple/gobgp_spine2.conf &
+sudo ip netns exec spine1 gobgpd -f sartd/test/simple_rib/gobgp_spine1.conf &
+sudo ip netns exec spine2 gobgpd -f sartd/test/simple_rib/gobgp_spine2.conf &
 
-sleep 1
-sudo ip netns exec spine1 gobgp neighbor add 10.0.0.1 as 100
-sudo ip netns exec spine2 gobgp neighbor add 10.0.1.1 as 100
+sleep 5
+sudo ip netns exec spine1 gobgp global rib add -a ipv4 10.0.0.0/24 origin igp
+sudo ip netns exec spine2 gobgp global rib add -a ipv4 10.0.1.0/24 origin igp 

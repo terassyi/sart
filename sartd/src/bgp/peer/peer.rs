@@ -240,7 +240,14 @@ impl Peer {
         }
     }
 
+    #[tracing::instrument(skip(self))]
     fn send(&self, msg: Message) -> Result<(), Error> {
+        let (peer_addr, peer_as) = {
+            let c = self.info.lock().unwrap();
+            (c.neighbor.get_addr().to_string(), c.neighbor.get_asn())
+        };
+        tracing::info!(level="peer",peer.addr=peer_addr,peer.asn=peer_as,"send message");
+        // tracing::debug!(level="peer",peer.addr=peer_addr,peer.asn=peer_as,"send message");
         match &self.msg_tx {
             Some(msg_tx) => msg_tx
                 .send(msg)
@@ -257,6 +264,8 @@ impl Peer {
         msg_event_tx: UnboundedSender<BgpMessageEvent>,
         peer_down_signal: Arc<Notify>,
     ) -> Result<(), Error> {
+        let peer_port = stream.peer_addr().unwrap().port();
+        let local_port = stream.local_addr().unwrap().port();
         let codec = Framed::new(stream, Codec::new(true, false));
         let (msg_tx, mut msg_rx) = unbounded_channel::<Message>();
         self.msg_tx = Some(msg_tx);
@@ -327,7 +336,7 @@ impl Peer {
                                 },
                             }
                         } else {
-                            tracing::error!(peer.addr=peer_addr, peer.asn=peer_as, error="connection is lost");
+                            tracing::error!(local.port=local_port,peer.port=peer_port,peer.addr=peer_addr, peer.asn=peer_as, error="connection is lost");
                             peer_down_signal.notify_one();
                             return;
                         }
