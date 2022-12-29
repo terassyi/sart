@@ -1,4 +1,5 @@
 use std::net::{IpAddr, Ipv4Addr};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -6,7 +7,7 @@ use futures::stream::{FuturesUnordered, Next};
 use futures::{FutureExt, SinkExt, Stream, StreamExt, TryFutureExt};
 use ipnet::IpNet;
 use tokio::net::TcpStream;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender, Sender, Receiver};
+use tokio::sync::mpsc::{channel, unbounded_channel, UnboundedReceiver, UnboundedSender, Sender, Receiver};
 use tokio::sync::Notify;
 use tokio::time::{interval_at, sleep, Instant, Interval, Sleep};
 use tokio_util::codec::{Framed, FramedRead};
@@ -88,13 +89,15 @@ pub(crate) struct Peer {
     info: Arc<Mutex<PeerInfo>>,
     fsm: Mutex<FiniteStateMachine>,
     admin_rx: UnboundedReceiver<Event>,
-    msg_tx: Option<UnboundedSender<Message>>,
+    // msg_tx: Option<UnboundedSender<Message>>,
+    connections: Arc<Mutex<Vec<Connection>>>,
     keepalive_timer: Interval,
     keepalive_time: u64,
     hold_timer: Timer,
     uptime: Instant,
     negotiated_hold_time: u64,
     connect_retry_counter: u32,
+    track_dup_conn: Arc<AtomicBool>,
     drop_signal: Arc<Notify>,
     send_counter: Arc<Mutex<MessageCounter>>,
     recv_counter: Arc<Mutex<MessageCounter>>,
@@ -114,7 +117,8 @@ impl Peer {
             info,
             fsm: Mutex::new(FiniteStateMachine::new()),
             admin_rx: rx,
-            msg_tx: None,
+            // msg_tx: None,
+            connections: Arc::new(Mutex::new(Vec::new())),
             hold_timer: Timer::new(),
             keepalive_timer: interval_at(
                 Instant::now() + Duration::new(u32::MAX.into(), 0),
@@ -124,6 +128,7 @@ impl Peer {
             uptime: Instant::now(),
             negotiated_hold_time: Bgp::DEFAULT_HOLD_TIME,
             connect_retry_counter: 0,
+            track_dup_conn: Arc::new(AtomicBool::new(false)),
             drop_signal: Arc::new(Notify::new()),
             send_counter: Arc::new(Mutex::new(MessageCounter::new())),
             recv_counter: Arc::new(Mutex::new(MessageCounter::new())),
@@ -156,7 +161,7 @@ impl Peer {
             let c = self.info.lock().unwrap();
             (c.neighbor.get_addr().to_string(), c.neighbor.get_asn())
         };
-        let peer_down_signal = Arc::new(Notify::new());
+        let (conn_close_tx, mut conn_close_rx) = channel::<u16>(2);
 
         loop {
             futures::select_biased! {
@@ -190,8 +195,8 @@ impl Peer {
                                 _ => unimplemented!(),
                             },
                             Event::Connection(event) => match event {
-                                TcpConnectionEvent::TcpCRAcked(stream) => self.handle_tcp_connect(stream, msg_event_tx.clone(), peer_down_signal.clone(), Event::CONNECTION_TCP_CR_ACKED),
-                                TcpConnectionEvent::TcpConnectionConfirmed(stream) => self.handle_tcp_connect(stream, msg_event_tx.clone(), peer_down_signal.clone(), Event::CONNECTION_TCP_CONNECTION_CONFIRMED),
+                                TcpConnectionEvent::TcpCRAcked(stream) => self.handle_tcp_connect(stream, msg_event_tx.clone(), conn_close_tx.clone(), Event::CONNECTION_TCP_CR_ACKED),
+                                TcpConnectionEvent::TcpConnectionConfirmed(stream) => self.handle_tcp_connect(stream, msg_event_tx.clone(), conn_close_tx.clone(), Event::CONNECTION_TCP_CONNECTION_CONFIRMED),
                                 TcpConnectionEvent::TcpConnectionFail => self.tcp_connection_fail(),
                                 _ => unimplemented!(),
                             },
@@ -214,7 +219,7 @@ impl Peer {
                         let current_state = self.state();
                         tracing::info!(peer.addr=peer_addr, peer.asn=peer_as, state=?current_state, event=%event);
                         let res = match event {
-                            BgpMessageEvent::BgpOpen(msg) => self.bgp_open(msg),
+                            BgpMessageEvent::BgpOpen{local_port, peer_port, msg} => self.bgp_open(local_port, peer_port, msg),
                             BgpMessageEvent::BgpHeaderError(e) => self.bgp_header_error(e),
                             BgpMessageEvent::BgpOpenMsgErr(e) => self.bgp_open_msg_error(e),
                             BgpMessageEvent::NotifMsgVerErr => self.notification_msg_ver_error(),
@@ -232,9 +237,22 @@ impl Peer {
                         }
                     }
                 }
-                _ = peer_down_signal.notified().fuse() => {
-                    self.release().unwrap();
-                    self.move_state(Event::CONNECTION_TCP_CONNECTION_FAIL);
+                local_port = conn_close_rx.recv().fuse() => {
+                    tracing::warn!(level="peer",peer.addr=peer_addr, peer.asn=peer_as,"catch a losing connection");
+                    if let Some(local_port) = local_port {
+                        let empty = {
+                            let mut connections = self.connections.lock().unwrap();
+                            if let Some(idx) = connections.iter().position(|conn| conn.local_port == local_port) {
+                                connections.remove(idx);
+                            }
+                            connections.is_empty()
+                        };
+                        tracing::warn!(level="peer",peer.addr=peer_addr, peer.asn=peer_as,conn_empty=empty,"one connection is closed");
+                        if empty {
+                            self.release().unwrap();
+                            self.move_state(Event::CONNECTION_TCP_CONNECTION_FAIL);
+                        }
+                    }
                 }
             };
         }
@@ -248,13 +266,31 @@ impl Peer {
         };
         tracing::info!(level="peer",peer.addr=peer_addr,peer.asn=peer_as,"send message");
         // tracing::debug!(level="peer",peer.addr=peer_addr,peer.asn=peer_as,"send message");
-        match &self.msg_tx {
-            Some(msg_tx) => msg_tx
-                .send(msg)
-                .map_err(|_| Error::Peer(PeerError::FailedToSendMessage))?,
-            None => return Err(Error::Peer(PeerError::ConnectionNotEstablished)),
+        let connections = self.connections.lock().unwrap();
+        if connections.len() != 1 {
+            return Err(Error::Peer(PeerError::DuplicateConnection))
         }
-        Ok(())
+        connections[0].send(msg)
+    }
+
+    #[tracing::instrument(skip(self))]
+    fn send_to_dup_conn(&self, msg: Message, passive: bool) -> Result<(), Error> {
+        let (peer_addr, peer_as) = {
+            let c = self.info.lock().unwrap();
+            (c.neighbor.get_addr().to_string(), c.neighbor.get_asn())
+        };
+        if passive {
+            tracing::info!(level="peer",peer.addr=peer_addr,peer.asn=peer_as,"send message to the passive connection");
+        } else {
+            tracing::info!(level="peer",peer.addr=peer_addr,peer.asn=peer_as,"send message to the active connection");
+        }
+        let connections = self.connections.lock().unwrap();
+        for conn in connections.iter() {
+            if conn.is_passive() == passive {
+                return conn.send(msg)
+            }
+        }
+        Err(Error::Peer(PeerError::ConnectionNotEstablished))
     }
 
     #[tracing::instrument(skip(self, stream, msg_event_tx))]
@@ -262,20 +298,35 @@ impl Peer {
         &mut self,
         stream: TcpStream,
         msg_event_tx: UnboundedSender<BgpMessageEvent>,
-        peer_down_signal: Arc<Notify>,
-    ) -> Result<(), Error> {
+        close_ch: Sender<u16>,
+    ) -> Result<bool, Error> {
         let peer_port = stream.peer_addr().unwrap().port();
         let local_port = stream.local_addr().unwrap().port();
+
+        let passive = if local_port == Bgp::BGP_PORT {
+            true
+        } else {
+            false
+        };
+
         let codec = Framed::new(stream, Codec::new(true, false));
         let (msg_tx, mut msg_rx) = unbounded_channel::<Message>();
-        self.msg_tx = Some(msg_tx);
+
+        let conn_down_signal = Arc::new(Notify::new());
+        {
+            let mut connections = self.connections.lock().unwrap();
+            connections.push(Connection::new(local_port, peer_port, msg_tx, conn_down_signal.clone()));
+        }
+
         let drop_signal = self.drop_signal.clone();
         let (peer_addr, peer_as) = {
             let c = self.info.lock().unwrap();
             (c.neighbor.get_addr().to_string(), c.neighbor.get_asn())
         };
+
         let send_counter = self.send_counter.clone();
         let recv_counter = self.recv_counter.clone();
+
         tokio::spawn(async move {
             let (mut sender, mut receiver) = codec.split();
             loop {
@@ -288,7 +339,7 @@ impl Peer {
                                         let res = match msg.msg_type() {
                                             MessageType::Open => {
                                                 recv_counter.lock().unwrap().open += 1;
-                                                msg_event_tx.send(BgpMessageEvent::BgpOpen(msg))
+                                                msg_event_tx.send(BgpMessageEvent::BgpOpen{local_port, peer_port, msg})
                                             },
                                             MessageType::Update => {
                                                 recv_counter.lock().unwrap().update += 1;
@@ -337,7 +388,7 @@ impl Peer {
                             }
                         } else {
                             tracing::error!(local.port=local_port,peer.port=peer_port,peer.addr=peer_addr, peer.asn=peer_as, error="connection is lost");
-                            peer_down_signal.notify_one();
+                            close_ch.send(local_port).await.unwrap();
                             return;
                         }
                     }
@@ -357,10 +408,14 @@ impl Peer {
                         tracing::warn!(peer.addr=peer_addr, peer.asn=peer_as, "drop connection");
                         return;
                     }
+                    _ = conn_down_signal.notified().fuse() => {
+                        tracing::warn!(peer.addr=peer_addr, peer.asn=peer_as, "connection close");
+                        return;
+                    }
                 }
             }
         });
-        Ok(())
+        Ok(passive)
     }
 
     fn release(&mut self) -> Result<(), Error> {
@@ -371,7 +426,7 @@ impl Peer {
         );
         self.hold_timer.stop();
         self.negotiated_hold_time = Bgp::DEFAULT_HOLD_TIME;
-        self.msg_tx = None;
+        self.connections.lock().unwrap().clear();
         self.send_counter.lock().unwrap().reset();
         self.recv_counter.lock().unwrap().reset();
         Ok(())
@@ -525,71 +580,83 @@ impl Peer {
         &mut self,
         stream: TcpStream,
         msg_event_tx: UnboundedSender<BgpMessageEvent>,
-        peer_down_signal: Arc<Notify>,
+        colse_signal: Sender<u16>,
         event: u8,
     ) -> Result<(), Error> {
         match self.state() {
-            State::Idle => {} // ignore this event
-            State::Connect => {
-                // If the TCP connection succeeds (Event 16 or Event 17), the local
-                // system checks the DelayOpen attribute prior to processing.  If the
-                // DelayOpen attribute is set to TRUE, the local system:
-                //   - stops the ConnectRetryTimer (if running) and sets the
-                //     ConnectRetryTimer to zero,
-                //   - sets the DelayOpenTimer to the initial value, and
-                //   - stays in the Connect state.
-                // If the DelayOpen attribute is set to FALSE, the local system:
-                //   - stops the ConnectRetryTimer (if running) and sets the
-                //     ConnectRetryTimer to zero,
-                //   - completes BGP initialization
-                //   - sends an OPEN message to its peer,
-                //   - sets the HoldTimer to a large value, and
-                //   - changes its state to OpenSent.
-                self.initialize(stream, msg_event_tx, peer_down_signal)?;
+            State::Idle => {}, // ignore this event
+            _ => {
+                let passive = self.initialize(stream, msg_event_tx, colse_signal)?;
                 let msg = self.build_open_msg()?;
-                self.send(msg)?;
+                self.send_to_dup_conn(msg, passive).map_err(|_| Error::Peer(PeerError::FailedToSendMessage))?;
                 let hold_time = { self.info.lock().unwrap().hold_time };
                 self.hold_timer.push(hold_time);
-            }
-            State::Active => {
-                // In response to the success of a TCP connection (Event 16 or Event 17), the local system checks the DelayOpen optional attribute prior to processing.
-                // If the DelayOpen attribute is set to TRUE, the local system:
-                //   - stops the ConnectRetryTimer and sets the ConnectRetryTimer
-                //     to zero,
-                //   - sets the DelayOpenTimer to the initial value
-                //     (DelayOpenTime), and
-                //   - stays in the Active state.
-                // If the DelayOpen attribute is set to FALSE, the local system:
-                //   - sets the ConnectRetryTimer to zero,
-                //   - completes the BGP initialization,
-                //   - sends the OPEN message to its peer,
-                //   - sets its HoldTimer to a large value, and
-                //   - changes its state to OpenSent.
-                // A HoldTimer value of 4 minutes is suggested as a "large value" for the HoldTimer.
-                self.initialize(stream, msg_event_tx, peer_down_signal)?;
-                let msg = self.build_open_msg()?;
-                self.send(msg)?;
-                let hold_time = { self.info.lock().unwrap().hold_time };
-                self.hold_timer.push(hold_time);
-            }
-            State::OpenSent => {
-                // If a TcpConnection_Valid (Event 14), Tcp_CR_Acked (Event 16), or a
-                // TcpConnectionConfirmed event (Event 17) is received, a second TCP
-                // connection may be in progress.  This second TCP connection is
-                // tracked per Connection Collision processing (Section 6.8) until an
-                // OPEN message is received.
-            }
-            State::OpenConfirm => {
-                // In the event of a TcpConnection_Valid event (Event 14), or the
-                // success of a TCP connection (Event 16 or Event 17) while in
-                // OpenConfirm, the local system needs to track the second
-                // connection.
-            }
-            State::Established => {
-                // In response to an indication that the TCP connection is
-                // successfully established (Event 16 or Event 17), the second
-                // connection SHALL be tracked until it sends an OPEN message.
-            }
+            },
+            // State::Connect => {
+            //     // If the TCP connection succeeds (Event 16 or Event 17), the local
+            //     // system checks the DelayOpen attribute prior to processing.  If the
+            //     // DelayOpen attribute is set to TRUE, the local system:
+            //     //   - stops the ConnectRetryTimer (if running) and sets the
+            //     //     ConnectRetryTimer to zero,
+            //     //   - sets the DelayOpenTimer to the initial value, and
+            //     //   - stays in the Connect state.
+            //     // If the DelayOpen attribute is set to FALSE, the local system:
+            //     //   - stops the ConnectRetryTimer (if running) and sets the
+            //     //     ConnectRetryTimer to zero,
+            //     //   - completes BGP initialization
+            //     //   - sends an OPEN message to its peer,
+            //     //   - sets the HoldTimer to a large value, and
+            //     //   - changes its state to OpenSent.
+            //     self.initialize(stream, msg_event_tx, peer_down_signal, event)?;
+            //     let msg = self.build_open_msg()?;
+            //     self.send(msg)?;
+            //     let hold_time = { self.info.lock().unwrap().hold_time };
+            //     self.hold_timer.push(hold_time);
+            // }
+            // State::Active => {
+            //     // In response to the success of a TCP connection (Event 16 or Event 17), the local system checks the DelayOpen optional attribute prior to processing.
+            //     // If the DelayOpen attribute is set to TRUE, the local system:
+            //     //   - stops the ConnectRetryTimer and sets the ConnectRetryTimer
+            //     //     to zero,
+            //     //   - sets the DelayOpenTimer to the initial value
+            //     //     (DelayOpenTime), and
+            //     //   - stays in the Active state.
+            //     // If the DelayOpen attribute is set to FALSE, the local system:
+            //     //   - sets the ConnectRetryTimer to zero,
+            //     //   - completes the BGP initialization,
+            //     //   - sends the OPEN message to its peer,
+            //     //   - sets its HoldTimer to a large value, and
+            //     //   - changes its state to OpenSent.
+            //     // A HoldTimer value of 4 minutes is suggested as a "large value" for the HoldTimer.
+            //     self.initialize(stream, msg_event_tx, peer_down_signal, event)?;
+            //     let msg = self.build_open_msg()?;
+            //     self.send(msg)?;
+            //     let hold_time = { self.info.lock().unwrap().hold_time };
+            //     self.hold_timer.push(hold_time);
+            // }
+            // State::OpenSent => {
+            //     // If a TcpConnection_Valid (Event 14), Tcp_CR_Acked (Event 16), or a
+            //     // TcpConnectionConfirmed event (Event 17) is received, a second TCP
+            //     // connection may be in progress.  This second TCP connection is
+            //     // tracked per Connection Collision processing (Section 6.8) until an
+            //     // OPEN message is received.
+            //     self.initialize(stream, msg_event_tx, peer_down_signal, event)?;
+            //     let msg = self.build_open_msg()?;
+            //     self.send(msg)?;
+            //     let hold_time = { self.info.lock().unwrap().hold_time };
+            //     self.hold_timer.push(hold_time);
+            // }
+            // State::OpenConfirm => {
+            //     // In the event of a TcpConnection_Valid event (Event 14), or the
+            //     // success of a TCP connection (Event 16 or Event 17) while in
+            //     // OpenConfirm, the local system needs to track the second
+            //     // connection.
+            // }
+            // State::Established => {
+            //     // In response to an indication that the TCP connection is
+            //     // successfully established (Event 16 or Event 17), the second
+            //     // connection SHALL be tracked until it sends an OPEN message.
+            // }
         }
         self.move_state(event);
         Ok(())
@@ -632,7 +699,8 @@ impl Peer {
     }
 
     // Event 19
-    fn bgp_open(&mut self, recv: Message) -> Result<(), Error> {
+    #[tracing::instrument(skip(self, recv))]
+    fn bgp_open(&mut self, local_port: u16, peer_port: u16, recv: Message) -> Result<(), Error> {
         let (_version, _asn, hold_time, _router_id, _caps) = recv.to_open()?;
         match self.state() {
             State::Active => {
@@ -653,7 +721,7 @@ impl Peer {
                 let msg = Self::build_keepalive_msg()?;
                 self.send(msg)?;
                 let _negotiated_hold_time = self.negotiate_hold_time(hold_time as u64)?;
-            }
+            },
             State::OpenSent => {
                 // Collision detection mechanisms (Section 6.8) need to be applied
                 // sets the BGP ConnectRetryTimer to zero,
@@ -664,7 +732,37 @@ impl Peer {
                 let msg = Self::build_keepalive_msg()?;
                 let _negotiated_hold_time = self.negotiate_hold_time(hold_time as u64)?;
                 self.send(msg)?;
-            }
+            },
+            State::OpenConfirm => {
+                // If the local system receives a valid OPEN message (BGPOpen (Event
+                // 19)), the collision detect function is processed per Section 6.8.
+                // If this connection is to be dropped due to connection collision,
+                // the local system:
+                //   - sends a NOTIFICATION with a Cease,
+                //   - sets the ConnectRetryTimer to zero,
+                //   - releases all BGP resources,
+                //   - drops the TCP connection (send TCP FIN),
+                //   - increments the ConnectRetryCounter by 1,
+                let passive = if local_port == Bgp::BGP_PORT {
+                    true
+                } else {
+                    false
+                };
+                let mut builder = MessageBuilder::builder(MessageType::Notification);
+                let msg = builder.code(NotificationCode::Cease)?.build()?;
+                self.send_to_dup_conn(msg, passive)?;
+                {
+                    let mut connections = self.connections.lock().unwrap();
+                    if let Some(idx) = connections.iter().position(|conn| conn.is_passive() == passive) {
+                        tracing::info!(passive=passive,"drop duplicate connection");
+                        let dup_conn = connections.remove(idx);
+                        drop(dup_conn);
+                    }
+                }
+                self.connect_retry_counter += 1;
+                return Ok(())
+                          
+            },
             State::Established => {
                 // sends a NOTIFICATION with a Cease,
                 // sets the ConnectRetryTimer to zero,
@@ -679,8 +777,8 @@ impl Peer {
                 self.release()?;
                 self.drop_connection();
                 self.connect_retry_counter += 1;
-            }
-            _ => {}
+            },
+            _ => {},
         }
         self.move_state(Event::MESSAGE_BGP_OPEN);
         Ok(())
@@ -1199,6 +1297,38 @@ impl Peer {
         Ok(true)
     }
 }
+
+#[derive(Debug)]
+struct Connection {
+    local_port: u16,
+    peer_port: u16,
+    msg_tx: UnboundedSender<Message>,
+    drop_signal: Arc<Notify>,
+}
+
+impl Connection {
+    fn new(local_port: u16, peer_port: u16, msg_tx: UnboundedSender<Message>, drop_signal: Arc<Notify>) -> Connection {
+        Connection { local_port, peer_port, msg_tx, drop_signal }
+    }
+
+    fn is_passive(&self) -> bool {
+        self.local_port == Bgp::BGP_PORT
+    }
+
+    #[tracing::instrument(skip(self))]
+    fn send(&self, msg: Message) -> Result<(), Error> {
+        self.msg_tx.send(msg)
+            .map_err(|_| Error::Peer(PeerError::FailedToSendMessage))?;
+        Ok(())
+    }
+}
+
+impl Drop for Connection {
+    fn drop(&mut self) {
+        self.drop_signal.notify_one();
+    }
+}
+
 
 #[derive(Debug)]
 struct Timer {
