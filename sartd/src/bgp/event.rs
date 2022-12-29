@@ -74,7 +74,7 @@ impl Into<u8> for &Event {
 			Event::Connection(TcpConnectionEvent::TcpCRAcked(_)) => 16,
 			Event::Connection(TcpConnectionEvent::TcpConnectionConfirmed(_)) => 17,
 			Event::Connection(TcpConnectionEvent::TcpConnectionFail) => 18,
-			Event::Message(BgpMessageEvent::BgpOpen { local_port, peer_port, msg }) => 19,
+			Event::Message(BgpMessageEvent::BgpOpen { local_port: _, peer_port: _, msg: _ }) => 19,
 			Event::Message(BgpMessageEvent::BgpOpenWithDelayOpenTimerRunning) => 20,
 			Event::Message(BgpMessageEvent::BgpHeaderError(_)) => 21,
 			Event::Message(BgpMessageEvent::BgpOpenMsgErr(_)) => 22,
