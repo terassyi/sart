@@ -253,12 +253,28 @@ impl Bgp {
         });
 
         if let Some(manager) = self.peer_managers.get(&neighbor.address) {
+            let start_event = if let Some(passive) = neighbor.passive {
+                if passive {
+                    AdministrativeEvent::ManualStartWithPassiveTcpEstablishment
+                } else {
+                    AdministrativeEvent::ManualStart
+                }
+            } else {
+                AdministrativeEvent::ManualStart
+            };
+
             manager
                 .event_tx
-                .send(Event::Admin(AdministrativeEvent::ManualStart))
+                .send(Event::Admin(start_event))
                 .map_err(|_| Error::Peer(PeerError::Down))?;
 
             // start to connect to the remote peer
+            if let Some(passive) = neighbor.passive {
+                if passive {
+                    tracing::info!(level="peer", "don't start to connect, because of passive open");
+                    return Ok(())
+                }
+            }
             let active_conn_tx = self.active_conn_tx.clone();
             let event_tx = manager.event_tx.clone();
             let connect_retry_time = self.connect_retry_time;

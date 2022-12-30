@@ -97,7 +97,6 @@ pub(crate) struct Peer {
     uptime: Instant,
     negotiated_hold_time: u64,
     connect_retry_counter: u32,
-    track_dup_conn: Arc<AtomicBool>,
     drop_signal: Arc<Notify>,
     send_counter: Arc<Mutex<MessageCounter>>,
     recv_counter: Arc<Mutex<MessageCounter>>,
@@ -128,7 +127,6 @@ impl Peer {
             uptime: Instant::now(),
             negotiated_hold_time: Bgp::DEFAULT_HOLD_TIME,
             connect_retry_counter: 0,
-            track_dup_conn: Arc::new(AtomicBool::new(false)),
             drop_signal: Arc::new(Notify::new()),
             send_counter: Arc::new(Mutex::new(MessageCounter::new())),
             recv_counter: Arc::new(Mutex::new(MessageCounter::new())),
@@ -192,6 +190,7 @@ impl Peer {
                         let res = match event {
                             Event::Admin(event) => match event {
                                 AdministrativeEvent::ManualStart => self.manual_start(),
+                                AdministrativeEvent::ManualStartWithPassiveTcpEstablishment => self.manual_start_with_passive_tcp_establishment(),
                                 _ => unimplemented!(),
                             },
                             Event::Connection(event) => match event {
@@ -273,7 +272,7 @@ impl Peer {
         connections[0].send(msg)
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip(self, msg))]
     fn send_to_dup_conn(&self, msg: Message, passive: bool) -> Result<(), Error> {
         let (peer_addr, peer_as) = {
             let c = self.info.lock().unwrap();
@@ -445,6 +444,12 @@ impl Peer {
     // Event 2
     fn manual_stop(&mut self) -> Result<(), Error> {
         self.move_state(Event::ADMIN_MANUAL_STOP);
+        Ok(())
+    }
+
+    // Event 4
+    fn manual_start_with_passive_tcp_establishment(&mut self) -> Result<(), Error> {
+        self.move_state(Event::ADMIN_MANUAL_START_WITH_PASSIVE_TCP_ESTABLISHMENT);
         Ok(())
     }
 
@@ -1427,6 +1432,7 @@ mod tests {
                 asn: 200,
                 address: IpAddr::V4(Ipv4Addr::new(2, 2, 2, 2)),
                 router_id: Ipv4Addr::new(2, 2, 2, 2),
+                passive: None,
             },
             CapabilitySet::default(100),
             vec![AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast}, AddressFamily{afi: Afi::IPv6, safi: Safi::Unicast}],
@@ -1449,6 +1455,7 @@ mod tests {
                 asn: 200,
                 address: IpAddr::V4(Ipv4Addr::new(2, 2, 2, 2)),
                 router_id: Ipv4Addr::new(2, 2, 2, 2),
+                passive: None,
             },
             CapabilitySet::default(100),
             vec![AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast}, AddressFamily{afi: Afi::IPv6, safi: Safi::Unicast}],

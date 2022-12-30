@@ -60,6 +60,7 @@ pub(crate) struct NeighborConfig {
     pub asn: u32,
     pub address: IpAddr,
     pub router_id: Ipv4Addr,
+    pub passive: Option<bool>,
 }
 
 #[cfg(test)]
@@ -78,6 +79,7 @@ neighbors:
   - asn: 200
     router_id: 3.3.3.3
     address: '::1'
+    passive: true
 ";
         let conf: Config = serde_yaml::from_str(yaml_str).unwrap();
         assert_eq!(6550, conf.asn);
