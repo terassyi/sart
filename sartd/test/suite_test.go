@@ -62,6 +62,7 @@ var _ = Describe("sartd-bgp", func() {
 		Eventually(func(g Gomega) error {
 			spine1 := make([]map[string]any, 0, 1)
 			out, _, _, err := execInNetns("spine1", "gobgp", "neighbor", "-j")
+			g.Expect(err).NotTo(HaveOccurred())
 			err = json.Unmarshal(out, &spine1)
 			g.Expect(err).NotTo(HaveOccurred())
 			conf, ok := spine1[0]["conf"]
@@ -71,6 +72,7 @@ var _ = Describe("sartd-bgp", func() {
 
 			spine2 := make([]map[string]any, 0, 1)
 			out, _, _, err = execInNetns("spine2", "gobgp", "neighbor", "-j")
+			g.Expect(err).NotTo(HaveOccurred())
 			err = json.Unmarshal(out, &spine2)
 			g.Expect(err).NotTo(HaveOccurred())
 			conf, ok = spine2[0]["conf"]
@@ -94,6 +96,7 @@ var _ = Describe("sartd-bgp", func() {
 		Eventually(func(g Gomega) error {
 			spine1 := make([]map[string]any, 0, 1)
 			out, _, _, err := execInNetns("spine1", "gobgp", "neighbor", "-j")
+			g.Expect(err).NotTo(HaveOccurred())
 			err = json.Unmarshal(out, &spine1)
 			g.Expect(err).NotTo(HaveOccurred())
 			state, ok := spine1[0]["state"]
@@ -105,6 +108,7 @@ var _ = Describe("sartd-bgp", func() {
 
 			spine2 := make([]map[string]any, 0, 1)
 			out, _, _, err = execInNetns("spine2", "gobgp", "neighbor", "-j")
+			g.Expect(err).NotTo(HaveOccurred())
 			err = json.Unmarshal(out, &spine2)
 			g.Expect(err).NotTo(HaveOccurred())
 			state, ok = spine2[0]["state"]
@@ -167,6 +171,7 @@ var _ = Describe("sartd-bgp", func() {
 		Eventually(func(g Gomega) error {
 			spine1 := make([]map[string]any, 0, 1)
 			out, _, _, err := execInNetns("spine1", "gobgp", "neighbor", "-j")
+			g.Expect(err).NotTo(HaveOccurred())
 			err = json.Unmarshal(out, &spine1)
 			g.Expect(err).NotTo(HaveOccurred())
 			conf, ok := spine1[0]["conf"]
@@ -176,6 +181,7 @@ var _ = Describe("sartd-bgp", func() {
 
 			spine2 := make([]map[string]any, 0, 1)
 			out, _, _, err = execInNetns("spine2", "gobgp", "neighbor", "-j")
+			g.Expect(err).NotTo(HaveOccurred())
 			err = json.Unmarshal(out, &spine2)
 			g.Expect(err).NotTo(HaveOccurred())
 			conf, ok = spine2[0]["conf"]
@@ -190,6 +196,7 @@ var _ = Describe("sartd-bgp", func() {
 		Eventually(func(g Gomega) error {
 			spine1 := make([]map[string]any, 0, 1)
 			out, _, _, err := execInNetns("spine1", "gobgp", "neighbor", "-j")
+			g.Expect(err).NotTo(HaveOccurred())
 			err = json.Unmarshal(out, &spine1)
 			g.Expect(err).NotTo(HaveOccurred())
 			state, ok := spine1[0]["state"]
@@ -201,6 +208,7 @@ var _ = Describe("sartd-bgp", func() {
 
 			spine2 := make([]map[string]any, 0, 1)
 			out, _, _, err = execInNetns("spine2", "gobgp", "neighbor", "-j")
+			g.Expect(err).NotTo(HaveOccurred())
 			err = json.Unmarshal(out, &spine2)
 			g.Expect(err).NotTo(HaveOccurred())
 			state, ok = spine2[0]["state"]
@@ -254,6 +262,7 @@ var _ = Describe("sartd-bgp", func() {
 		Eventually(func(g Gomega) error {
 			spine1 := make([]map[string]any, 0, 1)
 			out, _, _, err := execInNetns("spine1", "gobgp", "neighbor", "-j")
+			g.Expect(err).NotTo(HaveOccurred())
 			err = json.Unmarshal(out, &spine1)
 			g.Expect(err).NotTo(HaveOccurred())
 			conf, ok := spine1[0]["conf"]
@@ -263,6 +272,7 @@ var _ = Describe("sartd-bgp", func() {
 
 			spine2 := make([]map[string]any, 0, 1)
 			out, _, _, err = execInNetns("spine2", "gobgp", "neighbor", "-j")
+			g.Expect(err).NotTo(HaveOccurred())
 			err = json.Unmarshal(out, &spine2)
 			g.Expect(err).NotTo(HaveOccurred())
 			conf, ok = spine2[0]["conf"]
@@ -285,6 +295,7 @@ var _ = Describe("sartd-bgp", func() {
 		Eventually(func(g Gomega) error {
 			spine1 := make([]map[string]any, 0, 1)
 			out, _, _, err := execInNetns("spine1", "gobgp", "neighbor", "-j")
+			g.Expect(err).NotTo(HaveOccurred())
 			err = json.Unmarshal(out, &spine1)
 			g.Expect(err).NotTo(HaveOccurred())
 			state, ok := spine1[0]["state"]
@@ -296,6 +307,7 @@ var _ = Describe("sartd-bgp", func() {
 
 			spine2 := make([]map[string]any, 0, 1)
 			out, _, _, err = execInNetns("spine2", "gobgp", "neighbor", "-j")
+			g.Expect(err).NotTo(HaveOccurred())
 			err = json.Unmarshal(out, &spine2)
 			g.Expect(err).NotTo(HaveOccurred())
 			state, ok = spine2[0]["state"]
