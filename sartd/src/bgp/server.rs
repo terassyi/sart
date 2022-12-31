@@ -1,6 +1,7 @@
 use futures::stream::FuturesUnordered;
 use futures::{FutureExt, StreamExt};
-use socket2::{Domain, Socket, Type};
+use socket2::{Domain, Socket, Type, TcpKeepalive};
+use tracing_subscriber::fmt::format;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -9,7 +10,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::ops::Add;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpStream, TcpSocket};
 use tokio::sync::mpsc::{channel, Receiver, UnboundedSender, Sender};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tokio::sync::Notify;
@@ -280,12 +281,29 @@ impl Bgp {
             let connect_retry_time = self.connect_retry_time;
             tokio::spawn(async move {
                 loop {
+                    let sock = Socket::new(
+                        match neighbor.address {
+                            IpAddr::V4(_) => Domain::IPV4,
+                            IpAddr::V6(_) => Domain::IPV6,
+                        },
+                        Type::STREAM,
+                        None,
+                    ).unwrap();
+                    sock.set_nonblocking(true).unwrap();
+                    sock.set_ttl(1).unwrap();
+
+                    let tcp_keepalive = TcpKeepalive::new()
+                        .with_interval(Duration::new(30, 0));
+                    sock.set_tcp_keepalive(&tcp_keepalive).unwrap();
+                    let tcp_sock = TcpSocket::from_std_stream(sock.into());
+
                     if let Ok(Ok(stream)) = timeout(
                         Duration::from_secs(connect_retry_time / 2),
-                        TcpStream::connect(format!("{}:179", neighbor.address)),
+                        tcp_sock.connect(format!("{}:179", neighbor.address).parse().unwrap()),
                     )
                     .await
                     {
+                        stream.set_ttl(1).unwrap();
                         match active_conn_tx.send(stream) {
                             Ok(_) => {},
                             Err(e) => tracing::error!(level="global",error=?e),
@@ -321,6 +339,11 @@ fn create_tcp_listener(addr: String, port: u16, proto: Afi) -> io::Result<std::n
     sock.set_reuse_address(true)?;
     sock.set_reuse_port(true)?;
     sock.set_nonblocking(true)?;
+    sock.set_ttl(1)?;
+
+    let tcp_keepalive = TcpKeepalive::new()
+        .with_interval(Duration::new(30, 0));
+    sock.set_tcp_keepalive(&tcp_keepalive)?;
 
     sock.bind(&sock_addr.into())?;
     sock.listen(4096)?;
@@ -333,4 +356,31 @@ pub(crate) fn start(conf: Config) {
         .build()
         .unwrap()
         .block_on(Bgp::serve(conf));
+}
+
+fn create_socket(addr: String, port: u16, proto: Afi) -> io::Result<socket2::Socket> {
+    let sock_addr: SocketAddr = format!("{}:{}", addr, port).parse().unwrap();
+    let sock = Socket::new(
+        match proto {
+            Afi::IPv4 => Domain::IPV4,
+            Afi::IPv6 => Domain::IPV6,
+        },
+        Type::STREAM,
+        None,
+    )?;
+
+    if sock_addr.is_ipv6() {
+        sock.set_only_v6(true)?;
+    }
+
+    sock.set_reuse_address(true)?;
+    sock.set_reuse_port(true)?;
+    sock.set_nonblocking(true)?;
+    sock.set_ttl(1)?;
+
+    let tcp_keepalive = TcpKeepalive::new()
+        .with_interval(Duration::new(30, 0));
+    sock.set_tcp_keepalive(&tcp_keepalive)?;
+
+    Ok(sock)
 }
