@@ -21,7 +21,7 @@ impl CapabilitySet {
         );
         inner.insert(
             packet::capability::Capability::MULTI_PROTOCOL,
-            Capability::MultiProtocol(MultiProtocol { family: AddressFamily{afi: Afi::IPv6, safi: Safi::Unicast} })
+            Capability::MultiProtocol(MultiProtocol { family: AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast} })
         );
         Self { inner }
     }

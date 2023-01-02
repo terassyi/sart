@@ -165,10 +165,10 @@ impl Peer {
             futures::select_biased! {
                 // timer handling
                 _ = self.hold_timer.ticker.next() => {
-                    if self.hold_timer.last.elapsed().as_secs() >= self.hold_timer.interval {
+                    if self.hold_timer.last.elapsed().as_secs() > self.hold_timer.interval + 20 {
                         let current_state = self.state();
                         tracing::warn!(peer.addr=peer_addr, peer.asn=peer_as, state=?current_state, event=%TimerEvent::HoldTimerExpire);
-                        match self.hold_timer_expire() {
+                        match self.hold_timer_expire().await {
                             Ok(_) => {},
                             Err(e) => tracing::error!(level="peer",peer.addr=peer_addr, peer.asn=peer_as,state=?current_state,error=?e),
                         };
@@ -177,7 +177,7 @@ impl Peer {
                 _ = self.keepalive_timer.tick().fuse() => {
                     let current_state = self.state();
                     tracing::debug!(peer.addr=peer_addr, peer.asn=peer_as, state=?current_state, event=%TimerEvent::KeepaliveTimerExpire);
-                    match self.keepalive_timer_expire() {
+                    match self.keepalive_timer_expire().await {
                         Ok(_) => {},
                         Err(e) => tracing::error!(level="peer",peer.addr=peer_addr, peer.asn=peer_as,state=?current_state,error=?e),
                     };
@@ -196,11 +196,11 @@ impl Peer {
                             Event::Connection(event) => match event {
                                 TcpConnectionEvent::TcpCRAcked(stream) => self.handle_tcp_connect(stream, msg_event_tx.clone(), conn_close_tx.clone(), Event::CONNECTION_TCP_CR_ACKED),
                                 TcpConnectionEvent::TcpConnectionConfirmed(stream) => self.handle_tcp_connect(stream, msg_event_tx.clone(), conn_close_tx.clone(), Event::CONNECTION_TCP_CONNECTION_CONFIRMED),
-                                TcpConnectionEvent::TcpConnectionFail => self.tcp_connection_fail(),
+                                TcpConnectionEvent::TcpConnectionFail => self.tcp_connection_fail().await,
                                 _ => unimplemented!(),
                             },
                             Event::Timer(event) => match event {
-                                TimerEvent::ConnectRetryTimerExpire => self.connect_retry_timer_expire(),
+                                TimerEvent::ConnectRetryTimerExpire => self.connect_retry_timer_expire().await,
                                 TimerEvent::HoldTimerExpire => Ok(()), // don't handle here
                                 TimerEvent::KeepaliveTimerExpire => Ok(()), // don't handle here
                                 _ => unimplemented!(),
@@ -218,14 +218,14 @@ impl Peer {
                         let current_state = self.state();
                         tracing::info!(peer.addr=peer_addr, peer.asn=peer_as, state=?current_state, event=%event);
                         let res = match event {
-                            BgpMessageEvent::BgpOpen{local_port, peer_port, msg} => self.bgp_open(local_port, peer_port, msg),
-                            BgpMessageEvent::BgpHeaderError(e) => self.bgp_header_error(e),
-                            BgpMessageEvent::BgpOpenMsgErr(e) => self.bgp_open_msg_error(e),
-                            BgpMessageEvent::NotifMsgVerErr => self.notification_msg_ver_error(),
-                            BgpMessageEvent::NotifMsg(msg) => self.notification_msg(msg),
-                            BgpMessageEvent::KeepAliveMsg => self.keepalive_msg(),
+                            BgpMessageEvent::BgpOpen{local_port, peer_port, msg} => self.bgp_open(local_port, peer_port, msg).await,
+                            BgpMessageEvent::BgpHeaderError(e) => self.bgp_header_error(e).await,
+                            BgpMessageEvent::BgpOpenMsgErr(e) => self.bgp_open_msg_error(e).await,
+                            BgpMessageEvent::NotifMsgVerErr => self.notification_msg_ver_error().await,
+                            BgpMessageEvent::NotifMsg(msg) => self.notification_msg(msg).await,
+                            BgpMessageEvent::KeepAliveMsg => self.keepalive_msg().await,
                             BgpMessageEvent::UpdateMsg(msg) => self.update_msg(msg).await,
-                            BgpMessageEvent::UpdateMsgErr(e) => self.update_msg_error(e),
+                            BgpMessageEvent::UpdateMsgErr(e) => self.update_msg_error(e).await,
                             BgpMessageEvent::RouteRefreshMsg(msg) => self.route_refresh_msg(),
                             BgpMessageEvent::RouteRefreshMsgErr => self.route_refresh_msg_error(),
                             _ => unimplemented!(),
@@ -237,7 +237,6 @@ impl Peer {
                     }
                 }
                 local_port = conn_close_rx.recv().fuse() => {
-                    tracing::warn!(level="peer",peer.addr=peer_addr, peer.asn=peer_as,"catch a losing connection");
                     if let Some(local_port) = local_port {
                         let empty = {
                             let mut connections = self.connections.lock().unwrap();
@@ -246,9 +245,9 @@ impl Peer {
                             }
                             connections.is_empty()
                         };
-                        tracing::warn!(level="peer",peer.addr=peer_addr, peer.asn=peer_as,conn_empty=empty,"one connection is closed");
+                        tracing::warn!(level="peer",peer.addr=peer_addr,local_port=local_port,peer.asn=peer_as,conn_empty=empty,"one connection is closed");
                         if empty {
-                            self.release().unwrap();
+                            self.release(false).await.unwrap();
                             self.move_state(Event::CONNECTION_TCP_CONNECTION_FAIL);
                         }
                     }
@@ -264,9 +263,9 @@ impl Peer {
             (c.neighbor.get_addr().to_string(), c.neighbor.get_asn())
         };
         tracing::info!(level="peer",peer.addr=peer_addr,peer.asn=peer_as,"send message");
-        // tracing::debug!(level="peer",peer.addr=peer_addr,peer.asn=peer_as,"send message");
         let connections = self.connections.lock().unwrap();
         if connections.len() != 1 {
+            tracing::error!(level="peer",conn_len=connections.len(),connections=?connections);
             return Err(Error::Peer(PeerError::DuplicateConnection))
         }
         connections[0].send(msg)
@@ -292,7 +291,7 @@ impl Peer {
         Err(Error::Peer(PeerError::ConnectionNotEstablished))
     }
 
-    #[tracing::instrument(skip(self, stream, msg_event_tx))]
+    #[tracing::instrument(skip(self, stream, msg_event_tx, close_ch))]
     fn initialize(
         &mut self,
         stream: TcpStream,
@@ -325,6 +324,8 @@ impl Peer {
 
         let send_counter = self.send_counter.clone();
         let recv_counter = self.recv_counter.clone();
+
+        tracing::info!(peer_addr=peer_addr,local_port=local_port,peer_port=peer_port,peer_as=peer_as,"initialize the connection");
 
         tokio::spawn(async move {
             let (mut sender, mut receiver) = codec.split();
@@ -400,11 +401,12 @@ impl Peer {
                                 MessageType::Notification => send_counter.lock().unwrap().notification += 1,
                                 MessageType::RouteRefresh => send_counter.lock().unwrap().route_refresh += 1,
                             };
+                            tracing::info!(send_counter=?send_counter);
                             sender.send(msg).await;
                         }
                     }
                     _ = drop_signal.notified().fuse() => {
-                        tracing::warn!(peer.addr=peer_addr, peer.asn=peer_as, "drop connection");
+                        tracing::warn!(peer.addr=peer_addr, local_port=local_port,peer_port=peer_port,peer.asn=peer_as, "drop connection signal received");
                         return;
                     }
                     _ = conn_down_signal.notified().fuse() => {
@@ -417,7 +419,8 @@ impl Peer {
         Ok(passive)
     }
 
-    fn release(&mut self) -> Result<(), Error> {
+    #[tracing::instrument(skip(self, wait_nofification))]
+    async fn release(&mut self, wait_nofification: bool) -> Result<(), Error> {
         self.keepalive_time = 0;
         self.keepalive_timer = interval_at(
             Instant::now() + Duration::new(u32::MAX.into(), 0),
@@ -425,6 +428,10 @@ impl Peer {
         );
         self.hold_timer.stop();
         self.negotiated_hold_time = Bgp::DEFAULT_HOLD_TIME;
+        if wait_nofification {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+        self.drop_connection();
         self.connections.lock().unwrap().clear();
         self.send_counter.lock().unwrap().reset();
         self.recv_counter.lock().unwrap().reset();
@@ -454,7 +461,7 @@ impl Peer {
     }
 
     // Event 9
-    fn connect_retry_timer_expire(&mut self) -> Result<(), Error> {
+    async fn connect_retry_timer_expire(&mut self) -> Result<(), Error> {
         match self.state() {
             State::Idle => {}
             State::Connect => {
@@ -486,8 +493,7 @@ impl Peer {
                     .code(NotificationCode::FiniteStateMachine)?
                     .build()?;
                 self.send(msg)?;
-                self.release()?;
-                self.drop_connection();
+                self.release(true).await?;
                 self.connect_retry_counter += 1;
             }
         }
@@ -496,7 +502,7 @@ impl Peer {
     }
 
     // Event 10
-    fn hold_timer_expire(&mut self) -> Result<(), Error> {
+    async fn hold_timer_expire(&mut self) -> Result<(), Error> {
         match self.state() {
             State::OpenSent | State::OpenConfirm | State::Established => {
                 // sends a Notification message with the error code Hold Timer Expired
@@ -508,8 +514,7 @@ impl Peer {
                 let mut builder = MessageBuilder::builder(MessageType::Notification);
                 let msg = builder.code(NotificationCode::HoldTimerExpired)?.build()?;
                 self.send(msg)?;
-                self.release()?;
-                self.drop_connection();
+                self.release(true).await?;
                 self.connect_retry_counter += 1;
             }
             _ => {
@@ -517,8 +522,7 @@ impl Peer {
                 // drops the tcp connection
                 // increments ConnectRetryCounter by 1
                 // stay
-                self.release()?;
-                self.drop_connection();
+                self.release(false).await?;
                 self.connect_retry_counter += 1;
             }
         }
@@ -527,7 +531,7 @@ impl Peer {
     }
 
     // Event 11
-    fn keepalive_timer_expire(&mut self) -> Result<(), Error> {
+    async fn keepalive_timer_expire(&mut self) -> Result<(), Error> {
         match self.state() {
             State::Established => {
                 // sends a KEEPALIVE message
@@ -550,8 +554,7 @@ impl Peer {
                     .code(NotificationCode::FiniteStateMachine)?
                     .build()?;
                 self.send(msg)?;
-                self.release()?;
-                self.drop_connection();
+                self.release(true).await?;
                 self.connect_retry_counter += 1;
             }
             State::OpenConfirm => {
@@ -567,8 +570,7 @@ impl Peer {
                 // drops the TCP connection,
                 // increments the ConnectRetryCounter by 1,
                 // changes its state to Idle.
-                self.release()?;
-                self.drop_connection();
+                self.release(false).await?;
                 self.connect_retry_counter += 1;
             }
         }
@@ -668,7 +670,7 @@ impl Peer {
     }
 
     // Event 18
-    fn tcp_connection_fail(&mut self) -> Result<(), Error> {
+    async fn tcp_connection_fail(&mut self) -> Result<(), Error> {
         match self.state() {
             State::Idle => {}
             State::Connect | State::Active | State::OpenConfirm => {
@@ -676,8 +678,7 @@ impl Peer {
                 // drops the TCP connection,
                 // releases all BGP resources, and
                 // changes its state to Idle.
-                self.drop_connection();
-                self.release()?;
+                self.release(false).await?;
             }
             State::OpenSent => {
                 // closes the BGP connection,
@@ -694,8 +695,7 @@ impl Peer {
                 // drops the TCP connection,
                 // increments the ConnectRetryCounter by 1,
                 // changes its state to Idle.
-                self.drop_connection();
-                self.release()?;
+                self.release(false).await?;
                 self.connect_retry_counter += 1;
             }
         }
@@ -705,7 +705,7 @@ impl Peer {
 
     // Event 19
     #[tracing::instrument(skip(self, recv))]
-    fn bgp_open(&mut self, local_port: u16, peer_port: u16, recv: Message) -> Result<(), Error> {
+    async fn bgp_open(&mut self, local_port: u16, peer_port: u16, recv: Message) -> Result<(), Error> {
         let (_version, _asn, hold_time, _router_id, _caps) = recv.to_open()?;
         match self.state() {
             State::Active => {
@@ -779,8 +779,7 @@ impl Peer {
                 let mut builder = MessageBuilder::builder(MessageType::Notification);
                 let msg = builder.code(NotificationCode::Cease)?.build()?;
                 self.send(msg)?;
-                self.release()?;
-                self.drop_connection();
+                self.release(true).await?;
                 self.connect_retry_counter += 1;
             },
             _ => {},
@@ -790,7 +789,7 @@ impl Peer {
     }
 
     // Event 21
-    fn bgp_header_error(&mut self, e: MessageHeaderError) -> Result<(), Error> {
+    async fn bgp_header_error(&mut self, e: MessageHeaderError) -> Result<(), Error> {
         match self.state() {
             State::Active | State::Connect => {
                 // stops the ConnectRetryTimer (if running) and sets the ConnectRetryTimer to zero,
@@ -798,8 +797,7 @@ impl Peer {
                 // drops the TCP connection,
                 // increments the ConnectRetryCounter by 1,
                 // changes its state to Idle.
-                self.release()?;
-                self.drop_connection();
+                self.release(false).await?;
                 self.connect_retry_counter += 1;
             }
             State::OpenSent | State::OpenConfirm => {
@@ -819,8 +817,7 @@ impl Peer {
                 }
                 let msg = builder.build()?;
                 self.send(msg)?;
-                self.release()?;
-                self.drop_connection();
+                self.release(true).await?;
                 self.connect_retry_counter += 1;
             }
             State::Established => {
@@ -841,8 +838,7 @@ impl Peer {
                 }
                 let msg = builder.build()?;
                 self.send(msg)?;
-                self.release()?;
-                self.drop_connection();
+                self.release(true).await?;
                 self.connect_retry_counter += 1;
             }
             _ => {}
@@ -852,7 +848,7 @@ impl Peer {
     }
 
     // Event 22
-    fn bgp_open_msg_error(&mut self, e: OpenMessageError) -> Result<(), Error> {
+    async fn bgp_open_msg_error(&mut self, e: OpenMessageError) -> Result<(), Error> {
         match self.state() {
             State::Active | State::Connect => {
                 // stops the ConnectRetryTimer (if running) and sets the ConnectRetryTimer to zero,
@@ -860,8 +856,7 @@ impl Peer {
                 // drops the TCP connection,
                 // increments the ConnectRetryCounter by 1,
                 // changes its state to Idle.
-                self.release()?;
-                self.drop_connection();
+                self.release(false).await?;
                 self.connect_retry_counter += 1;
             }
             State::OpenSent | State::OpenConfirm => {
@@ -881,8 +876,7 @@ impl Peer {
                 }
                 let msg = builder.build()?;
                 self.send(msg)?;
-                self.release()?;
-                self.drop_connection();
+                self.release(true).await?;
                 self.connect_retry_counter += 1;
             }
             State::Established => {
@@ -898,8 +892,7 @@ impl Peer {
                     .code(NotificationCode::FiniteStateMachine)?
                     .build()?;
                 self.send(msg)?;
-                self.release()?;
-                self.drop_connection();
+                self.release(true).await?;
                 self.connect_retry_counter += 1;
             }
             _ => {}
@@ -909,7 +902,7 @@ impl Peer {
     }
 
     // Event 24
-    fn notification_msg_ver_error(&mut self) -> Result<(), Error> {
+    async fn notification_msg_ver_error(&mut self) -> Result<(), Error> {
         match self.state() {
             State::Active | State::Connect => {
                 // stops the ConnectRetryTimer (if running) and sets the ConnectRetryTimer to zero,
@@ -917,16 +910,14 @@ impl Peer {
                 // releases all BGP resources,
                 // drops the TCP connection, and
                 // changes its state to Idle.
-                self.release()?;
-                self.drop_connection();
+                self.release(false).await?;
             }
             State::OpenConfirm | State::OpenSent => {
                 // sets the ConnectRetryTimer to zero,
                 // releases all BGP resources,
                 // drops the TCP connection, and
                 // changes its state to Idle.
-                self.release()?;
-                self.drop_connection();
+                self.release(false).await?;
             }
             State::Established => {
                 // sets the ConnectRetryTimer to zero,
@@ -935,8 +926,7 @@ impl Peer {
                 // drops the TCP connection,
                 // increments the ConnectRetryCounter by 1,
                 // changes its state to Idle.
-                self.release()?;
-                self.drop_connection();
+                self.release(false).await?;
                 self.connect_retry_counter += 1;
             }
             _ => {}
@@ -947,7 +937,7 @@ impl Peer {
 
     // Event 25
     #[tracing::instrument(skip(self, msg))]
-    fn notification_msg(&mut self, msg: Message) -> Result<(), Error> {
+    async fn notification_msg(&mut self, msg: Message) -> Result<(), Error> {
         let (code, subcode, data) = msg.to_notification()?;
         let (peer_addr, peer_as) = {
             let conf = self.info.lock().unwrap();
@@ -970,8 +960,7 @@ impl Peer {
                     .code(NotificationCode::FiniteStateMachine)?
                     .build()?;
                 self.send(msg)?;
-                self.release()?;
-                self.drop_connection();
+                self.release(true).await?;
                 self.connect_retry_counter += 1;
             }
             State::Established => {
@@ -981,8 +970,7 @@ impl Peer {
                 // drops the TCP connection,
                 // increments the ConnectRetryCounter by 1,
                 // changes its state to Idle.
-                self.release()?;
-                self.drop_connection();
+                self.release(false).await?;
                 self.connect_retry_counter += 1;
             }
             _ => {
@@ -991,8 +979,7 @@ impl Peer {
                 // drops the TCP connection,
                 // increments the ConnectRetryCounter by 1,
                 // changes its state to Idle.
-                self.release()?;
-                self.drop_connection();
+                self.release(false).await?;
                 self.connect_retry_counter += 1;
             }
         }
@@ -1001,7 +988,7 @@ impl Peer {
     }
 
     // Event 26
-    fn keepalive_msg(&mut self) -> Result<(), Error> {
+    async fn keepalive_msg(&mut self) -> Result<(), Error> {
         match self.state() {
             State::OpenSent => {
                 // sends the NOTIFICATION with the Error Code Finite State Machine Error,
@@ -1014,8 +1001,7 @@ impl Peer {
                     .code(NotificationCode::FiniteStateMachine)?
                     .build()?;
                 self.send(msg)?;
-                self.release()?;
-                self.drop_connection();
+                self.release(true).await?;
                 self.connect_retry_counter += 1;
             }
             State::OpenConfirm | State::Established => {
@@ -1029,8 +1015,7 @@ impl Peer {
                 // drops the TCP connection,
                 // increments the ConnectRetryCounter by one,
                 // changes its state to Idle.
-                self.release()?;
-                self.drop_connection();
+                self.release(false).await?;
                 self.connect_retry_counter += 1;
             }
         }
@@ -1048,8 +1033,7 @@ impl Peer {
                     .code(NotificationCode::FiniteStateMachine)?
                     .build()?;
                 self.send(msg)?;
-                self.release()?;
-                self.drop_connection();
+                self.release(true).await?;
                 self.connect_retry_counter += 1;
             }
             State::Established => {
@@ -1068,8 +1052,7 @@ impl Peer {
                 // drops the TCP connection,
                 // increments the ConnectRetryCounter by one,
                 // changes its state to Idle.
-                self.release()?;
-                self.drop_connection();
+                self.release(false).await?;
                 self.connect_retry_counter += 1;
             }
         }
@@ -1078,7 +1061,7 @@ impl Peer {
     }
 
     // Event 28
-    fn update_msg_error(&mut self, e: UpdateMessageError) -> Result<(), Error> {
+    async fn update_msg_error(&mut self, e: UpdateMessageError) -> Result<(), Error> {
         match self.state() {
             State::OpenSent | State::OpenConfirm => {
                 // sends a NOTIFICATION with a code of Finite State Machine Error,
@@ -1087,8 +1070,7 @@ impl Peer {
                     .code(NotificationCode::FiniteStateMachine)?
                     .build()?;
                 self.send(msg)?;
-                self.release()?;
-                self.drop_connection();
+                self.release(true).await?;
                 self.connect_retry_counter += 1;
             }
             State::Established => {
@@ -1109,8 +1091,7 @@ impl Peer {
                 }
                 let msg = builder.build()?;
                 self.send(msg)?;
-                self.release()?;
-                self.drop_connection();
+                self.release(true).await?;
                 self.connect_retry_counter += 1;
             }
             _ => {
@@ -1119,8 +1100,7 @@ impl Peer {
                 // drops the TCP connection,
                 // increments the ConnectRetryCounter by one,
                 // changes its state to Idle.
-                self.release()?;
-                self.drop_connection();
+                self.release(false).await?;
             }
         }
         self.move_state(Event::MESSAGE_UPDATE_MSG_ERROR);
@@ -1320,10 +1300,16 @@ impl Connection {
         self.local_port == Bgp::BGP_PORT
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip(self, msg))]
     fn send(&self, msg: Message) -> Result<(), Error> {
         self.msg_tx.send(msg)
             .map_err(|_| Error::Peer(PeerError::FailedToSendMessage))?;
+        Ok(())
+    }
+
+    fn clear(&self) -> Result<(), Error> {
+        // if self.msg_tx.
+
         Ok(())
     }
 }
@@ -1344,7 +1330,7 @@ struct Timer {
 
 impl Timer {
     fn new() -> Self {
-        let mut ticker = FuturesUnordered::new();
+        let ticker = FuturesUnordered::new();
         ticker.push(sleep(Duration::new(u32::MAX.into(), 0)));
         Self {
             ticker,
@@ -1389,6 +1375,7 @@ impl MessageCounter {
         self.open + self.update + self.keepalive + self.notification + self.route_refresh
     }
 
+    #[tracing::instrument(skip(self))]
     fn reset(&mut self) {
         self.open = 0;
         self.update = 0;

@@ -357,30 +357,3 @@ pub(crate) fn start(conf: Config) {
         .unwrap()
         .block_on(Bgp::serve(conf));
 }
-
-fn create_socket(addr: String, port: u16, proto: Afi) -> io::Result<socket2::Socket> {
-    let sock_addr: SocketAddr = format!("{}:{}", addr, port).parse().unwrap();
-    let sock = Socket::new(
-        match proto {
-            Afi::IPv4 => Domain::IPV4,
-            Afi::IPv6 => Domain::IPV6,
-        },
-        Type::STREAM,
-        None,
-    )?;
-
-    if sock_addr.is_ipv6() {
-        sock.set_only_v6(true)?;
-    }
-
-    sock.set_reuse_address(true)?;
-    sock.set_reuse_port(true)?;
-    sock.set_nonblocking(true)?;
-    sock.set_ttl(1)?;
-
-    let tcp_keepalive = TcpKeepalive::new()
-        .with_interval(Duration::new(30, 0));
-    sock.set_tcp_keepalive(&tcp_keepalive)?;
-
-    Ok(sock)
-}
