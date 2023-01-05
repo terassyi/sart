@@ -6,10 +6,11 @@ use std::time::Duration;
 use futures::stream::{FuturesUnordered, Next};
 use futures::{FutureExt, SinkExt, Stream, StreamExt, TryFutureExt};
 use ipnet::IpNet;
-use tokio::net::TcpStream;
+use socket2::{Type, Domain, Socket, TcpKeepalive};
+use tokio::net::{TcpStream, TcpSocket};
 use tokio::sync::mpsc::{channel, unbounded_channel, UnboundedReceiver, UnboundedSender, Sender, Receiver};
 use tokio::sync::Notify;
-use tokio::time::{interval_at, sleep, Instant, Interval, Sleep};
+use tokio::time::{interval_at, sleep, Instant, Interval, Sleep, timeout};
 use tokio_util::codec::{Framed, FramedRead};
 
 use crate::bgp::capability::{Capability, CapabilitySet};
@@ -89,7 +90,8 @@ pub(crate) struct Peer {
     info: Arc<Mutex<PeerInfo>>,
     fsm: Mutex<FiniteStateMachine>,
     admin_rx: UnboundedReceiver<Event>,
-    // msg_tx: Option<UnboundedSender<Message>>,
+    conn_tx: UnboundedSender<TcpStream>,
+    conn_rx: UnboundedReceiver<TcpStream>,
     connections: Arc<Mutex<Vec<Connection>>>,
     keepalive_timer: Interval,
     keepalive_time: u64,
@@ -112,11 +114,13 @@ impl Peer {
             let info = info.lock().unwrap();
             (info.keepalive_time, info.families.clone())
         };
+        let (conn_tx, conn_rx) = unbounded_channel();
         Self {
             info,
             fsm: Mutex::new(FiniteStateMachine::new()),
             admin_rx: rx,
-            // msg_tx: None,
+            conn_tx,
+            conn_rx,
             connections: Arc::new(Mutex::new(Vec::new())),
             hold_timer: Timer::new(),
             keepalive_timer: interval_at(
@@ -166,6 +170,7 @@ impl Peer {
                 // timer handling
                 _ = self.hold_timer.ticker.next() => {
                     if self.hold_timer.last.elapsed().as_secs() > self.hold_timer.interval + 20 {
+                    // if self.hold_timer.last.elapsed().as_secs() < self.hold_timer.interval + 20 { // for debug
                         let current_state = self.state();
                         tracing::warn!(peer.addr=peer_addr, peer.asn=peer_as, state=?current_state, event=%TimerEvent::HoldTimerExpire);
                         match self.hold_timer_expire().await {
@@ -211,6 +216,17 @@ impl Peer {
                             Ok(_) => {},
                             Err(e) => tracing::error!(level="peer",peer.addr=peer_addr, peer.asn=peer_as,state=?current_state,error=?e),
                         }
+                    }
+                }
+                stream = self.conn_rx.recv().fuse() => {
+                    // active connection handler
+                    if let Some(stream) = stream {
+                        let current_state = self.state();
+                        tracing::info!(peer.addr=peer_addr, peer.asn=peer_as, state=?current_state, event=Event::CONNECTION_TCP_CR_ACKED);
+                        match self.handle_tcp_connect(stream, msg_event_tx.clone(), conn_close_tx.clone(), Event::CONNECTION_TCP_CR_ACKED) {
+                            Ok(_) => {},
+                            Err(e) => tracing::error!(level="peer",peer.addr=peer_addr, peer.asn=peer_as,state=?current_state,error=?e),
+                        };
                     }
                 }
                 event = msg_event_rx.recv().fuse() => {
@@ -443,7 +459,42 @@ impl Peer {
     }
 
     // Event 1
+    #[tracing::instrument(skip(self))]
     fn manual_start(&mut self) -> Result<(), Error> {
+        let (addr, conn_retry_time) = {
+            let info = self.info.lock().unwrap();
+            (info.neighbor.get_addr(), info.connect_retry_time)
+        };
+        let conn_tx = self.conn_tx.clone();
+        tokio::spawn(async move {
+            loop {
+                let sock = Socket::new(
+                    match addr {
+                        IpAddr::V4(_) => Domain::IPV4,
+                        IpAddr::V6(_) => Domain::IPV6,
+                    },
+                    Type::STREAM,
+                    None,
+                ).unwrap();
+                sock.set_nonblocking(true).unwrap();
+                sock.set_ttl(1).unwrap();
+
+                let tcp_keepalive = TcpKeepalive::new()
+                    .with_interval(Duration::new(30, 0));
+                sock.set_tcp_keepalive(&tcp_keepalive).unwrap();
+
+                let tcp_sock = TcpSocket::from_std_stream(sock.into());
+                if let Ok(Ok(stream)) = timeout(
+                    Duration::from_secs(conn_retry_time / 2),
+                    tcp_sock.connect(format!("{}:179", addr).parse().unwrap()) 
+                ).await {
+                    tracing::info!("active connection is established");
+                    conn_tx.send(stream).unwrap();
+                    return;
+                }
+                sleep(Duration::from_secs(conn_retry_time / 2)).await;
+            }
+        });
         self.move_state(Event::AMDIN_MANUAL_START);
         Ok(())
     }
