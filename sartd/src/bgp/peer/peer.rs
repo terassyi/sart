@@ -171,14 +171,16 @@ impl Peer {
             futures::select_biased! {
                 // timer handling
                 _ = self.hold_timer.ticker.next() => {
-                    if self.hold_timer.last.elapsed().as_secs() > self.hold_timer.interval + 20 {
-                    // if self.hold_timer.last.elapsed().as_secs() < self.hold_timer.interval + 20 { // for debug
+                    let elapsed = self.hold_timer.last.elapsed().as_secs();
+                    if elapsed > self.hold_timer.interval + 20 {
                         let current_state = self.state();
-                        tracing::warn!(peer.addr=peer_addr, peer.asn=peer_as, state=?current_state, event=%TimerEvent::HoldTimerExpire);
+                        tracing::warn!(peer.addr=peer_addr,peer.asn=peer_as, state=?current_state, event=%TimerEvent::HoldTimerExpire);
                         match self.hold_timer_expire().await {
                             Ok(_) => {},
                             Err(e) => tracing::error!(level="peer",peer.addr=peer_addr, peer.asn=peer_as,state=?current_state,error=?e),
                         };
+                    } else {
+                        self.hold_timer.ticker.push(sleep(Duration::from_secs(self.negotiated_hold_time - elapsed + 10)));
                     }
                 }
                 _ = self.keepalive_timer.tick().fuse() => {
@@ -1065,7 +1067,8 @@ impl Peer {
             State::OpenConfirm | State::Established => {
                 // restarts the HoldTimer and if the negotiated HoldTime value is non-zero, and
                 // changes(remains) its state to Established.
-                self.hold_timer.push(self.negotiated_hold_time);
+                // self.hold_timer.push(self.negotiated_hold_time);
+                self.hold_timer.last = Instant::now();
             }
             _ => {
                 // sets the ConnectRetryTimer to zero,
