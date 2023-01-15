@@ -1103,7 +1103,7 @@ impl Peer {
                 // remains in the Established state.
                 let (withdrawn_rotes, attributes, nlri) = msg.to_update()?;
                 if self.negotiated_hold_time != 0 {
-                    self.hold_timer.push(self.negotiated_hold_time);
+                    self.hold_timer.last = Instant::now();
                 }
                 self.handle_update_msg(withdrawn_rotes, attributes, nlri).await?;
             }
@@ -1283,8 +1283,6 @@ impl Peer {
         // Otherwise, if the Adj-RIB-In has no route with NLRI identical to the
         // new route, the new route SHALL be placed in the Adj-RIB-In.
 
-        // Once the BGP speaker updates the Adj-RIB-In, the speaker SHALL run
-        // its Decision Process.
 
         let mut propagate_paths = Vec::new();
         for path in builder.nlri(nlri).build()?.into_iter() {
@@ -1293,13 +1291,13 @@ impl Peer {
             if path.has_own_as() {
                 continue;
             }
-            match self.adj_rib_in.insert(&path.family(), path.prefix(), path.clone()) {
-                Ok(_) => {},
-                Err(e) => tracing::error!(level="peer",peer.addr=peer_addr.to_string(), peer.asn=peer_asn,error=?e),
-            }
+            self.adj_rib_in.insert(&path.family(), path.prefix(), path.clone()).map_err(|e| Error::Rib(e))?;
             // TODO: apply import policy
             propagate_paths.push(path);
         }
+
+        // Once the BGP speaker updates the Adj-RIB-In, the speaker SHALL run
+        // its Decision Process.
 
         self.rib_tx.send(RibEvent::InstallPaths(propagate_paths)).await
             .map_err(|_| Error::InvalidEvent { val: 0 })?;
@@ -1519,7 +1517,7 @@ mod tests {
                 hold_time: Bgp::DEFAULT_HOLD_TIME as u16,
                 identifier: Ipv4Addr::new(1, 1, 1, 1),
                 capabilities: vec![
-                    packet::capability::Capability::MultiProtocol(AddressFamily::ipv6_unicast()),
+                    packet::capability::Capability::MultiProtocol(AddressFamily::ipv4_unicast()),
                     packet::capability::Capability::RouteRefresh,
                     packet::capability::Capability::FourOctetASNumber(100),
                 ]

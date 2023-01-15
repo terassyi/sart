@@ -81,7 +81,7 @@ impl Bgp {
         let rib_endpoint_conf = conf.rib_endpoint.clone();
 
         let (rib_event_tx, mut rib_event_rx) = channel::<RibEvent>(128);
-        let mut rib_manager = RibManager::new(rib_endpoint_conf, vec![Afi::IPv4, Afi::IPv6]); // TODO: enable to disable ipv6 or ipv4 by config or event
+        let mut rib_manager = RibManager::new(rib_endpoint_conf, vec![Afi::IPv4, Afi::IPv6], false); // TODO: enable to disable ipv6 or ipv4 by config or event
 
 
         let mut server = Self::new(conf, rib_event_tx);
@@ -226,14 +226,14 @@ impl Bgp {
             self.families.clone(),
         )));
 
-        let (rib_event_tx, rib_event_rx) = channel(128);
+        let (peer_rib_event_tx, peer_rib_event_rx) = channel(128);
 
-        self.rib_event_tx.send(RibEvent::AddPeer{neighbor: NeighborPair::from(&neighbor), rib_event_tx}).await
+        self.rib_event_tx.send(RibEvent::AddPeer{neighbor: NeighborPair::from(&neighbor), rib_event_tx: peer_rib_event_tx}).await
             .map_err(|e| {
                 tracing::error!(level="peer",error=?e);
                 Error::Rib(RibError::ManagerDown)})?;
 
-        let mut peer = Peer::new(info.clone(), rx, self.rib_event_tx.clone(), rib_event_rx);
+        let mut peer = Peer::new(info.clone(), rx, self.rib_event_tx.clone(), peer_rib_event_rx);
         let manager = PeerManager::new(info, tx);
         self.peer_managers.insert(neighbor.address, manager);
 

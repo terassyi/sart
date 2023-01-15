@@ -15,6 +15,7 @@ pub(crate) struct Config {
     pub router_id: Ipv4Addr,
     pub rib_endpoint: String,
     pub neighbors: Vec<NeighborConfig>,
+    pub multi_path: Option<bool>,
 }
 
 impl Config {
@@ -24,6 +25,7 @@ impl Config {
             rib_endpoint: "".to_string(),
             router_id: Ipv4Addr::new(1, 1, 1, 1),
             neighbors: Vec::new(),
+            multi_path: Some(false),
         }
     }
 

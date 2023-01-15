@@ -171,6 +171,8 @@ pub(crate) enum PeerError {
 
 #[derive(Debug, Error)]
 pub(crate) enum RibError {
+    #[error("invalid address family")]
+    InvalidAddressFamily,
     #[error("address family is not set")]
     AddressFamilyNotSet,
     #[error("peer is already registered")]
@@ -179,4 +181,6 @@ pub(crate) enum RibError {
     ManagerDown,
     #[error("protocol is already registered in Loc-RIB")]
     ProtocolIsAlreadyRegistered,
+    #[error("path not found")]
+    PathNotFound,
 }

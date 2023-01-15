@@ -4,6 +4,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 
 use ipnet::IpNet;
+use tokio::time::Instant;
 
 use crate::bgp::packet::attribute::Attribute;
 use crate::bgp::packet::attribute::ASSegment;
@@ -13,23 +14,45 @@ use crate::bgp::error::Error;
 use super::family::AddressFamily;
 use super::packet::message::Message;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone)]
 pub(crate) struct Path {
-	id: u64,
-	local_id: Ipv4Addr,
-	local_asn: u32,
-	peer_id: Ipv4Addr,
-	peer_addr: IpAddr,
-	peer_asn: u32,
-	family: AddressFamily,
-	origin: u8,
-	local_pref: u32,
-	med: u32,
-	as_sequence: Vec<u32>,
-	as_set: Vec<u32>,
-	next_hops: Vec<IpAddr>,
-	propagate_attributes: Vec<Attribute>,
-	prefix: IpNet,
+	pub id: u64,
+	pub best: bool,
+	pub reason: BestPathReason,
+	pub timestamp: Instant,
+	pub local_id: Ipv4Addr,
+	pub local_asn: u32,
+	pub peer_id: Ipv4Addr,
+	pub peer_addr: IpAddr,
+	pub peer_asn: u32,
+	pub family: AddressFamily,
+	pub origin: u8,
+	pub local_pref: u32,
+	pub med: u32,
+	pub as_sequence: Vec<u32>,
+	pub as_set: Vec<u32>,
+	pub next_hops: Vec<IpAddr>,
+	pub propagate_attributes: Vec<Attribute>,
+	pub prefix: IpNet,
+}
+
+impl std::cmp::PartialEq for Path {
+	fn eq(&self, other: &Self) -> bool {
+		self.local_id.eq(&other.local_id) || 
+		self.local_asn == other.local_asn || 
+		self.peer_id.eq(&other.peer_id) || 
+		self.peer_addr.eq(&other.peer_addr) ||
+		self.peer_asn == other.peer_asn ||
+		self.family.eq(&other.family) ||
+		self.origin == other.origin ||
+		self.local_pref == other.local_pref ||
+		self.med == other.med ||
+		self.as_sequence.eq(&other.as_sequence) ||
+		self.as_set.eq(&other.as_set) ||
+		self.next_hops.eq(&other.next_hops) ||
+		self.propagate_attributes.eq(&other.propagate_attributes) ||
+		self.prefix.eq(&other.prefix)
+	}
 }
 
 impl Path {
@@ -45,6 +68,10 @@ impl Path {
 		self.local_asn == self.peer_asn
 	}
 
+	pub fn is_local_originated(&self) -> bool {
+		self.local_id == self.peer_id
+	}
+
 	pub fn has_as(&self, asn: u32) -> bool {
 		if self.as_sequence.contains(&asn) {
 			return true;
@@ -57,6 +84,25 @@ impl Path {
 
 	pub fn has_own_as(&self) -> bool {
 		self.has_as(self.local_asn)
+	}
+
+	pub fn is_equal_cost(&self, path: &Path) -> bool {
+		if self.local_pref != path.local_pref {
+			return false;
+		}
+		if self.as_sequence.len() != path.as_sequence.len() {
+			return false;
+		}
+		if self.origin != path.origin {
+			return false;
+		}
+		if self.med != path.med {
+			return false;
+		}
+		if (self.local_asn == self.peer_asn) != (path.local_asn == path.peer_asn) {
+			return false;
+		}
+		true
 	}
 }
 
@@ -276,6 +322,9 @@ impl PathBuilder {
 		Ok(self.nlri.iter().map(|p| {
 			Path {
 				id: h.finish(),
+				best: false,
+				reason: BestPathReason::NotBest,
+				timestamp: Instant::now(),
     			local_id: self.local_id,
     			local_asn: self.local_asn,
     			peer_id: self.peer_id,
@@ -295,16 +344,36 @@ impl PathBuilder {
 	}
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum BestPathReason {
+	OnlyPath = 0,
+	Weight = 1,
+	LocalPref = 2,
+	LocalOriginated = 3,
+	ASPath = 4,
+	Origin = 5,
+	MultiExitDisc = 6,
+	External = 7,
+	IGPMetric = 8,
+	OlderRoute = 9,
+	RouterId = 10,
+	PeerAddr = 11,
+	EqualCostMiltiPath = 99,
+	NotBest = 100,
+}
+
 #[cfg(test)]
 mod tests {
 	use rstest::rstest;
 	use std::net::{IpAddr, Ipv4Addr};
 	use ipnet::{IpNet, Ipv4Net};
+	use tokio::time::Instant;
 	use crate::bgp::packet::message::Message;
 	use crate::bgp::family::AddressFamily;
 	use crate::bgp::packet::attribute::{Attribute, Base, ASSegment};
 	use crate::bgp::packet::prefix::Prefix;
 	use crate::bgp::path::Path;
+	use crate::bgp::path::BestPathReason;
 
 use super::PathBuilder;
 
@@ -325,6 +394,9 @@ use super::PathBuilder;
 			vec![
 				Path{
 					id: 0,
+					best: false,
+					reason: BestPathReason::NotBest,
+					timestamp: Instant::now(),
     				local_id: Ipv4Addr::new(1, 1, 1, 1),
     				local_asn: 100,
     				peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -360,6 +432,9 @@ use super::PathBuilder;
 			vec![
 				Path{
 					id: 0,
+					best: false,
+					reason: BestPathReason::NotBest,
+					timestamp: Instant::now(),
     				local_id: Ipv4Addr::new(1, 1, 1, 1),
     				local_asn: 100,
     				peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -393,6 +468,9 @@ use super::PathBuilder;
 			vec![
 				Path{
 					id: 0,
+					best: false,
+					reason: BestPathReason::NotBest,
+					timestamp: Instant::now(),
     				local_id: Ipv4Addr::new(1, 1, 1, 1),
     				local_asn: 100,
     				peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -410,6 +488,9 @@ use super::PathBuilder;
 				},
 				Path{
 					id: 0,
+					best: false,
+					reason: BestPathReason::NotBest,
+					timestamp: Instant::now(),
     				local_id: Ipv4Addr::new(1, 1, 1, 1),
     				local_asn: 100,
     				peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -427,6 +508,9 @@ use super::PathBuilder;
 				},
 				Path{
 					id: 0,
+					best: false,
+					reason: BestPathReason::NotBest,
+					timestamp: Instant::now(),
     				local_id: Ipv4Addr::new(1, 1, 1, 1),
     				local_asn: 100,
     				peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -462,6 +546,9 @@ use super::PathBuilder;
 			vec![
 				Path{
 					id: 0,
+					best: false,
+					reason: BestPathReason::NotBest,
+					timestamp: Instant::now(),
     				local_id: Ipv4Addr::new(1, 1, 1, 1),
     				local_asn: 100,
     				peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -479,6 +566,9 @@ use super::PathBuilder;
 				},
 				Path{
 					id: 0,
+					best: false,
+					reason: BestPathReason::NotBest,
+					timestamp: Instant::now(),
     				local_id: Ipv4Addr::new(1, 1, 1, 1),
     				local_asn: 100,
     				peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -496,6 +586,9 @@ use super::PathBuilder;
 				},
 				Path{
 					id: 0,
+					best: false,
+					reason: BestPathReason::NotBest,
+					timestamp: Instant::now(),
     				local_id: Ipv4Addr::new(1, 1, 1, 1),
     				local_asn: 100,
     				peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -537,6 +630,9 @@ use super::PathBuilder;
 		case(
 			Path{
 				id: 0,
+				best: false,
+				reason: BestPathReason::NotBest,
+				timestamp: Instant::now(),
 				local_id: Ipv4Addr::new(1, 1, 1, 1),
 				local_asn: 100,
 				peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -558,6 +654,9 @@ use super::PathBuilder;
 		case(
 			Path{
 				id: 0,
+				best: false,
+				reason: BestPathReason::NotBest,
+				timestamp: Instant::now(),
 				local_id: Ipv4Addr::new(1, 1, 1, 1),
 				local_asn: 65200,
 				peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -579,6 +678,9 @@ use super::PathBuilder;
 		case(
 			Path{
 				id: 0,
+				best: false,
+				reason: BestPathReason::NotBest,
+				timestamp: Instant::now(),
 				local_id: Ipv4Addr::new(1, 1, 1, 1),
 				local_asn: 100,
 				peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -600,6 +702,9 @@ use super::PathBuilder;
 		case(
 			Path{
 				id: 0,
+				best: false,
+				reason: BestPathReason::NotBest,
+				timestamp: Instant::now(),
 				local_id: Ipv4Addr::new(1, 1, 1, 1),
 				local_asn: 100,
 				peer_id: Ipv4Addr::new(2, 2, 2, 2),
