@@ -1,15 +1,16 @@
 use std::net::{IpAddr, Ipv4Addr};
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::stream::{FuturesUnordered, Next};
 use futures::{FutureExt, SinkExt, Stream, StreamExt, TryFutureExt};
 use ipnet::IpNet;
-use tokio::net::TcpStream;
+use socket2::{Type, Domain, Socket, TcpKeepalive};
+use tokio::net::{TcpStream, TcpSocket};
 use tokio::sync::mpsc::{channel, unbounded_channel, UnboundedReceiver, UnboundedSender, Sender, Receiver};
 use tokio::sync::Notify;
-use tokio::time::{interval_at, sleep, Instant, Interval, Sleep};
+use tokio::time::{interval_at, sleep, Instant, Interval, Sleep, timeout};
 use tokio_util::codec::{Framed, FramedRead};
 
 use crate::bgp::capability::{Capability, CapabilitySet};
@@ -89,7 +90,8 @@ pub(crate) struct Peer {
     info: Arc<Mutex<PeerInfo>>,
     fsm: Mutex<FiniteStateMachine>,
     admin_rx: UnboundedReceiver<Event>,
-    // msg_tx: Option<UnboundedSender<Message>>,
+    conn_tx: UnboundedSender<TcpStream>,
+    conn_rx: UnboundedReceiver<TcpStream>,
     connections: Arc<Mutex<Vec<Connection>>>,
     keepalive_timer: Interval,
     keepalive_time: u64,
@@ -98,6 +100,7 @@ pub(crate) struct Peer {
     negotiated_hold_time: u64,
     connect_retry_counter: u32,
     drop_signal: Arc<Notify>,
+    initialized: AtomicBool,
     send_counter: Arc<Mutex<MessageCounter>>,
     recv_counter: Arc<Mutex<MessageCounter>>,
     adj_rib_in: AdjRib,
@@ -112,11 +115,13 @@ impl Peer {
             let info = info.lock().unwrap();
             (info.keepalive_time, info.families.clone())
         };
+        let (conn_tx, conn_rx) = unbounded_channel();
         Self {
             info,
             fsm: Mutex::new(FiniteStateMachine::new()),
             admin_rx: rx,
-            // msg_tx: None,
+            conn_tx,
+            conn_rx,
             connections: Arc::new(Mutex::new(Vec::new())),
             hold_timer: Timer::new(),
             keepalive_timer: interval_at(
@@ -128,6 +133,7 @@ impl Peer {
             negotiated_hold_time: Bgp::DEFAULT_HOLD_TIME,
             connect_retry_counter: 0,
             drop_signal: Arc::new(Notify::new()),
+            initialized: AtomicBool::new(true),
             send_counter: Arc::new(Mutex::new(MessageCounter::new())),
             recv_counter: Arc::new(Mutex::new(MessageCounter::new())),
             adj_rib_in: AdjRib::new(families.clone()),
@@ -165,13 +171,16 @@ impl Peer {
             futures::select_biased! {
                 // timer handling
                 _ = self.hold_timer.ticker.next() => {
-                    if self.hold_timer.last.elapsed().as_secs() > self.hold_timer.interval + 20 {
+                    let elapsed = self.hold_timer.last.elapsed().as_secs();
+                    if elapsed > self.hold_timer.interval + 20 {
                         let current_state = self.state();
-                        tracing::warn!(peer.addr=peer_addr, peer.asn=peer_as, state=?current_state, event=%TimerEvent::HoldTimerExpire);
+                        tracing::warn!(peer.addr=peer_addr,peer.asn=peer_as, state=?current_state, event=%TimerEvent::HoldTimerExpire);
                         match self.hold_timer_expire().await {
                             Ok(_) => {},
                             Err(e) => tracing::error!(level="peer",peer.addr=peer_addr, peer.asn=peer_as,state=?current_state,error=?e),
                         };
+                    } else {
+                        self.hold_timer.ticker.push(sleep(Duration::from_secs(self.negotiated_hold_time - elapsed + 10)));
                     }
                 }
                 _ = self.keepalive_timer.tick().fuse() => {
@@ -213,6 +222,17 @@ impl Peer {
                         }
                     }
                 }
+                stream = self.conn_rx.recv().fuse() => {
+                    // active connection handler
+                    if let Some(stream) = stream {
+                        let current_state = self.state();
+                        tracing::info!(peer.addr=peer_addr, peer.asn=peer_as, state=?current_state, event=Event::CONNECTION_TCP_CR_ACKED);
+                        match self.handle_tcp_connect(stream, msg_event_tx.clone(), conn_close_tx.clone(), Event::CONNECTION_TCP_CR_ACKED) {
+                            Ok(_) => {},
+                            Err(e) => tracing::error!(level="peer",peer.addr=peer_addr, peer.asn=peer_as,state=?current_state,error=?e),
+                        };
+                    }
+                }
                 event = msg_event_rx.recv().fuse() => {
                     if let Some(event) = event {
                         let current_state = self.state();
@@ -236,6 +256,7 @@ impl Peer {
                         }
                     }
                 }
+                // manage connections. catch closing connections
                 local_port = conn_close_rx.recv().fuse() => {
                     if let Some(local_port) = local_port {
                         let empty = {
@@ -245,7 +266,7 @@ impl Peer {
                             }
                             connections.is_empty()
                         };
-                        tracing::warn!(level="peer",peer.addr=peer_addr,local_port=local_port,peer.asn=peer_as,conn_empty=empty,"one connection is closed");
+                        tracing::warn!(level="peer",peer.addr=peer_addr,local_port=local_port,peer.asn=peer_as,conn_empty=empty,"connection closed actively");
                         if empty {
                             self.release(false).await.unwrap();
                             self.move_state(Event::CONNECTION_TCP_CONNECTION_FAIL);
@@ -291,12 +312,12 @@ impl Peer {
         Err(Error::Peer(PeerError::ConnectionNotEstablished))
     }
 
-    #[tracing::instrument(skip(self, stream, msg_event_tx, close_ch))]
-    fn initialize(
+    #[tracing::instrument(skip(self, stream, msg_event_tx, close_signal))]
+    fn handle_connection(
         &mut self,
         stream: TcpStream,
         msg_event_tx: UnboundedSender<BgpMessageEvent>,
-        close_ch: Sender<u16>,
+        close_signal: Sender<u16>,
     ) -> Result<bool, Error> {
         let peer_port = stream.peer_addr().unwrap().port();
         let local_port = stream.local_addr().unwrap().port();
@@ -326,6 +347,7 @@ impl Peer {
         let recv_counter = self.recv_counter.clone();
 
         tracing::info!(peer_addr=peer_addr,local_port=local_port,peer_port=peer_port,peer_as=peer_as,"initialize the connection");
+        self.initialized.store(false, Ordering::Relaxed);
 
         tokio::spawn(async move {
             let (mut sender, mut receiver) = codec.split();
@@ -387,8 +409,7 @@ impl Peer {
                                 },
                             }
                         } else {
-                            tracing::error!(local.port=local_port,peer.port=peer_port,peer.addr=peer_addr, peer.asn=peer_as, error="connection is lost");
-                            close_ch.send(local_port).await.unwrap();
+                            close_signal.send(local_port).await.unwrap();
                             return;
                         }
                     }
@@ -405,12 +426,14 @@ impl Peer {
                             sender.send(msg).await;
                         }
                     }
+                    // kill all tcp connections
                     _ = drop_signal.notified().fuse() => {
-                        tracing::warn!(peer.addr=peer_addr, local_port=local_port,peer_port=peer_port,peer.asn=peer_as, "drop connection signal received");
+                        tracing::warn!(peer.addr=peer_addr,local_port=local_port,peer_port=peer_port,peer.asn=peer_as, "drop all tcp connections");
                         return;
                     }
+                    // kill one connection
                     _ = conn_down_signal.notified().fuse() => {
-                        tracing::warn!(peer.addr=peer_addr, peer.asn=peer_as, "connection close");
+                        tracing::warn!(peer.addr=peer_addr,local_port=local_port,peer_port=peer_port,peer.asn=peer_as, "drop one connection");
                         return;
                     }
                 }
@@ -421,6 +444,9 @@ impl Peer {
 
     #[tracing::instrument(skip(self, wait_nofification))]
     async fn release(&mut self, wait_nofification: bool) -> Result<(), Error> {
+        if self.initialized.load(Ordering::Relaxed) {
+            return Ok(())
+        }
         self.keepalive_time = 0;
         self.keepalive_timer = interval_at(
             Instant::now() + Duration::new(u32::MAX.into(), 0),
@@ -431,19 +457,53 @@ impl Peer {
         if wait_nofification {
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
-        self.drop_connection();
         self.connections.lock().unwrap().clear();
         self.send_counter.lock().unwrap().reset();
         self.recv_counter.lock().unwrap().reset();
         Ok(())
     }
 
-    fn drop_connection(&self) {
+    fn drop_connections(&self) {
         self.drop_signal.notify_one();
     }
 
     // Event 1
+    #[tracing::instrument(skip(self))]
     fn manual_start(&mut self) -> Result<(), Error> {
+        let (addr, conn_retry_time) = {
+            let info = self.info.lock().unwrap();
+            (info.neighbor.get_addr(), info.connect_retry_time)
+        };
+        let conn_tx = self.conn_tx.clone();
+        tokio::spawn(async move {
+            loop {
+                let sock = Socket::new(
+                    match addr {
+                        IpAddr::V4(_) => Domain::IPV4,
+                        IpAddr::V6(_) => Domain::IPV6,
+                    },
+                    Type::STREAM,
+                    None,
+                ).unwrap();
+                sock.set_nonblocking(true).unwrap();
+                sock.set_ttl(1).unwrap();
+
+                let tcp_keepalive = TcpKeepalive::new()
+                    .with_interval(Duration::new(30, 0));
+                sock.set_tcp_keepalive(&tcp_keepalive).unwrap();
+
+                let tcp_sock = TcpSocket::from_std_stream(sock.into());
+                if let Ok(Ok(stream)) = timeout(
+                    Duration::from_secs(conn_retry_time / 2),
+                    tcp_sock.connect(format!("{}:179", addr).parse().unwrap()) 
+                ).await {
+                    tracing::info!("active connection is established");
+                    conn_tx.send(stream).unwrap();
+                    return;
+                }
+                sleep(Duration::from_secs(conn_retry_time / 2)).await;
+            }
+        });
         self.move_state(Event::AMDIN_MANUAL_START);
         Ok(())
     }
@@ -593,7 +653,7 @@ impl Peer {
         match self.state() {
             State::Idle => {}, // ignore this event
             _ => {
-                let passive = self.initialize(stream, msg_event_tx, colse_signal)?;
+                let passive = self.handle_connection(stream, msg_event_tx, colse_signal)?;
                 let msg = self.build_open_msg()?;
                 self.send_to_dup_conn(msg, passive).map_err(|_| Error::Peer(PeerError::FailedToSendMessage))?;
                 let hold_time = { self.info.lock().unwrap().hold_time };
@@ -686,7 +746,7 @@ impl Peer {
                 // continues to listen for a connection that may be initiated by the remote BGP peer, and
                 // changes its state to Active.
 
-                self.drop_connection();
+                self.drop_connections();
             }
             State::Established => {
                 // sets the ConnectRetryTimer to zero,
@@ -1007,7 +1067,8 @@ impl Peer {
             State::OpenConfirm | State::Established => {
                 // restarts the HoldTimer and if the negotiated HoldTime value is non-zero, and
                 // changes(remains) its state to Established.
-                self.hold_timer.push(self.negotiated_hold_time);
+                // self.hold_timer.push(self.negotiated_hold_time);
+                self.hold_timer.last = Instant::now();
             }
             _ => {
                 // sets the ConnectRetryTimer to zero,
@@ -1288,12 +1349,12 @@ struct Connection {
     local_port: u16,
     peer_port: u16,
     msg_tx: UnboundedSender<Message>,
-    drop_signal: Arc<Notify>,
+    active_close_signal: Arc<Notify>,
 }
 
 impl Connection {
-    fn new(local_port: u16, peer_port: u16, msg_tx: UnboundedSender<Message>, drop_signal: Arc<Notify>) -> Connection {
-        Connection { local_port, peer_port, msg_tx, drop_signal }
+    fn new(local_port: u16, peer_port: u16, msg_tx: UnboundedSender<Message>, active_close_signal: Arc<Notify>) -> Connection {
+        Connection { local_port, peer_port, msg_tx, active_close_signal }
     }
 
     fn is_passive(&self) -> bool {
@@ -1316,7 +1377,7 @@ impl Connection {
 
 impl Drop for Connection {
     fn drop(&mut self) {
-        self.drop_signal.notify_one();
+        self.active_close_signal.notify_one();
     }
 }
 

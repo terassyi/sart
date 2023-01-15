@@ -166,17 +166,6 @@ impl Bgp {
                         };
                     }
                 }
-                stream = server.active_conn_rx.recv().fuse() => {
-                    if let Some(stream) = stream {
-                        let sock = stream.peer_addr().unwrap();
-                        if let Some(manager) = server.peer_managers.get(&sock.ip()) {
-                            match manager.event_tx.send(Event::Connection(TcpConnectionEvent::TcpCRAcked(stream))) {
-                                Ok(_) => {},
-                                Err(e) => tracing::error!(level="global",error=?e),
-                            };
-                        }
-                    }
-                }
                 event = ctrl_rx.recv().fuse() => {
                     if let Some(event) = event {
                         match server.handle_event(event).await {
@@ -279,43 +268,6 @@ impl Bgp {
             let active_conn_tx = self.active_conn_tx.clone();
             let event_tx = manager.event_tx.clone();
             let connect_retry_time = self.connect_retry_time;
-            tokio::spawn(async move {
-                loop {
-                    let sock = Socket::new(
-                        match neighbor.address {
-                            IpAddr::V4(_) => Domain::IPV4,
-                            IpAddr::V6(_) => Domain::IPV6,
-                        },
-                        Type::STREAM,
-                        None,
-                    ).unwrap();
-                    sock.set_nonblocking(true).unwrap();
-                    sock.set_ttl(1).unwrap();
-
-                    let tcp_keepalive = TcpKeepalive::new()
-                        .with_interval(Duration::new(30, 0));
-                    sock.set_tcp_keepalive(&tcp_keepalive).unwrap();
-                    let tcp_sock = TcpSocket::from_std_stream(sock.into());
-
-                    if let Ok(Ok(stream)) = timeout(
-                        Duration::from_secs(connect_retry_time / 2),
-                        tcp_sock.connect(format!("{}:179", neighbor.address).parse().unwrap()),
-                    )
-                    .await
-                    {
-                        stream.set_ttl(1).unwrap();
-                        match active_conn_tx.send(stream) {
-                            Ok(_) => {},
-                            Err(e) => tracing::error!(level="global",error=?e),
-                        };
-                        return;
-                    }
-                    sleep(Duration::from_secs(connect_retry_time)).await;
-                    event_tx
-                        .send(Event::Timer(TimerEvent::ConnectRetryTimerExpire))
-                        .expect("event channel is not worked.");
-                }
-            });
         }
         Ok(())
     }
