@@ -1,14 +1,13 @@
+use ipnet::IpNet;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::Sender;
-use tokio::sync::mpsc::UnboundedSender;
-
 
 use super::config::NeighborConfig;
 use super::error::MessageHeaderError;
 use super::error::OpenMessageError;
 use super::error::UpdateMessageError;
+use super::family::AddressFamily;
 use super::packet::message::Message;
-use super::packet::prefix::Prefix;
 use super::path::Path;
 use super::peer::neighbor::NeighborPair;
 
@@ -232,7 +231,11 @@ impl Into<u8> for TcpConnectionEvent {
 
 #[derive(Debug, Clone)]
 pub(crate) enum BgpMessageEvent {
-    BgpOpen{local_port: u16, peer_port: u16, msg: Message},
+    BgpOpen {
+        local_port: u16,
+        peer_port: u16,
+        msg: Message,
+    },
     #[allow(unused)]
     BgpOpenWithDelayOpenTimerRunning,
     BgpHeaderError(MessageHeaderError),
@@ -251,7 +254,11 @@ pub(crate) enum BgpMessageEvent {
 impl std::fmt::Display for BgpMessageEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BgpMessageEvent::BgpOpen { local_port, peer_port, msg } => write!(f, "Message_BGPOpen"),
+            BgpMessageEvent::BgpOpen {
+                local_port,
+                peer_port,
+                msg,
+            } => write!(f, "Message_BGPOpen"),
             BgpMessageEvent::BgpOpenWithDelayOpenTimerRunning => {
                 write!(f, "Message_BgpOpenWithDelayOpenTimerRunning")
             }
@@ -272,7 +279,11 @@ impl std::fmt::Display for BgpMessageEvent {
 impl Into<u8> for BgpMessageEvent {
     fn into(self) -> u8 {
         match self {
-            BgpMessageEvent::BgpOpen { local_port, peer_port, msg } => 19,
+            BgpMessageEvent::BgpOpen {
+                local_port,
+                peer_port,
+                msg,
+            } => 19,
             BgpMessageEvent::BgpOpenWithDelayOpenTimerRunning => 20,
             BgpMessageEvent::BgpHeaderError(_) => 21,
             BgpMessageEvent::BgpOpenMsgErr(_) => 22,
@@ -305,8 +316,13 @@ impl std::fmt::Display for ControlEvent {
 
 #[derive(Debug, Clone)]
 pub(crate) enum RibEvent {
-    AddPeer{neighbor: NeighborPair, rib_event_tx: Sender<RibEvent>},
+    AddPeer {
+        neighbor: NeighborPair,
+        rib_event_tx: Sender<RibEvent>,
+    },
     AddNetwork(Vec<String>),
-    InstallPaths(Vec<Path>),
-    DropPaths(Vec<Prefix>),
+    InstallPaths(NeighborPair, Vec<Path>),
+    DropPaths(NeighborPair, AddressFamily, Vec<(IpNet, u64)>),
+    Advertise(Vec<Path>),
+    Withdraw(Vec<IpNet>),
 }

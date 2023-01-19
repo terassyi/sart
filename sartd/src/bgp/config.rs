@@ -40,7 +40,6 @@ impl Config {
 
     pub fn set_router_id(&mut self, router_id: Ipv4Addr) {
         self.router_id = router_id;
-
     }
     pub fn get_control_event(&self) -> Vec<ControlEvent> {
         self.into()

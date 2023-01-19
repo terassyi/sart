@@ -1,7 +1,6 @@
 use futures::stream::FuturesUnordered;
 use futures::{FutureExt, StreamExt};
-use socket2::{Domain, Socket, Type, TcpKeepalive};
-use tracing_subscriber::fmt::format;
+use socket2::{Domain, Socket, TcpKeepalive, Type};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -10,14 +9,15 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::ops::Add;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::net::{TcpListener, TcpStream, TcpSocket};
-use tokio::sync::mpsc::{channel, Receiver, UnboundedSender, Sender};
+use tokio::net::{TcpListener, TcpSocket, TcpStream};
+use tokio::sync::mpsc::{channel, Receiver, Sender, UnboundedSender};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tokio::sync::Notify;
 use tokio::time::{interval_at, sleep, timeout, Instant};
 use tokio_stream::wrappers::TcpListenerStream;
 use tonic::transport::Server;
 use tonic_reflection::server::Builder;
+use tracing_subscriber::fmt::format;
 
 use crate::bgp::api_server::api;
 use crate::bgp::api_server::ApiServer;
@@ -81,8 +81,13 @@ impl Bgp {
         let rib_endpoint_conf = conf.rib_endpoint.clone();
 
         let (rib_event_tx, mut rib_event_rx) = channel::<RibEvent>(128);
-        let mut rib_manager = RibManager::new(rib_endpoint_conf, vec![Afi::IPv4, Afi::IPv6], false); // TODO: enable to disable ipv6 or ipv4 by config or event
-
+        let mut rib_manager = RibManager::new(
+            conf.asn,
+            conf.router_id,
+            rib_endpoint_conf,
+            vec![Afi::IPv4, Afi::IPv6],
+            false,
+        ); // TODO: enable to disable ipv6 or ipv4 by config or event
 
         let mut server = Self::new(conf, rib_event_tx);
 
@@ -109,20 +114,12 @@ impl Bgp {
         tracing::info!("API server is started at 0.0.0.0:{}", api_server_port);
 
         let ipv4_listener = {
-            create_tcp_listener(
-                "0.0.0.0".to_string(),
-                Self::BGP_PORT,
-                Afi::IPv4,
-            )
-            .expect("cannot bind Ipv4 tcp listener")
+            create_tcp_listener("0.0.0.0".to_string(), Self::BGP_PORT, Afi::IPv4)
+                .expect("cannot bind Ipv4 tcp listener")
         };
         let ipv6_listener = {
-            create_tcp_listener(
-                "[::]".to_string(),
-                Self::BGP_PORT,
-                Afi::IPv6,
-            )
-            .expect("cannot bind ipv6 listener")
+            create_tcp_listener("[::]".to_string(), Self::BGP_PORT, Afi::IPv6)
+                .expect("cannot bind ipv6 listener")
         };
         let listeners = vec![ipv4_listener, ipv6_listener];
         let mut listener_streams = listeners
@@ -143,7 +140,8 @@ impl Bgp {
             init_tx.send(e).await.unwrap();
         }
 
-        let mut peer_management_interval = interval_at(Instant::now(), Duration::new(server.connect_retry_time, 0));
+        let mut peer_management_interval =
+            interval_at(Instant::now(), Duration::new(server.connect_retry_time, 0));
 
         loop {
             let mut future_streams = FuturesUnordered::new();
@@ -176,7 +174,7 @@ impl Bgp {
                 }
                 rib_event = rib_event_rx.recv().fuse() => {
                     if let Some(rib_event) = rib_event {
-                        match rib_manager.handle(rib_event) {
+                        match rib_manager.handle(rib_event).await {
                             Ok(_) => {},
                             Err(e) => tracing::error!(level="global",error=?e),
                         }
@@ -202,7 +200,7 @@ impl Bgp {
             ControlEvent::Health => {}
             ControlEvent::AddPeer(neighbor) => {
                 self.add_peer(neighbor).await?;
-            },
+            }
             _ => tracing::error!("undefined control event"),
         }
         self.event_signal.notify_one();
@@ -228,12 +226,23 @@ impl Bgp {
 
         let (peer_rib_event_tx, peer_rib_event_rx) = channel(128);
 
-        self.rib_event_tx.send(RibEvent::AddPeer{neighbor: NeighborPair::from(&neighbor), rib_event_tx: peer_rib_event_tx}).await
+        self.rib_event_tx
+            .send(RibEvent::AddPeer {
+                neighbor: NeighborPair::from(&neighbor),
+                rib_event_tx: peer_rib_event_tx,
+            })
+            .await
             .map_err(|e| {
                 tracing::error!(level="peer",error=?e);
-                Error::Rib(RibError::ManagerDown)})?;
+                Error::Rib(RibError::ManagerDown)
+            })?;
 
-        let mut peer = Peer::new(info.clone(), rx, self.rib_event_tx.clone(), peer_rib_event_rx);
+        let mut peer = Peer::new(
+            info.clone(),
+            rx,
+            self.rib_event_tx.clone(),
+            peer_rib_event_rx,
+        );
         let manager = PeerManager::new(info, tx);
         self.peer_managers.insert(neighbor.address, manager);
 
@@ -261,8 +270,11 @@ impl Bgp {
             // start to connect to the remote peer
             if let Some(passive) = neighbor.passive {
                 if passive {
-                    tracing::info!(level="peer", "don't start to connect, because of passive open");
-                    return Ok(())
+                    tracing::info!(
+                        level = "peer",
+                        "don't start to connect, because of passive open"
+                    );
+                    return Ok(());
                 }
             }
             let active_conn_tx = self.active_conn_tx.clone();
@@ -293,8 +305,7 @@ fn create_tcp_listener(addr: String, port: u16, proto: Afi) -> io::Result<std::n
     sock.set_nonblocking(true)?;
     sock.set_ttl(1)?;
 
-    let tcp_keepalive = TcpKeepalive::new()
-        .with_interval(Duration::new(30, 0));
+    let tcp_keepalive = TcpKeepalive::new().with_interval(Duration::new(30, 0));
     sock.set_tcp_keepalive(&tcp_keepalive)?;
 
     sock.bind(&sock_addr.into())?;

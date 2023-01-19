@@ -6,11 +6,13 @@ use std::time::Duration;
 use futures::stream::{FuturesUnordered, Next};
 use futures::{FutureExt, SinkExt, Stream, StreamExt, TryFutureExt};
 use ipnet::IpNet;
-use socket2::{Type, Domain, Socket, TcpKeepalive};
-use tokio::net::{TcpStream, TcpSocket};
-use tokio::sync::mpsc::{channel, unbounded_channel, UnboundedReceiver, UnboundedSender, Sender, Receiver};
+use socket2::{Domain, Socket, TcpKeepalive, Type};
+use tokio::net::{TcpSocket, TcpStream};
+use tokio::sync::mpsc::{
+    channel, unbounded_channel, Receiver, Sender, UnboundedReceiver, UnboundedSender,
+};
 use tokio::sync::Notify;
-use tokio::time::{interval_at, sleep, Instant, Interval, Sleep, timeout};
+use tokio::time::{interval_at, sleep, timeout, Instant, Interval, Sleep};
 use tokio_util::codec::{Framed, FramedRead};
 
 use crate::bgp::capability::{Capability, CapabilitySet};
@@ -19,7 +21,7 @@ use crate::bgp::error::{
     Error, MessageHeaderError, OpenMessageError, PeerError, UpdateMessageError,
 };
 use crate::bgp::event::{
-    AdministrativeEvent, BgpMessageEvent, Event, TcpConnectionEvent, TimerEvent, RibEvent,
+    AdministrativeEvent, BgpMessageEvent, Event, RibEvent, TcpConnectionEvent, TimerEvent,
 };
 use crate::bgp::family::AddressFamily;
 use crate::bgp::packet::attribute::Attribute;
@@ -28,11 +30,12 @@ use crate::bgp::packet::message::{
     Message, MessageBuilder, MessageType, NotificationCode, NotificationSubCode,
 };
 use crate::bgp::packet::prefix::Prefix;
-use crate::bgp::path::{PathBuilder, Path};
-use crate::bgp::rib::{AdjRib};
+use crate::bgp::path::{Path, PathBuilder};
+use crate::bgp::rib::AdjRib;
 use crate::bgp::server::Bgp;
 
 use super::fsm::State;
+use super::neighbor::NeighborPair;
 use super::{fsm::FiniteStateMachine, neighbor::Neighbor};
 
 #[derive(Debug)]
@@ -110,8 +113,13 @@ pub(crate) struct Peer {
 }
 
 impl Peer {
-    pub fn new(info: Arc<Mutex<PeerInfo>>, rx: UnboundedReceiver<Event>, rib_tx: Sender<RibEvent>, rib_rx: Receiver<RibEvent>) -> Self {
-        let (keepalive_time, families )= { 
+    pub fn new(
+        info: Arc<Mutex<PeerInfo>>,
+        rx: UnboundedReceiver<Event>,
+        rib_tx: Sender<RibEvent>,
+        rib_rx: Receiver<RibEvent>,
+    ) -> Self {
+        let (keepalive_time, families) = {
             let info = info.lock().unwrap();
             (info.keepalive_time, info.families.clone())
         };
@@ -283,11 +291,16 @@ impl Peer {
             let c = self.info.lock().unwrap();
             (c.neighbor.get_addr().to_string(), c.neighbor.get_asn())
         };
-        tracing::info!(level="peer",peer.addr=peer_addr,peer.asn=peer_as,"send message");
+        tracing::info!(
+            level = "peer",
+            peer.addr = peer_addr,
+            peer.asn = peer_as,
+            "send message"
+        );
         let connections = self.connections.lock().unwrap();
         if connections.len() != 1 {
             tracing::error!(level="peer",conn_len=connections.len(),connections=?connections);
-            return Err(Error::Peer(PeerError::DuplicateConnection))
+            return Err(Error::Peer(PeerError::DuplicateConnection));
         }
         connections[0].send(msg)
     }
@@ -299,14 +312,24 @@ impl Peer {
             (c.neighbor.get_addr().to_string(), c.neighbor.get_asn())
         };
         if passive {
-            tracing::info!(level="peer",peer.addr=peer_addr,peer.asn=peer_as,"send message to the passive connection");
+            tracing::info!(
+                level = "peer",
+                peer.addr = peer_addr,
+                peer.asn = peer_as,
+                "send message to the passive connection"
+            );
         } else {
-            tracing::info!(level="peer",peer.addr=peer_addr,peer.asn=peer_as,"send message to the active connection");
+            tracing::info!(
+                level = "peer",
+                peer.addr = peer_addr,
+                peer.asn = peer_as,
+                "send message to the active connection"
+            );
         }
         let connections = self.connections.lock().unwrap();
         for conn in connections.iter() {
             if conn.is_passive() == passive {
-                return conn.send(msg)
+                return conn.send(msg);
             }
         }
         Err(Error::Peer(PeerError::ConnectionNotEstablished))
@@ -334,7 +357,12 @@ impl Peer {
         let conn_down_signal = Arc::new(Notify::new());
         {
             let mut connections = self.connections.lock().unwrap();
-            connections.push(Connection::new(local_port, peer_port, msg_tx, conn_down_signal.clone()));
+            connections.push(Connection::new(
+                local_port,
+                peer_port,
+                msg_tx,
+                conn_down_signal.clone(),
+            ));
         }
 
         let drop_signal = self.drop_signal.clone();
@@ -346,7 +374,13 @@ impl Peer {
         let send_counter = self.send_counter.clone();
         let recv_counter = self.recv_counter.clone();
 
-        tracing::info!(peer_addr=peer_addr,local_port=local_port,peer_port=peer_port,peer_as=peer_as,"initialize the connection");
+        tracing::info!(
+            peer_addr = peer_addr,
+            local_port = local_port,
+            peer_port = peer_port,
+            peer_as = peer_as,
+            "initialize the connection"
+        );
         self.initialized.store(false, Ordering::Relaxed);
 
         tokio::spawn(async move {
@@ -445,7 +479,7 @@ impl Peer {
     #[tracing::instrument(skip(self, wait_nofification))]
     async fn release(&mut self, wait_nofification: bool) -> Result<(), Error> {
         if self.initialized.load(Ordering::Relaxed) {
-            return Ok(())
+            return Ok(());
         }
         self.keepalive_time = 0;
         self.keepalive_timer = interval_at(
@@ -484,19 +518,21 @@ impl Peer {
                     },
                     Type::STREAM,
                     None,
-                ).unwrap();
+                )
+                .unwrap();
                 sock.set_nonblocking(true).unwrap();
                 sock.set_ttl(1).unwrap();
 
-                let tcp_keepalive = TcpKeepalive::new()
-                    .with_interval(Duration::new(30, 0));
+                let tcp_keepalive = TcpKeepalive::new().with_interval(Duration::new(30, 0));
                 sock.set_tcp_keepalive(&tcp_keepalive).unwrap();
 
                 let tcp_sock = TcpSocket::from_std_stream(sock.into());
                 if let Ok(Ok(stream)) = timeout(
                     Duration::from_secs(conn_retry_time / 2),
-                    tcp_sock.connect(format!("{}:179", addr).parse().unwrap()) 
-                ).await {
+                    tcp_sock.connect(format!("{}:179", addr).parse().unwrap()),
+                )
+                .await
+                {
                     tracing::info!("active connection is established");
                     conn_tx.send(stream).unwrap();
                     return;
@@ -651,79 +687,79 @@ impl Peer {
         event: u8,
     ) -> Result<(), Error> {
         match self.state() {
-            State::Idle => {}, // ignore this event
+            State::Idle => {} // ignore this event
             _ => {
                 let passive = self.handle_connection(stream, msg_event_tx, colse_signal)?;
                 let msg = self.build_open_msg()?;
-                self.send_to_dup_conn(msg, passive).map_err(|_| Error::Peer(PeerError::FailedToSendMessage))?;
+                self.send_to_dup_conn(msg, passive)
+                    .map_err(|_| Error::Peer(PeerError::FailedToSendMessage))?;
                 let hold_time = { self.info.lock().unwrap().hold_time };
                 self.hold_timer.push(hold_time);
-            },
-            // State::Connect => {
-            //     // If the TCP connection succeeds (Event 16 or Event 17), the local
-            //     // system checks the DelayOpen attribute prior to processing.  If the
-            //     // DelayOpen attribute is set to TRUE, the local system:
-            //     //   - stops the ConnectRetryTimer (if running) and sets the
-            //     //     ConnectRetryTimer to zero,
-            //     //   - sets the DelayOpenTimer to the initial value, and
-            //     //   - stays in the Connect state.
-            //     // If the DelayOpen attribute is set to FALSE, the local system:
-            //     //   - stops the ConnectRetryTimer (if running) and sets the
-            //     //     ConnectRetryTimer to zero,
-            //     //   - completes BGP initialization
-            //     //   - sends an OPEN message to its peer,
-            //     //   - sets the HoldTimer to a large value, and
-            //     //   - changes its state to OpenSent.
-            //     self.initialize(stream, msg_event_tx, peer_down_signal, event)?;
-            //     let msg = self.build_open_msg()?;
-            //     self.send(msg)?;
-            //     let hold_time = { self.info.lock().unwrap().hold_time };
-            //     self.hold_timer.push(hold_time);
-            // }
-            // State::Active => {
-            //     // In response to the success of a TCP connection (Event 16 or Event 17), the local system checks the DelayOpen optional attribute prior to processing.
-            //     // If the DelayOpen attribute is set to TRUE, the local system:
-            //     //   - stops the ConnectRetryTimer and sets the ConnectRetryTimer
-            //     //     to zero,
-            //     //   - sets the DelayOpenTimer to the initial value
-            //     //     (DelayOpenTime), and
-            //     //   - stays in the Active state.
-            //     // If the DelayOpen attribute is set to FALSE, the local system:
-            //     //   - sets the ConnectRetryTimer to zero,
-            //     //   - completes the BGP initialization,
-            //     //   - sends the OPEN message to its peer,
-            //     //   - sets its HoldTimer to a large value, and
-            //     //   - changes its state to OpenSent.
-            //     // A HoldTimer value of 4 minutes is suggested as a "large value" for the HoldTimer.
-            //     self.initialize(stream, msg_event_tx, peer_down_signal, event)?;
-            //     let msg = self.build_open_msg()?;
-            //     self.send(msg)?;
-            //     let hold_time = { self.info.lock().unwrap().hold_time };
-            //     self.hold_timer.push(hold_time);
-            // }
-            // State::OpenSent => {
-            //     // If a TcpConnection_Valid (Event 14), Tcp_CR_Acked (Event 16), or a
-            //     // TcpConnectionConfirmed event (Event 17) is received, a second TCP
-            //     // connection may be in progress.  This second TCP connection is
-            //     // tracked per Connection Collision processing (Section 6.8) until an
-            //     // OPEN message is received.
-            //     self.initialize(stream, msg_event_tx, peer_down_signal, event)?;
-            //     let msg = self.build_open_msg()?;
-            //     self.send(msg)?;
-            //     let hold_time = { self.info.lock().unwrap().hold_time };
-            //     self.hold_timer.push(hold_time);
-            // }
-            // State::OpenConfirm => {
-            //     // In the event of a TcpConnection_Valid event (Event 14), or the
-            //     // success of a TCP connection (Event 16 or Event 17) while in
-            //     // OpenConfirm, the local system needs to track the second
-            //     // connection.
-            // }
-            // State::Established => {
-            //     // In response to an indication that the TCP connection is
-            //     // successfully established (Event 16 or Event 17), the second
-            //     // connection SHALL be tracked until it sends an OPEN message.
-            // }
+            } // State::Connect => {
+                               //     // If the TCP connection succeeds (Event 16 or Event 17), the local
+                               //     // system checks the DelayOpen attribute prior to processing.  If the
+                               //     // DelayOpen attribute is set to TRUE, the local system:
+                               //     //   - stops the ConnectRetryTimer (if running) and sets the
+                               //     //     ConnectRetryTimer to zero,
+                               //     //   - sets the DelayOpenTimer to the initial value, and
+                               //     //   - stays in the Connect state.
+                               //     // If the DelayOpen attribute is set to FALSE, the local system:
+                               //     //   - stops the ConnectRetryTimer (if running) and sets the
+                               //     //     ConnectRetryTimer to zero,
+                               //     //   - completes BGP initialization
+                               //     //   - sends an OPEN message to its peer,
+                               //     //   - sets the HoldTimer to a large value, and
+                               //     //   - changes its state to OpenSent.
+                               //     self.initialize(stream, msg_event_tx, peer_down_signal, event)?;
+                               //     let msg = self.build_open_msg()?;
+                               //     self.send(msg)?;
+                               //     let hold_time = { self.info.lock().unwrap().hold_time };
+                               //     self.hold_timer.push(hold_time);
+                               // }
+                               // State::Active => {
+                               //     // In response to the success of a TCP connection (Event 16 or Event 17), the local system checks the DelayOpen optional attribute prior to processing.
+                               //     // If the DelayOpen attribute is set to TRUE, the local system:
+                               //     //   - stops the ConnectRetryTimer and sets the ConnectRetryTimer
+                               //     //     to zero,
+                               //     //   - sets the DelayOpenTimer to the initial value
+                               //     //     (DelayOpenTime), and
+                               //     //   - stays in the Active state.
+                               //     // If the DelayOpen attribute is set to FALSE, the local system:
+                               //     //   - sets the ConnectRetryTimer to zero,
+                               //     //   - completes the BGP initialization,
+                               //     //   - sends the OPEN message to its peer,
+                               //     //   - sets its HoldTimer to a large value, and
+                               //     //   - changes its state to OpenSent.
+                               //     // A HoldTimer value of 4 minutes is suggested as a "large value" for the HoldTimer.
+                               //     self.initialize(stream, msg_event_tx, peer_down_signal, event)?;
+                               //     let msg = self.build_open_msg()?;
+                               //     self.send(msg)?;
+                               //     let hold_time = { self.info.lock().unwrap().hold_time };
+                               //     self.hold_timer.push(hold_time);
+                               // }
+                               // State::OpenSent => {
+                               //     // If a TcpConnection_Valid (Event 14), Tcp_CR_Acked (Event 16), or a
+                               //     // TcpConnectionConfirmed event (Event 17) is received, a second TCP
+                               //     // connection may be in progress.  This second TCP connection is
+                               //     // tracked per Connection Collision processing (Section 6.8) until an
+                               //     // OPEN message is received.
+                               //     self.initialize(stream, msg_event_tx, peer_down_signal, event)?;
+                               //     let msg = self.build_open_msg()?;
+                               //     self.send(msg)?;
+                               //     let hold_time = { self.info.lock().unwrap().hold_time };
+                               //     self.hold_timer.push(hold_time);
+                               // }
+                               // State::OpenConfirm => {
+                               //     // In the event of a TcpConnection_Valid event (Event 14), or the
+                               //     // success of a TCP connection (Event 16 or Event 17) while in
+                               //     // OpenConfirm, the local system needs to track the second
+                               //     // connection.
+                               // }
+                               // State::Established => {
+                               //     // In response to an indication that the TCP connection is
+                               //     // successfully established (Event 16 or Event 17), the second
+                               //     // connection SHALL be tracked until it sends an OPEN message.
+                               // }
         }
         self.move_state(event);
         Ok(())
@@ -765,7 +801,12 @@ impl Peer {
 
     // Event 19
     #[tracing::instrument(skip(self, recv))]
-    async fn bgp_open(&mut self, local_port: u16, peer_port: u16, recv: Message) -> Result<(), Error> {
+    async fn bgp_open(
+        &mut self,
+        local_port: u16,
+        peer_port: u16,
+        recv: Message,
+    ) -> Result<(), Error> {
         let (_version, _asn, hold_time, _router_id, _caps) = recv.to_open()?;
         match self.state() {
             State::Active => {
@@ -786,7 +827,7 @@ impl Peer {
                 let msg = Self::build_keepalive_msg()?;
                 self.send(msg)?;
                 let _negotiated_hold_time = self.negotiate_hold_time(hold_time as u64)?;
-            },
+            }
             State::OpenSent => {
                 // Collision detection mechanisms (Section 6.8) need to be applied
                 // sets the BGP ConnectRetryTimer to zero,
@@ -797,7 +838,7 @@ impl Peer {
                 let msg = Self::build_keepalive_msg()?;
                 let _negotiated_hold_time = self.negotiate_hold_time(hold_time as u64)?;
                 self.send(msg)?;
-            },
+            }
             State::OpenConfirm => {
                 // If the local system receives a valid OPEN message (BGPOpen (Event
                 // 19)), the collision detect function is processed per Section 6.8.
@@ -818,16 +859,18 @@ impl Peer {
                 self.send_to_dup_conn(msg, passive)?;
                 {
                     let mut connections = self.connections.lock().unwrap();
-                    if let Some(idx) = connections.iter().position(|conn| conn.is_passive() == passive) {
-                        tracing::info!(passive=passive,"drop duplicate connection");
+                    if let Some(idx) = connections
+                        .iter()
+                        .position(|conn| conn.is_passive() == passive)
+                    {
+                        tracing::info!(passive = passive, "drop duplicate connection");
                         let dup_conn = connections.remove(idx);
                         drop(dup_conn);
                     }
                 }
                 self.connect_retry_counter += 1;
-                return Ok(())
-                          
-            },
+                return Ok(());
+            }
             State::Established => {
                 // sends a NOTIFICATION with a Cease,
                 // sets the ConnectRetryTimer to zero,
@@ -841,8 +884,8 @@ impl Peer {
                 self.send(msg)?;
                 self.release(true).await?;
                 self.connect_retry_counter += 1;
-            },
-            _ => {},
+            }
+            _ => {}
         }
         self.move_state(Event::MESSAGE_BGP_OPEN);
         Ok(())
@@ -1105,7 +1148,8 @@ impl Peer {
                 if self.negotiated_hold_time != 0 {
                     self.hold_timer.last = Instant::now();
                 }
-                self.handle_update_msg(withdrawn_rotes, attributes, nlri).await?;
+                self.handle_update_msg(withdrawn_rotes, attributes, nlri)
+                    .await?;
             }
             _ => {
                 // sets the ConnectRetryTimer to zero,
@@ -1245,30 +1289,50 @@ impl Peer {
         builder.build()
     }
 
-    #[tracing::instrument(skip(self,withdrawn_routes,attributes,nlri))]
-    async fn handle_update_msg(&mut self, withdrawn_routes: Vec<Prefix>, attributes: Vec<Attribute>, nlri: Vec<Prefix>) -> Result<(), Error> {
+    #[tracing::instrument(skip(self, withdrawn_routes, attributes, nlri))]
+    async fn handle_update_msg(
+        &mut self,
+        withdrawn_routes: Vec<Prefix>,
+        attributes: Vec<Attribute>,
+        nlri: Vec<Prefix>,
+    ) -> Result<(), Error> {
+        let (local_id, local_asn, peer_id, peer_addr, peer_asn) = {
+            let info = self.info.lock().unwrap();
+            (
+                info.router_id,
+                info.asn,
+                info.neighbor.get_router_id(),
+                info.neighbor.get_addr(),
+                info.neighbor.get_asn(),
+            )
+        };
+        let neighbor_pair: NeighborPair = NeighborPair::from(&self.info.lock().unwrap().neighbor);
 
         // if withdrawn_routes is non empty, the previously advertised prefixes will be removed from adj-rib-in
         // and run Decision Process
-        let mut withdraw_paths: Vec<Prefix> = Vec::new();
-        for withdraw in withdrawn_routes.into_iter() {
-            let family = match (&withdraw).into() {
+        let mut family = AddressFamily::ipv4_unicast();
+        let mut withdrawn = Vec::new();
+        for withdraw in withdrawn_routes.iter() {
+            family = match (withdraw).into() {
                 IpNet::V4(_) => AddressFamily::ipv4_unicast(),
                 IpNet::V6(_) => AddressFamily::ipv6_unicast(),
             };
-            self.adj_rib_in.remove(&family, &withdraw.into());
-            withdraw_paths.push(withdraw.into());
+            if let Some(p) = self.adj_rib_in.remove(&family, &withdraw.into()) {
+                // apply policy
+
+                tracing::info!(level="peer",peer.addr=peer_addr.to_string(),peer.asn=peer_asn,prefix=?p.prefix(),"withdraw from adj-rib-in");
+                withdrawn.push((p.prefix(), p.id));
+            }
         }
 
-        if !withdraw_paths.is_empty() {
-            return self.rib_tx.send(RibEvent::DropPaths(withdraw_paths)).await
-                    .map_err(|_| Error::InvalidEvent{val: 0});
+        if !withdrawn_routes.is_empty() {
+            return self
+                .rib_tx
+                .send(RibEvent::DropPaths(neighbor_pair, family, withdrawn))
+                .await
+                .map_err(|_| Error::InvalidEvent { val: 0 });
         }
 
-        let (local_id, local_asn, peer_id, peer_addr, peer_asn) = {
-            let info = self.info.lock().unwrap();
-            (info.router_id, info.asn, info.neighbor.get_router_id(), info.neighbor.get_addr(), info.neighbor.get_asn())
-        };
         let mut builder = PathBuilder::builder(local_id, local_asn, peer_id, peer_addr, peer_asn);
         for attr in attributes.into_iter() {
             self.process_attr(&attr)?;
@@ -1283,7 +1347,6 @@ impl Peer {
         // Otherwise, if the Adj-RIB-In has no route with NLRI identical to the
         // new route, the new route SHALL be placed in the Adj-RIB-In.
 
-
         let mut propagate_paths = Vec::new();
         for path in builder.nlri(nlri).build()?.into_iter() {
             tracing::debug!(level="peer",peer.addr=peer_addr.to_string(),peer.asn=peer_asn,path=?path);
@@ -1291,7 +1354,9 @@ impl Peer {
             if path.has_own_as() {
                 continue;
             }
-            self.adj_rib_in.insert(&path.family(), path.prefix(), path.clone()).map_err(|e| Error::Rib(e))?;
+            self.adj_rib_in
+                .insert(&path.family(), path.prefix(), path.clone())
+                .map_err(|e| Error::Rib(e))?;
             // TODO: apply import policy
             propagate_paths.push(path);
         }
@@ -1299,7 +1364,9 @@ impl Peer {
         // Once the BGP speaker updates the Adj-RIB-In, the speaker SHALL run
         // its Decision Process.
 
-        self.rib_tx.send(RibEvent::InstallPaths(propagate_paths)).await
+        self.rib_tx
+            .send(RibEvent::InstallPaths(neighbor_pair, propagate_paths))
+            .await
             .map_err(|_| Error::InvalidEvent { val: 0 })?;
 
         Ok(())
@@ -1307,20 +1374,20 @@ impl Peer {
 
     fn process_attr(&self, attr: &Attribute) -> Result<(), Error> {
         match attr {
-            Attribute::Origin(_, _) => {},
-            Attribute::ASPath(_, segments) => {},
-            Attribute::NextHop(_, next_hop) => {},
-            Attribute::MultiExitDisc(_, _) => {},
-            Attribute::LocalPref(_, _) => {},
-            Attribute::AtomicAggregate(_) => {},
-            Attribute::Aggregator(_, _, _) => {},
-            Attribute::Communities(_, _) => {},
-            Attribute::MPReachNLRI(_, _, _, _) => {},
-            Attribute::MPUnReachNLRI(_, _, _) => {},
-            Attribute::ExtendedCommunities(_, _, _) => {},
-            Attribute::AS4Path(_, segments) => {},
-            Attribute::AS4Aggregator(_, _, _) => {},
-            Attribute::Unsupported(_, _) => {},
+            Attribute::Origin(_, _) => {}
+            Attribute::ASPath(_, segments) => {}
+            Attribute::NextHop(_, next_hop) => {}
+            Attribute::MultiExitDisc(_, _) => {}
+            Attribute::LocalPref(_, _) => {}
+            Attribute::AtomicAggregate(_) => {}
+            Attribute::Aggregator(_, _, _) => {}
+            Attribute::Communities(_, _) => {}
+            Attribute::MPReachNLRI(_, _, _, _) => {}
+            Attribute::MPUnReachNLRI(_, _, _) => {}
+            Attribute::ExtendedCommunities(_, _, _) => {}
+            Attribute::AS4Path(_, segments) => {}
+            Attribute::AS4Aggregator(_, _, _) => {}
+            Attribute::Unsupported(_, _) => {}
         }
         Ok(())
     }
@@ -1351,8 +1418,18 @@ struct Connection {
 }
 
 impl Connection {
-    fn new(local_port: u16, peer_port: u16, msg_tx: UnboundedSender<Message>, active_close_signal: Arc<Notify>) -> Connection {
-        Connection { local_port, peer_port, msg_tx, active_close_signal }
+    fn new(
+        local_port: u16,
+        peer_port: u16,
+        msg_tx: UnboundedSender<Message>,
+        active_close_signal: Arc<Notify>,
+    ) -> Connection {
+        Connection {
+            local_port,
+            peer_port,
+            msg_tx,
+            active_close_signal,
+        }
     }
 
     fn is_passive(&self) -> bool {
@@ -1361,7 +1438,8 @@ impl Connection {
 
     #[tracing::instrument(skip(self, msg))]
     fn send(&self, msg: Message) -> Result<(), Error> {
-        self.msg_tx.send(msg)
+        self.msg_tx
+            .send(msg)
             .map_err(|_| Error::Peer(PeerError::FailedToSendMessage))?;
         Ok(())
     }
@@ -1378,7 +1456,6 @@ impl Drop for Connection {
         self.active_close_signal.notify_one();
     }
 }
-
 
 #[derive(Debug)]
 struct Timer {
@@ -1450,6 +1527,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use crate::bgp::event::Event;
+    use crate::bgp::family::{AddressFamily, Afi, Safi};
     use crate::bgp::peer::fsm::State;
     use crate::bgp::server::Bgp;
     use crate::bgp::{
@@ -1457,7 +1535,6 @@ mod tests {
         config::NeighborConfig,
         packet::{self, message::Message},
     };
-    use crate::bgp::family::{AddressFamily, Afi, Safi};
 
     use super::{Peer, PeerInfo};
     use rstest::rstest;
@@ -1481,7 +1558,16 @@ mod tests {
                 passive: None,
             },
             CapabilitySet::default(100),
-            vec![AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast}, AddressFamily{afi: Afi::IPv6, safi: Safi::Unicast}],
+            vec![
+                AddressFamily {
+                    afi: Afi::IPv4,
+                    safi: Safi::Unicast,
+                },
+                AddressFamily {
+                    afi: Afi::IPv6,
+                    safi: Safi::Unicast,
+                },
+            ],
         )));
         let (_, rx) = tokio::sync::mpsc::unbounded_channel();
         let (rib_tx, rib_rx) = tokio::sync::mpsc::channel(128);
@@ -1504,7 +1590,16 @@ mod tests {
                 passive: None,
             },
             CapabilitySet::default(100),
-            vec![AddressFamily{afi: Afi::IPv4, safi: Safi::Unicast}, AddressFamily{afi: Afi::IPv6, safi: Safi::Unicast}],
+            vec![
+                AddressFamily {
+                    afi: Afi::IPv4,
+                    safi: Safi::Unicast,
+                },
+                AddressFamily {
+                    afi: Afi::IPv6,
+                    safi: Safi::Unicast,
+                },
+            ],
         )));
         let (_, rx) = tokio::sync::mpsc::unbounded_channel();
         let (rib_tx, rib_rx) = tokio::sync::mpsc::channel(128);

@@ -20,7 +20,7 @@ impl AddressFamily {
             safi: Safi::Unicast,
         }
     }
-    
+
     pub fn ipv6_unicast() -> Self {
         Self {
             afi: Afi::IPv6,

@@ -1,7 +1,4 @@
-use crate::bgp::error::Error;
-use crate::bgp::event::{
-    AdministrativeEvent, BgpMessageEvent, Event, TcpConnectionEvent, TimerEvent,
-};
+use crate::bgp::event::Event;
 
 #[derive(Debug)]
 pub(crate) struct FiniteStateMachine {

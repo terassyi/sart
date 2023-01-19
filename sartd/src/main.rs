@@ -10,8 +10,7 @@ use clap::{App, Arg};
 
 fn main() -> Result<(), std::io::Error> {
     let subscriber = tracing_subscriber::FmtSubscriber::new();
-    tracing::subscriber::set_global_default(subscriber)
-        .expect("failed to initialize logger");
+    tracing::subscriber::set_global_default(subscriber).expect("failed to initialize logger");
     let app = App::new("sartd-bgp")
         .version("v0.0.1")
         .arg(

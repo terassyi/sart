@@ -90,16 +90,7 @@ impl Message {
         }
     }
 
-    pub fn to_update(
-        self,
-    ) -> Result<
-        (
-            Vec<Prefix>,
-            Vec<Attribute>,
-            Vec<Prefix>,
-        ),
-        Error,
-    > {
+    pub fn to_update(self) -> Result<(Vec<Prefix>, Vec<Attribute>, Vec<Prefix>), Error> {
         match self {
             Self::Update {
                 withdrawn_routes,

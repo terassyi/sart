@@ -155,6 +155,8 @@ pub(crate) enum ControlError {
     PeerAlreadyExists,
     #[error("invalid data")]
     InvalidData,
+    #[error("failed to send/recv channel")]
+    FailedToSendRecvChannel,
 }
 
 #[derive(Debug, Error)]
@@ -183,4 +185,6 @@ pub(crate) enum RibError {
     ProtocolIsAlreadyRegistered,
     #[error("path not found")]
     PathNotFound,
+    #[error("unhandlable event")]
+    UnhandlableEvent,
 }
