@@ -520,7 +520,6 @@ impl RibManager {
         }
 
         // advertise withdrawn paths to peers
-        println!("withdrawn prefix: {:?}", withdraw_prefixes);
         for (peer, tx) in self.peers_tx.iter() {
             let mut withdraw = Vec::new();
             for (prefix, kind) in withdraw_prefixes.iter() {
@@ -541,7 +540,6 @@ impl RibManager {
             }
 
             // advertise withdrawn paths
-            println!("withdrawn {:?}", withdraw);
             if !withdraw.is_empty() {
                 tx.send(RibEvent::Withdraw(withdraw))
                     .await
@@ -550,7 +548,6 @@ impl RibManager {
         }
 
         // advertise new best paths
-        println!("advertising prefix: {:?}", advertise_prefixes);
         for (peer, tx) in self.peers_tx.iter() {
             let mut advertise = Vec::new();
             for (prefix, id) in advertise_prefixes.iter() {
@@ -561,11 +558,6 @@ impl RibManager {
 
                 // filter an advertising path to each peer
 
-                // when a source peer of a path is a target peer
-                if peer.asn == p.peer_asn && peer.id.eq(&p.peer_id) {
-                    continue;
-                }
-                // filter an advertising path to each peer
                 match p.kind() {
                     PathKind::Local => {}
                     PathKind::External => {}
@@ -2440,7 +2432,7 @@ mod tests {
         }
     }
     #[tokio::test]
-    async fn rib_manager_install_paths_ebgp_multi_path_enabled() {
+    async fn rib_manager_install_drop_paths_ebgp_multi_path_enabled() {
         let mut manager = RibManager::new(
             65000,
             Ipv4Addr::new(1, 1, 1, 1),
@@ -2625,9 +2617,75 @@ mod tests {
             }
             _ => panic!("expected rib_event is advertise"),
         }
+        // drop paths
+        let family = AddressFamily::ipv4_unicast();
+        // drop from peer1
+        let prefixes: Vec<(IpNet, u64)> = vec![
+            ("10.0.20.0/24".parse().unwrap(), 1),
+            ("10.0.10.0/24".parse().unwrap(), 2),
+        ];
+        manager
+            .drop_paths(peer2.clone(), family.clone(), prefixes)
+            .await
+            .unwrap();
+
+        // recv
+        match timeout(Duration::from_millis(10), peer1_rx.recv())
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            RibEvent::Withdraw(prefix) => {
+                assert_eq!(1, prefix.len());
+            }
+            _ => panic!("expected rib_event is withdrawn"),
+        }
+        // not recv
+        match timeout(Duration::from_millis(10), peer2_rx.recv()).await {
+            Err(_) => assert!(true),
+            Ok(_) => panic!("peer2 should not receive event"),
+        }
+        // drop from local
+        let prefixes: Vec<(IpNet, u64)> = vec![("10.0.20.0/24".parse().unwrap(), 4)];
+        manager
+            .drop_paths(
+                NeighborPair::new(
+                    IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
+                    65000,
+                    Ipv4Addr::new(1, 1, 1, 1),
+                ),
+                family.clone(),
+                prefixes,
+            )
+            .await
+            .unwrap();
+
+        // recv
+        match timeout(Duration::from_millis(10), peer1_rx.recv())
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            RibEvent::Advertise(paths) => {
+                assert_eq!(1, paths.len());
+                assert_eq!(0, paths[0].id);
+            }
+            _ => panic!("expected rib_event is advertise"),
+        }
+        match timeout(Duration::from_millis(10), peer2_rx.recv())
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            RibEvent::Advertise(paths) => {
+                assert_eq!(1, paths.len());
+                assert_eq!(0, paths[0].id);
+            }
+            _ => panic!("expected rib_event is advertise"),
+        }
     }
     #[tokio::test]
-    async fn rib_manager_install_paths_ebgp_ibgp_multi_path_enabled() {
+    async fn rib_manager_install_drop_paths_ebgp_ibgp_multi_path_enabled() {
         let mut manager = RibManager::new(
             65000,
             Ipv4Addr::new(1, 1, 1, 1),
@@ -2817,6 +2875,104 @@ mod tests {
                 assert_eq!(4, paths[0].id);
             }
             _ => panic!("expected rib_event is advertise"),
+        }
+        // not recv
+        match timeout(Duration::from_millis(10), peer3_rx.recv()).await {
+            Err(_) => assert!(true),
+            Ok(_) => panic!("peer3 should not receive event"),
+        }
+        // drop paths
+        let family = AddressFamily::ipv4_unicast();
+        // drop from peer1
+        let prefixes: Vec<(IpNet, u64)> = vec![
+            ("10.0.20.0/24".parse().unwrap(), 1),
+            ("10.0.10.0/24".parse().unwrap(), 2),
+        ];
+        manager
+            .drop_paths(peer2.clone(), family.clone(), prefixes)
+            .await
+            .unwrap();
+
+        // recv
+        for _ in 0..2 {
+            match timeout(Duration::from_millis(10), peer3_rx.recv())
+                .await
+                .unwrap()
+                .unwrap()
+            {
+                RibEvent::Withdraw(prefix) => {
+                    assert_eq!(1, prefix.len());
+                }
+                RibEvent::Advertise(path) => {
+                    assert_eq!(1, path.len());
+                    assert_eq!(0, path[0].id);
+                }
+                _ => panic!("expected rib_event is withdrawn"),
+            }
+        }
+        // not recv
+        match timeout(Duration::from_millis(10), peer1_rx.recv()).await {
+            Err(_) => assert!(true),
+            Ok(_) => panic!("peer1 should not receive event"),
+        }
+        match timeout(Duration::from_millis(10), peer2_rx.recv()).await {
+            Err(_) => assert!(true),
+            Ok(_) => panic!("peer2 should not receive event"),
+        }
+        // drop from peer1
+        let prefixes: Vec<(IpNet, u64)> = vec![("10.0.20.0/24".parse().unwrap(), 0)];
+        manager
+            .drop_paths(peer1.clone(), family.clone(), prefixes)
+            .await
+            .unwrap();
+
+        // recv
+        match timeout(Duration::from_millis(10), peer3_rx.recv())
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            RibEvent::Withdraw(prefix) => {
+                assert_eq!(1, prefix.len());
+            }
+            _ => panic!("expected rib_event is withdraw"),
+        }
+        // not recv
+        match timeout(Duration::from_millis(10), peer1_rx.recv()).await {
+            Err(_) => assert!(true),
+            Ok(_) => panic!("peer1 should not receive event"),
+        }
+        match timeout(Duration::from_millis(10), peer2_rx.recv()).await {
+            Err(_) => assert!(true),
+            Ok(_) => panic!("peer2 should not receive event"),
+        }
+        // drop from peer3
+        let prefixes: Vec<(IpNet, u64)> = vec![("10.0.30.0/24".parse().unwrap(), 4)];
+        manager
+            .drop_paths(peer3.clone(), family.clone(), prefixes)
+            .await
+            .unwrap();
+
+        // recv
+        match timeout(Duration::from_millis(10), peer1_rx.recv())
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            RibEvent::Withdraw(prefix) => {
+                assert_eq!(1, prefix.len());
+            }
+            _ => panic!("expected rib_event is withdraw"),
+        }
+        match timeout(Duration::from_millis(10), peer2_rx.recv())
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            RibEvent::Withdraw(prefix) => {
+                assert_eq!(1, prefix.len());
+            }
+            _ => panic!("expected rib_event is withdraw"),
         }
         // not recv
         match timeout(Duration::from_millis(10), peer3_rx.recv()).await {
