@@ -2,14 +2,11 @@ use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use bytes::{Buf, BufMut, BytesMut};
-use ipnet::IpAdd;
-use serde_yaml::with;
 
 use crate::bgp::error::*;
 use crate::bgp::family::{AddressFamily, Afi};
 use crate::bgp::packet::prefix::Prefix;
 
-use super::capability::Capability;
 
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub(crate) enum Attribute {
@@ -661,7 +658,7 @@ mod tests {
             Attribute::MPReachNLRI(
                 Base{flag: Attribute::FLAG_OPTIONAL, code: Attribute::MP_REACH_NLRI},
                 AddressFamily{afi: Afi::IPv6, safi: Safi::Unicast},
-                vec![IpAddr::V6(Ipv6Addr::from_str("2001:db8::1").unwrap()), IpAddr::V6(Ipv6Addr::from_str("fe80::c001:bff:fe7e:0").unwrap())], 
+                vec![IpAddr::V6(Ipv6Addr::from_str("2001:db8::1").unwrap()), IpAddr::V6(Ipv6Addr::from_str("fe80::c001:bff:fe7e:0").unwrap())],
                 vec![Prefix::new("2001:db8:1:2::/64".parse().unwrap(), None), Prefix::new("2001:db8:1:1::/64".parse().unwrap(), None), Prefix::new("2001:db8:1::/64".parse().unwrap(), None)]),
         ),
     )]
@@ -688,7 +685,7 @@ mod tests {
         case(Attribute::AS4Path(Base{flag: Attribute::FLAG_TRANSITIVE + Attribute::FLAG_EXTENDED + Attribute::FLAG_OPTIONAL, code: Attribute::AS4_PATH}, vec![ASSegment{segment_type: Attribute::AS_SEQUENCE, segments: vec![655200, 100]}]), false, false, vec![0xd0, 0x11, 0x00, 0x0a, 0x02, 0x02, 0x00, 0x09, 0xff, 0x60, 0x00, 0x00, 0x00, 0x64]),
         case(Attribute::MPReachNLRI(Base{flag: Attribute::FLAG_OPTIONAL, code: Attribute::MP_REACH_NLRI},
             AddressFamily{ afi: Afi::IPv6, safi: Safi::Unicast},
-            vec![IpAddr::V6(Ipv6Addr::from_str("2001:db8::1").unwrap()), IpAddr::V6(Ipv6Addr::from_str("fe80::c001:bff:fe7e:0").unwrap())], 
+            vec![IpAddr::V6(Ipv6Addr::from_str("2001:db8::1").unwrap()), IpAddr::V6(Ipv6Addr::from_str("fe80::c001:bff:fe7e:0").unwrap())],
             vec![Prefix::new("2001:db8:1:2::/64".parse().unwrap(), None), Prefix::new("2001:db8:1:1::/64".parse().unwrap(), None), Prefix::new("2001:db8:1::/64".parse().unwrap(), None)],
         ),
         false,

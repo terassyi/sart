@@ -7,9 +7,6 @@ use crate::bgp::packet::prefix::Prefix;
 use crate::bgp::server::Bgp;
 use std::convert::TryFrom;
 use std::net::Ipv4Addr;
-use std::ops::Add;
-
-pub(crate) struct Builder {}
 
 // https://www.rfc-editor.org/rfc/rfc4271#section-4.1
 #[derive(Debug, Clone, PartialEq)]

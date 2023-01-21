@@ -1,5 +1,5 @@
 use std::io;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 use crate::bgp::error::*;
 use crate::bgp::family::{AddressFamily, Afi};

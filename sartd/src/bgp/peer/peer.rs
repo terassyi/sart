@@ -3,8 +3,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use futures::stream::{FuturesUnordered, Next};
-use futures::{FutureExt, SinkExt, Stream, StreamExt, TryFutureExt};
+use futures::stream::FuturesUnordered;
+use futures::{FutureExt, SinkExt, StreamExt};
 use ipnet::IpNet;
 use socket2::{Domain, Socket, TcpKeepalive, Type};
 use tokio::net::{TcpSocket, TcpStream};
@@ -13,7 +13,7 @@ use tokio::sync::mpsc::{
 };
 use tokio::sync::Notify;
 use tokio::time::{interval_at, sleep, timeout, Instant, Interval, Sleep};
-use tokio_util::codec::{Framed, FramedRead};
+use tokio_util::codec::Framed;
 
 use crate::bgp::capability::{Capability, CapabilitySet};
 use crate::bgp::config::NeighborConfig;
@@ -1375,8 +1375,8 @@ impl Peer {
     fn process_attr(&self, attr: &Attribute) -> Result<(), Error> {
         match attr {
             Attribute::Origin(_, _) => {}
-            Attribute::ASPath(_, segments) => {}
-            Attribute::NextHop(_, next_hop) => {}
+            Attribute::ASPath(_, _segments) => {}
+            Attribute::NextHop(_, _next_hop) => {}
             Attribute::MultiExitDisc(_, _) => {}
             Attribute::LocalPref(_, _) => {}
             Attribute::AtomicAggregate(_) => {}
@@ -1385,7 +1385,7 @@ impl Peer {
             Attribute::MPReachNLRI(_, _, _, _) => {}
             Attribute::MPUnReachNLRI(_, _, _) => {}
             Attribute::ExtendedCommunities(_, _, _) => {}
-            Attribute::AS4Path(_, segments) => {}
+            Attribute::AS4Path(_, _segments) => {}
             Attribute::AS4Aggregator(_, _, _) => {}
             Attribute::Unsupported(_, _) => {}
         }
@@ -1537,7 +1537,6 @@ mod tests {
     };
 
     use super::{Peer, PeerInfo};
-    use rstest::rstest;
 
     #[tokio::test]
     async fn works_peer_move_event() {

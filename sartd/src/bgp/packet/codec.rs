@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::net::Ipv4Addr;
 use std::sync::{Arc, RwLock};
 
@@ -361,7 +361,7 @@ mod tests {
                 Capability::Unsupported(0x80, Vec::new()), // Unsupported Route Refresh Cisco
                 Capability::RouteRefresh,
             ] }),
-        case("testdata/messages/open-4bytes-asn", true, false, Message::Open { 
+        case("testdata/messages/open-4bytes-asn", true, false, Message::Open {
             version: 4,
             as_num: Message::AS_TRANS,
             hold_time: 180,
@@ -498,7 +498,7 @@ mod tests {
         as4_enabled,
         path_id_enabled,
         expected,
-        case(vec!["testdata/messages/open-2bytes-asn", "testdata/messages/keepalive"], false, false, 
+        case(vec!["testdata/messages/open-2bytes-asn", "testdata/messages/keepalive"], false, false,
             vec![
                 Message::Open {
                     version: 4,
@@ -514,7 +514,7 @@ mod tests {
                 Message::Keepalive,
             ],
         ),
-        case(vec!["testdata/messages/update-as4-path-aggregator", "testdata/messages/update-nlri"], false, false, 
+        case(vec!["testdata/messages/update-as4-path-aggregator", "testdata/messages/update-nlri"], false, false,
             vec![
                 Message::Update {
                     withdrawn_routes: Vec::new(),
@@ -620,7 +620,7 @@ mod tests {
                 Capability::Unsupported(0x80, Vec::new()), // Unsupported Route Refresh Cisco
                 Capability::RouteRefresh,
             ] }),
-        case("testdata/messages/open-4bytes-asn", true, false, Message::Open { 
+        case("testdata/messages/open-4bytes-asn", true, false, Message::Open {
             version: 4,
             as_num: Message::AS_TRANS,
             hold_time: 180,

@@ -116,7 +116,7 @@ impl Path {
     }
 }
 
-#[derive(Debug, PartialEq, PartialOrd)]
+#[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
 pub enum PathKind {
     Local,
     Internal,

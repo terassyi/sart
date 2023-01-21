@@ -1,4 +1,3 @@
-use crate::bgp::error::Error;
 use std::convert::TryFrom;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -1,34 +1,30 @@
 use futures::stream::FuturesUnordered;
 use futures::{FutureExt, StreamExt};
 use socket2::{Domain, Socket, TcpKeepalive, Type};
-use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 use std::io;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::ops::Add;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::net::{TcpListener, TcpSocket, TcpStream};
-use tokio::sync::mpsc::{channel, Receiver, Sender, UnboundedSender};
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::mpsc::{channel, Sender, UnboundedSender};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tokio::sync::Notify;
-use tokio::time::{interval_at, sleep, timeout, Instant};
+use tokio::time::{interval_at, Instant};
 use tokio_stream::wrappers::TcpListenerStream;
 use tonic::transport::Server;
 use tonic_reflection::server::Builder;
-use tracing_subscriber::fmt::format;
 
 use crate::bgp::api_server::api;
 use crate::bgp::api_server::ApiServer;
 use crate::bgp::config::Config;
 use crate::bgp::error::Error;
-use crate::bgp::event::{TcpConnectionEvent, TimerEvent};
+use crate::bgp::event::TcpConnectionEvent;
 use crate::bgp::family::Afi;
 use crate::bgp::peer::fsm::State;
 use crate::proto::sart::bgp_api_server::BgpApiServer;
 
-use super::capability::{Capability, CapabilitySet};
+use super::capability::CapabilitySet;
 use super::config::NeighborConfig;
 use super::error::{ControlError, PeerError, RibError};
 use super::event::{AdministrativeEvent, ControlEvent, Event, RibEvent};
@@ -201,7 +197,6 @@ impl Bgp {
             ControlEvent::AddPeer(neighbor) => {
                 self.add_peer(neighbor).await?;
             }
-            _ => tracing::error!("undefined control event"),
         }
         self.event_signal.notify_one();
         Ok(())

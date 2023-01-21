@@ -1,21 +1,15 @@
-use futures::FutureExt;
 use ipnet::IpNet;
-use std::{cmp::Ordering, collections::HashMap, net::Ipv4Addr, ops::Add, sync::Arc};
-use tokio::sync::{
-    mpsc::{channel, unbounded_channel, Receiver, Sender, UnboundedReceiver, UnboundedSender},
-    Notify,
-};
+use std::{cmp::Ordering, collections::HashMap, net::Ipv4Addr};
+use tokio::sync::mpsc::Sender;
 
 use crate::bgp::path::PathKind;
 
 use super::{
-    config::NeighborConfig,
     error::{ControlError, Error, RibError},
     event::RibEvent,
     family::{AddressFamily, Afi},
-    packet::prefix::{self, Prefix},
     path::{BestPathReason, Path},
-    peer::neighbor::{self, NeighborPair},
+    peer::neighbor::NeighborPair,
 };
 
 #[derive(Debug)]
@@ -310,7 +304,7 @@ impl LocRib {
                 if removed.best {
                     // recalculate best path
                     if paths.is_empty() {
-                        return Ok(LocRibStatus::Withdrawn(*prefix));
+                        return Ok(LocRibStatus::Withdrawn(*prefix, removed.kind()));
                     }
                     if paths.len() == 1 {
                         paths[0].best = true;
@@ -372,7 +366,7 @@ impl LocRib {
 #[derive(Debug, PartialEq, PartialOrd)]
 enum LocRibStatus {
     NotChanged,
-    Withdrawn(IpNet),
+    Withdrawn(IpNet, PathKind),
     BestPathChanged(IpNet, u64),
     MultiPathAdded,
     MultiPathWithdrawn(IpNet, u64),
@@ -490,7 +484,6 @@ impl RibManager {
 
                 advertise.push(p.clone());
             }
-            println!("{:?}", advertise);
             if !advertise.is_empty() {
                 tx.send(RibEvent::Advertise(advertise))
                     .await
@@ -518,8 +511,8 @@ impl RibManager {
                 LocRibStatus::MultiPathWithdrawn(prefix, id) => {
                     tracing::info!(family=?family,prefix=?prefix,"multiple best paths withdrawn");
                 }
-                LocRibStatus::Withdrawn(prefix) => {
-                    withdraw_prefixes.push(prefix);
+                LocRibStatus::Withdrawn(prefix, kind) => {
+                    withdraw_prefixes.push((prefix, kind));
                     tracing::info!(family=?family,prefix=?prefix,"all path are withdrawn");
                 }
                 _ => {}
@@ -527,26 +520,38 @@ impl RibManager {
         }
 
         // advertise withdrawn paths to peers
+        println!("withdrawn prefix: {:?}", withdraw_prefixes);
         for (peer, tx) in self.peers_tx.iter() {
-            // if the best path is changed, the source peer doesn't need to advertise its path.
-            // and ibgp peer also don't need it
-            if peer.eq(&neighbor) || peer.asn == self.asn {
-                continue;
+            let mut withdraw = Vec::new();
+            for (prefix, kind) in withdraw_prefixes.iter() {
+                match kind {
+                    PathKind::Local => {}
+                    PathKind::External => {
+                        if peer.eq(&neighbor) {
+                            continue;
+                        }
+                    }
+                    PathKind::Internal => {
+                        if self.asn == peer.asn {
+                            continue;
+                        }
+                    }
+                }
+                withdraw.push(*prefix);
             }
+
             // advertise withdrawn paths
-            tx.send(RibEvent::Withdraw(withdraw_prefixes.clone()))
-                .await
-                .map_err(|_e| Error::Control(ControlError::FailedToSendRecvChannel))?;
+            println!("withdrawn {:?}", withdraw);
+            if !withdraw.is_empty() {
+                tx.send(RibEvent::Withdraw(withdraw))
+                    .await
+                    .map_err(|_e| Error::Control(ControlError::FailedToSendRecvChannel))?;
+            }
         }
 
         // advertise new best paths
+        println!("advertising prefix: {:?}", advertise_prefixes);
         for (peer, tx) in self.peers_tx.iter() {
-            // ibgp peer also don't need to advertise new best paths.
-            // best paths will be needed to be advertised to all ebgp peer even if source of withdrawn message
-            if peer.asn == self.asn {
-                continue;
-            }
-
             let mut advertise = Vec::new();
             for (prefix, id) in advertise_prefixes.iter() {
                 let p = self
@@ -560,12 +565,25 @@ impl RibManager {
                 if peer.asn == p.peer_asn && peer.id.eq(&p.peer_id) {
                     continue;
                 }
+                // filter an advertising path to each peer
+                match p.kind() {
+                    PathKind::Local => {}
+                    PathKind::External => {}
+                    PathKind::Internal => {
+                        // if peer is the external peer(has different as number), advertise paths
+                        if self.asn == peer.asn {
+                            continue;
+                        }
+                    }
+                }
                 advertise.push(p.clone());
             }
 
-            tx.send(RibEvent::Advertise(advertise))
-                .await
-                .map_err(|_e| Error::Control(ControlError::FailedToSendRecvChannel))?;
+            if !advertise.is_empty() {
+                tx.send(RibEvent::Advertise(advertise))
+                    .await
+                    .map_err(|_e| Error::Control(ControlError::FailedToSendRecvChannel))?;
+            }
         }
         Ok(())
     }
@@ -721,7 +739,7 @@ mod tests {
         event::RibEvent,
         family::{AddressFamily, Afi},
         packet::attribute::Attribute,
-        path::Path,
+        path::{Path, PathKind},
         peer::neighbor::NeighborPair,
     };
 
@@ -1523,7 +1541,7 @@ mod tests {
 				},
 			],
 			0,
-			LocRibStatus::Withdrawn("10.0.0.0/24".parse().unwrap()),
+			LocRibStatus::Withdrawn("10.0.0.0/24".parse().unwrap(), PathKind::External),
 			vec![],
 		),
 		case(
@@ -1962,7 +1980,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rib_manager_install_paths_ebgp_multi_path_disabled() {
+    async fn rib_manager_install_drop_paths_ebgp_multi_path_disabled() {
         let mut manager = RibManager::new(
             65000,
             Ipv4Addr::new(1, 1, 1, 1),
@@ -2168,9 +2186,87 @@ mod tests {
             }
             _ => panic!("expected rib_event is advertise"),
         }
+
+        // drop paths
+        let family = AddressFamily::ipv4_unicast();
+        // drop from peer2
+        let prefixes: Vec<(IpNet, u64)> = vec![("10.0.0.0/24".parse().unwrap(), 3)];
+        manager
+            .drop_paths(peer2.clone(), family.clone(), prefixes)
+            .await
+            .unwrap();
+
+        // not recv
+        match timeout(Duration::from_millis(10), peer1_rx.recv()).await {
+            Err(_) => assert!(true),
+            Ok(_) => panic!("peer1 should not receive event"),
+        }
+        match timeout(Duration::from_millis(10), peer2_rx.recv()).await {
+            Err(_) => assert!(true),
+            Ok(_) => panic!("peer2 should not receive event"),
+        }
+        // drop from peer1
+        let prefixes: Vec<(IpNet, u64)> = vec![("10.0.0.0/24".parse().unwrap(), 0)];
+        manager
+            .drop_paths(peer1.clone(), family.clone(), prefixes)
+            .await
+            .unwrap();
+
+        // recv
+        match timeout(Duration::from_millis(10), peer2_rx.recv())
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            RibEvent::Withdraw(prefix) => {
+                assert_eq!(1, prefix.len());
+            }
+            _ => panic!("expected rib_event is withdrawn"),
+        }
+        // not recv
+        match timeout(Duration::from_millis(10), peer1_rx.recv()).await {
+            Err(_) => assert!(true),
+            Ok(_) => panic!("peer1 should not receive event"),
+        }
+        // drop from local
+        let prefixes: Vec<(IpNet, u64)> = vec![("10.0.100.0/24".parse().unwrap(), 4)];
+        manager
+            .drop_paths(
+                NeighborPair::new(
+                    IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
+                    65000,
+                    Ipv4Addr::new(1, 1, 1, 1),
+                ),
+                family.clone(),
+                prefixes,
+            )
+            .await
+            .unwrap();
+
+        // recv
+        match timeout(Duration::from_millis(10), peer1_rx.recv())
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            RibEvent::Withdraw(prefix) => {
+                assert_eq!(1, prefix.len());
+            }
+            _ => panic!("expected rib_event is withdrawn"),
+        }
+        match timeout(Duration::from_millis(10), peer2_rx.recv())
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            RibEvent::Withdraw(prefix) => {
+                assert_eq!(1, prefix.len());
+            }
+            _ => panic!("expected rib_event is withdrawn"),
+        }
     }
     #[tokio::test]
-    async fn rib_manager_install_paths_ibgp_multi_path_disabled() {
+    async fn rib_manager_install_drop_paths_ibgp_multi_path_disabled() {
         let mut manager = RibManager::new(
             65000,
             Ipv4Addr::new(1, 1, 1, 1),
@@ -2286,6 +2382,61 @@ mod tests {
                 assert_eq!(4, paths[0].id);
             }
             _ => panic!("expected rib_event is advertise"),
+        }
+
+        // drop paths
+        let family = AddressFamily::ipv4_unicast();
+        // drop from peer1
+        let prefixes: Vec<(IpNet, u64)> = vec![("10.0.0.0/24".parse().unwrap(), 0)];
+        manager
+            .drop_paths(peer1.clone(), family.clone(), prefixes)
+            .await
+            .unwrap();
+
+        // not recv
+        match timeout(Duration::from_millis(10), peer1_rx.recv()).await {
+            Err(_) => assert!(true),
+            Ok(_) => panic!("peer1 should not receive event"),
+        }
+        match timeout(Duration::from_millis(10), peer2_rx.recv()).await {
+            Err(_) => assert!(true),
+            Ok(_) => panic!("peer2 should not receive event"),
+        }
+        // drop from local
+        let prefixes: Vec<(IpNet, u64)> = vec![("10.0.100.0/24".parse().unwrap(), 4)];
+        manager
+            .drop_paths(
+                NeighborPair::new(
+                    IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
+                    65000,
+                    Ipv4Addr::new(1, 1, 1, 1),
+                ),
+                family.clone(),
+                prefixes,
+            )
+            .await
+            .unwrap();
+
+        // recv
+        match timeout(Duration::from_millis(10), peer1_rx.recv())
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            RibEvent::Withdraw(prefix) => {
+                assert_eq!(1, prefix.len());
+            }
+            _ => panic!("expected rib_event is withdrawn"),
+        }
+        match timeout(Duration::from_millis(10), peer2_rx.recv())
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            RibEvent::Withdraw(prefix) => {
+                assert_eq!(1, prefix.len());
+            }
+            _ => panic!("expected rib_event is withdrawn"),
         }
     }
     #[tokio::test]

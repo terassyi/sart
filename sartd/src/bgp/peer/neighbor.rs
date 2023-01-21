@@ -1,7 +1,5 @@
 use crate::bgp::{capability::Capability, config::NeighborConfig};
-use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 use std::net::{IpAddr, Ipv4Addr};
-use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub(crate) struct NeighborPair {

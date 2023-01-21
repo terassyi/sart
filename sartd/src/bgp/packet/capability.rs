@@ -1,10 +1,9 @@
 use std::io;
 
 use bytes::{Buf, BufMut, BytesMut};
-use serde::__private::ser::FlatMapSerializeStruct;
 
-use crate::bgp::family::{AddressFamily, Afi, Safi};
-use crate::bgp::{error::*, family};
+use crate::bgp::error::*;
+use crate::bgp::family::AddressFamily;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Capability {

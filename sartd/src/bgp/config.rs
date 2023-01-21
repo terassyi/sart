@@ -1,12 +1,9 @@
-use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr};
 
 use crate::bgp::error::*;
-use crate::bgp::server::Bgp;
 
-use super::capability::Capability;
 use super::event::ControlEvent;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

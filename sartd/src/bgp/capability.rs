@@ -114,7 +114,7 @@ impl From<packet::capability::Capability> for Capability {
             packet::capability::Capability::EnhancedRouteRefresh => {
                 Capability::EnhancedRouteRefresh
             }
-            packet::capability::Capability::Unsupported(code, data) => {
+            packet::capability::Capability::Unsupported(_code, _data) => {
                 panic!("unsupported capability")
             }
         }
