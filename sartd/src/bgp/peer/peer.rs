@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -18,13 +19,14 @@ use tokio_util::codec::Framed;
 use crate::bgp::capability::{Capability, CapabilitySet};
 use crate::bgp::config::NeighborConfig;
 use crate::bgp::error::{
-    Error, MessageHeaderError, OpenMessageError, PeerError, UpdateMessageError,
+    Error, MessageHeaderError, OpenMessageError, PeerError, RibError, UpdateMessageError,
 };
 use crate::bgp::event::{
     AdministrativeEvent, BgpMessageEvent, Event, RibEvent, TcpConnectionEvent, TimerEvent,
 };
-use crate::bgp::family::AddressFamily;
+use crate::bgp::family::{AddressFamily, Afi};
 use crate::bgp::packet::attribute::Attribute;
+use crate::bgp::packet::capability;
 use crate::bgp::packet::codec::Codec;
 use crate::bgp::packet::message::{
     Message, MessageBuilder, MessageType, NotificationCode, NotificationSubCode,
@@ -57,6 +59,8 @@ impl PeerManager {
 pub(crate) struct PeerInfo {
     pub neighbor: Neighbor,
     pub asn: u32,
+    pub addr: IpAddr,
+    pub other_addrs: Vec<IpAddr>,
     pub router_id: Ipv4Addr,
     pub hold_time: u64,
     pub keepalive_time: u64,
@@ -77,6 +81,8 @@ impl PeerInfo {
         Self {
             neighbor: Neighbor::from(neighbor),
             asn: local_as,
+            addr: IpAddr::from(local_router_id), // addr will be changed by stream
+            other_addrs: Vec::new(),
             router_id: local_router_id,
             hold_time: Bgp::DEFAULT_HOLD_TIME,
             keepalive_time: Bgp::DEFAULT_KEEPALIVE_TIME,
@@ -85,6 +91,10 @@ impl PeerInfo {
             families,
             state: State::Idle,
         }
+    }
+
+    fn is_ebgp(&self) -> bool {
+        self.asn != self.neighbor.get_asn()
     }
 }
 
@@ -151,6 +161,7 @@ impl Peer {
         }
     }
 
+    // need lock of PeerInfo
     fn is_ebgp(&self) -> bool {
         let info = self.info.lock().unwrap();
         info.asn != info.neighbor.get_asn()
@@ -264,6 +275,21 @@ impl Peer {
                         }
                     }
                 }
+                event = self.rib_rx.recv().fuse() => {
+                    if let Some(event) = event {
+                        let current_state = self.state();
+                        tracing::info!(peer.addr=peer_addr, peer.asn=peer_as, state=?current_state, event=?event, "route dissemination");
+                        let res = match event {
+                            RibEvent::Advertise(paths) => self.advertise(paths).await,
+                            RibEvent::Withdraw(prefixes) => self.withdraw(prefixes).await,
+                            _ => Err(Error::InvalidEvent{val: 0}),
+                        };
+                        match res {
+                            Ok(_) => {},
+                            Err(e) => tracing::error!(level="peer",peer.addr=peer_addr, peer.asn=peer_as,state=?current_state,error=?e),
+                        }
+                    }
+                }
                 // manage connections. catch closing connections
                 local_port = conn_close_rx.recv().fuse() => {
                     if let Some(local_port) = local_port {
@@ -287,16 +313,6 @@ impl Peer {
 
     #[tracing::instrument(skip(self))]
     fn send(&self, msg: Message) -> Result<(), Error> {
-        let (peer_addr, peer_as) = {
-            let c = self.info.lock().unwrap();
-            (c.neighbor.get_addr().to_string(), c.neighbor.get_asn())
-        };
-        tracing::info!(
-            level = "peer",
-            peer.addr = peer_addr,
-            peer.asn = peer_as,
-            "send message"
-        );
         let connections = self.connections.lock().unwrap();
         if connections.len() != 1 {
             tracing::error!(level="peer",conn_len=connections.len(),connections=?connections);
@@ -307,25 +323,6 @@ impl Peer {
 
     #[tracing::instrument(skip(self, msg))]
     fn send_to_dup_conn(&self, msg: Message, passive: bool) -> Result<(), Error> {
-        let (peer_addr, peer_as) = {
-            let c = self.info.lock().unwrap();
-            (c.neighbor.get_addr().to_string(), c.neighbor.get_asn())
-        };
-        if passive {
-            tracing::info!(
-                level = "peer",
-                peer.addr = peer_addr,
-                peer.asn = peer_as,
-                "send message to the passive connection"
-            );
-        } else {
-            tracing::info!(
-                level = "peer",
-                peer.addr = peer_addr,
-                peer.asn = peer_as,
-                "send message to the active connection"
-            );
-        }
         let connections = self.connections.lock().unwrap();
         for conn in connections.iter() {
             if conn.is_passive() == passive {
@@ -344,6 +341,9 @@ impl Peer {
     ) -> Result<bool, Error> {
         let peer_port = stream.peer_addr().unwrap().port();
         let local_port = stream.local_addr().unwrap().port();
+
+        let local_addr = stream.local_addr().unwrap().ip();
+        self.info.lock().unwrap().addr = local_addr;
 
         let passive = if local_port == Bgp::BGP_PORT {
             true
@@ -375,8 +375,9 @@ impl Peer {
         let recv_counter = self.recv_counter.clone();
 
         tracing::info!(
-            peer_addr = peer_addr,
+            local_addr = local_addr.to_string(),
             local_port = local_port,
+            peer_addr = peer_addr,
             peer_port = peer_port,
             peer_as = peer_as,
             "initialize the connection"
@@ -1392,20 +1393,122 @@ impl Peer {
         Ok(())
     }
 
-    fn decision_process(&mut self) -> Result<(), Error> {
-        Ok(())
-    }
+    #[tracing::instrument(skip(self, paths))]
+    async fn advertise(&mut self, mut paths: Vec<Path>) -> Result<(), Error> {
+        let info = { self.info.lock().unwrap() };
+        let (local_id, local_addr, local_asn, peer_id, peer_addr, peer_asn) = (
+            info.router_id,
+            info.addr,
+            info.asn,
+            info.neighbor.get_router_id(),
+            info.neighbor.get_addr(),
+            info.neighbor.get_asn(),
+        );
 
-    fn select(&mut self) -> Result<(), Error> {
-        Ok(())
-    }
+        // update adj-rib-out
+        let mut next_hops = info.other_addrs.clone();
+        next_hops.insert(0, local_addr);
 
-    fn calculate(&mut self, path: &mut Path) -> Result<(bool), Error> {
-        // TODO: checking the policy for local preference(AD values)
-        if self.is_ebgp() {
-            return Ok(true);
+        let mut attr_group: HashMap<Vec<Attribute>, Vec<&Path>> = HashMap::new();
+        for p in paths.iter_mut() {
+            // if the path is originated from the target peer
+            // a local peer does'nt send an update message to advertise its path as a new one
+            // instead of advertising, it will be drop a old path and send a update message to withdraw
+            if p.as_sequence.len() == 1 && p.as_sequence[0] == info.neighbor.get_asn() {
+                // send withdraw
+                let mut builder = MessageBuilder::builder(MessageType::Update);
+                let msg = builder.withdrawn_routes(vec![p.prefix()])?.build()?;
+                self.send(msg)?;
+                continue;
+            }
+
+            p.to_outgoing(!info.is_ebgp(), info.asn, next_hops.clone())?;
+
+            // TODO: apply output filter
+
+            let family = p.family;
+            let old_path = self.adj_rib_out.insert(&family, p.prefix, p.clone())?;
+            let replace = match old_path {
+                Some(_) => true,
+                None => false,
+            };
+            tracing::info!(level="peer",local.addr=local_addr.to_string(),local.asn=local_asn,local.id=local_id.to_string(),peer.addr=peer_addr.to_string(),peer.id=peer_id.to_string(),peer.asn=peer_asn,prefix=?p.prefix(),replace=replace,"update adj-rib-out");
+
+            let as4_enabled = match info
+                .local_capabilities
+                .get(&capability::Capability::FOUR_OCTET_AS_NUMBER)
+            {
+                Some(_) => true,
+                None => false,
+            };
+
+            let attr = p.attributes(as4_enabled)?;
+            match attr_group.get_mut(&attr) {
+                Some(g) => g.push(p),
+                None => {
+                    attr_group.insert(attr, vec![p]);
+                }
+            }
         }
-        Ok(true)
+
+        // build and send update messsage grouped by attributes
+        for (attrs, paths) in attr_group.iter() {
+            let mut builder = MessageBuilder::builder(MessageType::Update);
+            let msg = builder
+                .attributes(attrs.to_vec())?
+                .nlri(paths.iter().map(|p| p.prefix()).collect())?
+                .build()?;
+
+            tracing::info!(
+                level = "peer",
+                local.addr = local_addr.to_string(),
+                local.asn = local_asn,
+                local.id = local_id.to_string(),
+                peer.addr = peer_addr.to_string(),
+                peer.id = peer_id.to_string(),
+                peer.asn = peer_asn,
+                msg = ?msg,
+                "send update message"
+            );
+            self.send(msg)?;
+        }
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self, prefixes))]
+    async fn withdraw(&mut self, prefixes: Vec<IpNet>) -> Result<(), Error> {
+        let (local_id, local_addr, local_asn, peer_id, peer_addr, peer_asn) = {
+            let info = self.info.lock().unwrap();
+            (
+                info.router_id,
+                info.addr,
+                info.asn,
+                info.neighbor.get_router_id(),
+                info.neighbor.get_addr(),
+                info.neighbor.get_asn(),
+            )
+        };
+        // TODO: apply output filter
+
+        // update adj-rib-out
+        let families = &self.info.lock().unwrap().families;
+        for p in prefixes.iter() {
+            let family = match *p {
+                IpNet::V4(_) => families.iter().find(|&f| f.afi == Afi::IPv4),
+                IpNet::V6(_) => families.iter().find(|&f| f.afi == Afi::IPv6),
+            }
+            .ok_or(Error::Rib(RibError::InvalidAddressFamily))?;
+            let old_path = self
+                .adj_rib_out
+                .remove(&family, p)
+                .ok_or(Error::Rib(RibError::PathNotFound))?;
+            tracing::info!(level="peer",local.addr=local_addr.to_string(),local.asn=local_asn,local.id=local_id.to_string(),peer.addr=peer_addr.to_string(),peer.id=peer_id.to_string(),peer.asn=peer_asn,prefix=?old_path.prefix(),"withdraw from adj-rib-out");
+        }
+
+        // build an update message
+        let mut builder = MessageBuilder::builder(MessageType::Update);
+        let msg = builder.withdrawn_routes(prefixes)?.build()?;
+        self.send(msg)
     }
 }
 

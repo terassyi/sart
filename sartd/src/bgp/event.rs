@@ -320,7 +320,7 @@ pub(crate) enum RibEvent {
         neighbor: NeighborPair,
         rib_event_tx: Sender<RibEvent>,
     },
-    AddNetwork(Vec<String>),
+    AddNetwork(Vec<IpNet>),
     InstallPaths(NeighborPair, Vec<Path>),
     DropPaths(NeighborPair, AddressFamily, Vec<(IpNet, u64)>),
     Advertise(Vec<Path>),

@@ -28,9 +28,9 @@ impl Table {
         }
     }
 
-    fn insert(&mut self, prefix: IpNet, path: Path) {
-        self.inner.insert(prefix, path);
+    fn insert(&mut self, prefix: IpNet, path: Path) -> Option<Path> {
         self.received += 1;
+        self.inner.insert(prefix, path)
     }
 
     fn remove(&mut self, prefix: &IpNet) -> Option<Path> {
@@ -75,12 +75,9 @@ impl AdjRib {
         family: &AddressFamily,
         prefix: IpNet,
         path: Path,
-    ) -> Result<(), RibError> {
+    ) -> Result<Option<Path>, RibError> {
         match self.table.get_mut(family) {
-            Some(table) => {
-                table.insert(prefix, path);
-                Ok(())
-            }
+            Some(table) => Ok(table.insert(prefix, path)),
             None => Err(RibError::AddressFamilyNotSet),
         }
     }
@@ -428,7 +425,8 @@ impl RibManager {
         }
     }
 
-    fn add_network(&mut self, networks: Vec<String>) -> Result<(), Error> {
+    #[tracing::instrument(skip(self))]
+    fn add_network(&mut self, networks: Vec<IpNet>) -> Result<(), Error> {
         Ok(())
     }
 
@@ -2895,6 +2893,8 @@ mod tests {
 
         // recv
         for _ in 0..2 {
+            // best path changed: 10.0.20.0/24
+            // withdrawn: 10.0.10.0/24
             match timeout(Duration::from_millis(10), peer3_rx.recv())
                 .await
                 .unwrap()

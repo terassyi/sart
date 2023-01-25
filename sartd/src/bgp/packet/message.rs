@@ -1,3 +1,5 @@
+use ipnet::IpNet;
+
 use crate::bgp::capability;
 use crate::bgp::error::{Error, MessageHeaderError};
 use crate::bgp::family::{AddressFamily, Afi, Safi};
@@ -417,10 +419,29 @@ impl MessageBuilder {
         Ok(self)
     }
 
-    pub fn withdrawn_routes(&mut self, prefixes: Vec<Prefix>) -> Result<&mut Self, Error> {
+    pub fn withdrawn_routes(&mut self, prefixes: Vec<IpNet>) -> Result<&mut Self, Error> {
         if self.msg_type != MessageType::Update {
             return Err(Error::InvalidMessageField);
         }
+
+        self.withdrawn_routes = prefixes.iter().map(|&p| p.into()).collect::<Vec<Prefix>>();
+        Ok(self)
+    }
+
+    pub fn attributes(&mut self, attrs: Vec<Attribute>) -> Result<&mut Self, Error> {
+        if self.msg_type != MessageType::Update {
+            return Err(Error::InvalidMessageField);
+        }
+        self.attributes = attrs;
+        Ok(self)
+    }
+
+    pub fn nlri(&mut self, prefixes: Vec<IpNet>) -> Result<&mut Self, Error> {
+        if self.msg_type != MessageType::Update {
+            return Err(Error::InvalidMessageField);
+        }
+
+        self.nlri = prefixes.iter().map(|&p| p.into()).collect::<Vec<Prefix>>();
         Ok(self)
     }
 
@@ -493,7 +514,6 @@ mod tests {
     use crate::bgp::capability;
     use crate::bgp::error::MessageHeaderError;
     use crate::bgp::family::{AddressFamily, Afi, Safi};
-    use clap::builder;
     use rstest::rstest;
     use std::net::Ipv4Addr;
 

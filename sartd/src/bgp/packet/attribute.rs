@@ -7,8 +7,7 @@ use crate::bgp::error::*;
 use crate::bgp::family::{AddressFamily, Afi};
 use crate::bgp::packet::prefix::Prefix;
 
-
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum Attribute {
     Origin(Base, u8),
     ASPath(Base, Vec<ASSegment>),
@@ -52,6 +51,9 @@ impl Attribute {
 
     pub const AS_SET: u8 = 1;
     pub const AS_SEQUENCE: u8 = 2;
+
+    pub const AS_TRANS: u32 = 23456;
+    pub const AS_2BYTES_LIMIT: u32 = u16::MAX as u32;
 
     pub fn is_transitive(&self) -> bool {
         self.get_base().is_transitive()
@@ -116,6 +118,97 @@ impl Attribute {
             Self::AS4Aggregator(b, _, _) => b,
             Self::Unsupported(b, _) => b,
         }
+    }
+
+    pub fn new_origin(val: u8) -> Result<Attribute, Error> {
+        match val {
+            Attribute::ORIGIN_IGP | Attribute::ORIGIN_EGP | Attribute::ORIGIN_INCOMPLETE => {
+                Ok(Attribute::Origin(
+                    Base::new(Attribute::FLAG_TRANSITIVE, Attribute::ORIGIN),
+                    val,
+                ))
+            }
+            _ => Err(Error::UpdateMessage(
+                UpdateMessageError::InvalidOriginAttribute(val),
+            )),
+        }
+    }
+
+    pub fn new_nexthop(addr: Ipv4Addr) -> Attribute {
+        Attribute::NextHop(
+            Base::new(Attribute::FLAG_TRANSITIVE, Attribute::NEXT_HOP),
+            addr,
+        )
+    }
+
+    pub fn new_as_path(
+        as_sequence: Vec<u32>,
+        as_set: Vec<u32>,
+        extend: bool,
+    ) -> Result<Attribute, Error> {
+        let flag = if extend {
+            Attribute::FLAG_TRANSITIVE + Attribute::FLAG_EXTENDED
+        } else {
+            Attribute::FLAG_TRANSITIVE
+        };
+        let segments = match as_set.is_empty() {
+            false => vec![
+                ASSegment::new(Attribute::AS_SEQUENCE, as_sequence),
+                ASSegment::new(Attribute::AS_SET, as_set),
+            ],
+            true => vec![ASSegment::new(Attribute::AS_SEQUENCE, as_sequence)],
+        };
+        Ok(Attribute::ASPath(
+            Base::new(flag, Attribute::AS_PATH),
+            segments,
+        ))
+    }
+
+    pub fn new_as4_path(
+        as_sequence: Vec<u32>,
+        as_set: Vec<u32>,
+        extend: bool,
+    ) -> Result<Attribute, Error> {
+        let flag = if extend {
+            Attribute::FLAG_TRANSITIVE + Attribute::FLAG_OPTIONAL + Attribute::FLAG_EXTENDED
+        } else {
+            Attribute::FLAG_TRANSITIVE + Attribute::FLAG_OPTIONAL
+        };
+        let segments = match as_set.is_empty() {
+            false => vec![
+                ASSegment::new(Attribute::AS_SEQUENCE, as_sequence),
+                ASSegment::new(Attribute::AS_SET, as_set),
+            ],
+            true => vec![ASSegment::new(Attribute::AS_SEQUENCE, as_sequence)],
+        };
+        Ok(Attribute::AS4Path(
+            Base::new(flag, Attribute::AS4_PATH),
+            segments,
+        ))
+    }
+
+    pub fn new_mp_reach_nlri(
+        family: AddressFamily,
+        nexthops: Vec<IpAddr>,
+        prefixes: Vec<Prefix>,
+    ) -> Result<Attribute, Error> {
+        Ok(Attribute::MPReachNLRI(
+            Base::new(Attribute::FLAG_OPTIONAL, Attribute::MP_REACH_NLRI),
+            family,
+            nexthops,
+            prefixes,
+        ))
+    }
+
+    pub fn new_mp_unreach_nlri(
+        family: AddressFamily,
+        prefixes: Vec<Prefix>,
+    ) -> Result<Attribute, Error> {
+        Ok(Attribute::MPUnReachNLRI(
+            Base::new(Attribute::FLAG_OPTIONAL, Attribute::MP_UNREACH_NLRI),
+            family,
+            prefixes,
+        ))
     }
 
     pub fn code(&self) -> u8 {
@@ -563,10 +656,19 @@ impl<'a> Into<u16> for &'a Base {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct ASSegment {
     pub segment_type: u8,
     pub segments: Vec<u32>,
+}
+
+impl ASSegment {
+    fn new(segment_type: u8, segments: Vec<u32>) -> Self {
+        Self {
+            segment_type,
+            segments,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -574,7 +676,6 @@ mod tests {
     use super::*;
     use crate::bgp::family::{AddressFamily, Afi, Safi};
     use bytes::BytesMut;
-    use ipnet::{IpNet, Ipv4Net, Ipv6Net};
     use rstest::rstest;
     use std::str::FromStr;
 

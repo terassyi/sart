@@ -11,8 +11,9 @@ use crate::bgp::packet::attribute::ASSegment;
 use crate::bgp::packet::attribute::Attribute;
 use crate::bgp::packet::prefix::Prefix;
 
+use super::error::UpdateMessageError;
 use super::family::AddressFamily;
-use super::packet::message::Message;
+use super::peer::peer::PeerInfo;
 
 #[derive(Debug, Clone)]
 pub(crate) struct Path {
@@ -113,6 +114,110 @@ impl Path {
             return false;
         }
         true
+    }
+
+    pub fn to_outgoing(
+        &mut self,
+        is_ibgp: bool,
+        asn: u32,
+        next_hops: Vec<IpAddr>,
+    ) -> Result<&mut Self, Error> {
+        self.origin = match self.kind() {
+            PathKind::Local => Attribute::ORIGIN_IGP,
+            _ => Attribute::ORIGIN_IGP,
+        };
+
+        // add as_path
+        if !is_ibgp {
+            self.as_sequence.insert(0, asn);
+        }
+
+        // replace next hop addresses
+        if is_ibgp && self.kind() == PathKind::External {
+            // ibgp peer
+            return Ok(self);
+        }
+        self.next_hops = next_hops;
+        Ok(self)
+    }
+
+    pub fn attributes(&self, as4_enabled: bool) -> Result<Vec<Attribute>, Error> {
+        let mut attrs = Vec::new();
+
+        // origin
+        attrs.push(Attribute::new_origin(self.origin)?);
+        // as_path
+        if as4_enabled {
+            attrs.push(Attribute::new_as_path(
+                self.as_sequence.clone(),
+                self.as_set.clone(),
+                true,
+            )?)
+        } else {
+            let as4_seq = self
+                .as_sequence
+                .iter()
+                .filter_map(|&n| {
+                    if n > Attribute::AS_2BYTES_LIMIT {
+                        Some(n)
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<u32>>();
+            let as4_set = self
+                .as_set
+                .iter()
+                .filter_map(|&n| {
+                    if n > Attribute::AS_2BYTES_LIMIT {
+                        Some(n)
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<u32>>();
+            let as_seq = self
+                .as_sequence
+                .iter()
+                .map(|&n| {
+                    if n > Attribute::AS_2BYTES_LIMIT {
+                        Attribute::AS_TRANS
+                    } else {
+                        n
+                    }
+                })
+                .collect::<Vec<u32>>();
+            let mut as_set = self
+                .as_set
+                .iter()
+                .filter_map(|&n| {
+                    if n <= Attribute::AS_2BYTES_LIMIT {
+                        Some(n)
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<u32>>();
+            if as_set.len() < self.as_set.len() {
+                as_set.push(Attribute::AS_TRANS);
+            }
+            attrs.push(Attribute::new_as_path(as_seq, as_set, true)?);
+            if !as4_seq.is_empty() || !as4_set.is_empty() {
+                attrs.push(Attribute::new_as4_path(as4_seq, as4_set, true)?);
+            }
+        }
+        // next hop
+        if self.next_hops.is_empty() {
+            return Err(Error::UpdateMessage(
+                UpdateMessageError::InvalidNextHopAttribute,
+            ));
+        }
+        match self.next_hops[0] {
+            IpAddr::V4(addr) => attrs.push(Attribute::new_nexthop(addr)),
+            IpAddr::V6(_) => {} // mp_reach_nlri will be handled later
+        }
+
+        Ok(attrs)
     }
 }
 
@@ -324,7 +429,7 @@ impl PathBuilder {
             .as_sequence
             .iter()
             .map(|&s| {
-                if s == Message::AS_TRANS {
+                if s == Attribute::AS_TRANS {
                     let ss = self.as4_sequence[i];
                     i += 1;
                     ss
@@ -337,7 +442,7 @@ impl PathBuilder {
             .as_set
             .iter()
             .map(|&s| {
-                if s == Message::AS_TRANS {
+                if s == Attribute::AS_TRANS {
                     let ss = self.as4_sequence[i];
                     i += 1;
                     ss
@@ -401,6 +506,7 @@ mod tests {
     use crate::bgp::packet::prefix::Prefix;
     use crate::bgp::path::BestPathReason;
     use crate::bgp::path::Path;
+    use crate::bgp::peer::peer::PeerInfo;
     use ipnet::{IpNet, Ipv4Net};
     use rstest::rstest;
     use std::net::{IpAddr, Ipv4Addr};
