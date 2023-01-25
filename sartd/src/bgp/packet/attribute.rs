@@ -271,9 +271,9 @@ impl Attribute {
                         segments: segs,
                     })
                 }
-                if segments.is_empty() {
-                    return Err(Error::UpdateMessage(UpdateMessageError::MalformedASPath));
-                }
+                // if segments.is_empty() {
+                // return Err(Error::UpdateMessage(UpdateMessageError::MalformedASPath));
+                // }
                 Ok(Self::ASPath(b, segments))
             }
             Self::NEXT_HOP => Ok(Self::NextHop(b, Ipv4Addr::from(data.get_u32()))), // validate whether next_hop value is correct

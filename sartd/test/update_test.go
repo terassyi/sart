@@ -12,7 +12,7 @@ import (
 )
 
 func testUpdate() {
-	It("should send update messages to advertise and withdraw paths", func() {
+	It("should send update messages to advertise and withdraw paths with ebgp", func() {
 		ctx, _ := context.WithTimeout(context.Background(), time.Minute)
 
 		By("preparing the topology")
@@ -103,6 +103,98 @@ func testUpdate() {
 		Expect(ok).To(BeFalse())
 		pref2 = res2["10.1.0.0/24"].([]any)
 		Expect(len(pref2)).To(Equal(1))
+
+		By("stopping frr daemon for gobgp")
+		cmd = exec.Command("sudo", "./simple_rib/frr_stop.sh")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		err = cmd.Run()
+		// Expect(err).NotTo(HaveOccurred())
+
+		By("cleaning up the topology")
+		cmd = exec.Command("./simple/clean_topology.sh")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		err = cmd.Run()
+		Expect(err).NotTo(HaveOccurred())
+	})
+
+	It("should send update messages to advertise and withdraw paths with ibgp", func() {
+		ctx, _ := context.WithTimeout(context.Background(), time.Minute)
+
+		By("preparing the topology")
+		cmd := exec.Command("./simple_rib_ibgp/topology.sh")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		err := cmd.Run()
+		Expect(err).NotTo(HaveOccurred())
+
+		By("starting frr daemon for gobgp")
+		cmd = exec.Command("sudo", "./simple_rib_ibgp/frr_run.sh")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.Run()
+		// Expect(err).NotTo(HaveOccurred())
+
+		By("starting gobgp daemon in netns")
+		go func(context.Context) {
+			_, _, _, err = execInNetns("spine1", "gobgpd", "-f", "simple_rib_ibgp/gobgp_spine1.conf")
+			Expect(err).NotTo(HaveOccurred())
+		}(ctx)
+
+		go func(context.Context) {
+			_, _, _, err = execInNetns("spine2", "gobgpd", "-f", "simple_rib_ibgp/gobgp_spine2.conf")
+			Expect(err).NotTo(HaveOccurred())
+		}(ctx)
+
+		time.Sleep(time.Second)
+
+		By("checking configurations")
+		Eventually(func(g Gomega) error {
+			if err := checkGobgpConfig("spine1", 100); err != nil {
+				return err
+			}
+			if err := checkGobgpConfig("spine2", 100); err != nil {
+				return err
+			}
+			return nil
+		}, "1m").Should(Succeed())
+
+		By("starting sartd-bgp")
+		go func(context.Context) {
+			_, _, _, err := execInNetns("core", "../target/debug/sartd", "-f", "simple_rib_ibgp/config.yaml")
+			Expect(err).NotTo(HaveOccurred())
+		}(ctx)
+
+		By("checking to establish peers")
+		Eventually(func(g Gomega) error {
+			if err := checkGobgpConfig("spine1", 100); err != nil {
+				return err
+			}
+			if err := checkGobgpConfig("spine2", 100); err != nil {
+				return err
+			}
+			return nil
+		}, "1m").Should(Succeed())
+
+		By("adding paths by spine2")
+		_, _, _, err = execInNetns("spine2", "gobgp", "global", "rib", "add", "-a", "ipv4", "10.0.0.0/24", "origin", "igp")
+		Expect(err).NotTo(HaveOccurred())
+
+		time.Sleep(time.Second)
+
+		By("checking spine1 didn't receive paths advertised by spine2 from core(sartd-bgp)")
+		out, _, _, err := execInNetns("spine1", "gobgp", "global", "rib", "-a", "ipv4", "-j")
+		var res map[string]any
+		err = json.Unmarshal(out, &res)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(res).To(Equal(make(map[string]any)))
+
+		By("deleting a path by peer2")
+		_, _, _, err = execInNetns("spine2", "gobgp", "global", "rib", "del", "-a", "ipv4", "10.0.0.0/24")
+		Expect(err).NotTo(HaveOccurred())
+
+		time.Sleep(time.Second)
 
 		By("stopping frr daemon for gobgp")
 		cmd = exec.Command("sudo", "./simple_rib/frr_stop.sh")
