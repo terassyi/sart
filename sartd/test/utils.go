@@ -55,6 +55,7 @@ func checkGobgpConfig(node string, asn uint32) error {
 	if !ok {
 		return fmt.Errorf("failed to get peer conf")
 	}
+	fmt.Println(conf)
 	conff := conf.(map[string]any)
 	if conff["peer_asn"] != float64(asn) {
 		return fmt.Errorf("expected asn is %d, but found %d", asn, conff["peer_asn"])
