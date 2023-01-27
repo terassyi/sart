@@ -17,8 +17,10 @@ func execInNetns(ns string, args ...string) ([]byte, []byte, *os.Process, error)
 	outBuf := new(bytes.Buffer)
 	errBuf := new(bytes.Buffer)
 
-	cmd.Stdout = outBuf
-	cmd.Stderr = errBuf
+	// cmd.Stdout = outBuf
+	// cmd.Stderr = errBuf
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stdout
 
 	err := cmd.Run()
 
