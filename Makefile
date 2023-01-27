@@ -19,7 +19,7 @@ setup-protoc:
 setup-dev:
 	sudo apt install -y frr jq iproute2
 	sudo wget -P /tmp https://github.com/osrg/gobgp/releases/download/v3.10.0/gobgp_${GOBGP_VERSION}_linux_amd64.tar.gz
-	tar -zxvf /tmp/gobgp_${GOBGP_VERSION}_linux_amd64.tar.gz -C /usr/bin/
+	sudo tar -zxvf /tmp/gobgp_${GOBGP_VERSION}_linux_amd64.tar.gz -C /usr/bin/
 
 .PHONY: build
 build:
