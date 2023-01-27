@@ -24,6 +24,6 @@ var _ = Describe("sartd-bgp", func() {
 		fmt.Printf("END: %s\n", time.Now().Format(time.RFC3339))
 	})
 
-	// Context("establish", testEstablish)
+	Context("establish", testEstablish)
 	Context("update", testUpdate)
 })

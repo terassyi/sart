@@ -25,20 +25,6 @@ func execInNetns(ns string, args ...string) ([]byte, []byte, *os.Process, error)
 	return outBuf.Bytes(), errBuf.Bytes(), cmd.Process, err
 }
 
-func execInNetnsStd(ns string, args ...string) (*os.Process, error) {
-	a := []string{"ip", "netns", "exec"}
-	a = append(a, ns)
-	a = append(a, args...)
-	cmd := exec.Command("sudo", a...)
-
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stdout
-
-	err := cmd.Run()
-
-	return cmd.Process, err
-}
-
 func checkGobgpConfig(node string, asn uint32) error {
 	nodeJson := make([]map[string]any, 0, 1)
 	out, serr, _, err := execInNetns(node, "gobgp", "neighbor", "-j")
@@ -50,12 +36,10 @@ func checkGobgpConfig(node string, asn uint32) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println(nodeJson)
 	conf, ok := nodeJson[0]["conf"]
 	if !ok {
 		return fmt.Errorf("failed to get peer conf")
 	}
-	fmt.Println(conf)
 	conff := conf.(map[string]any)
 	if conff["peer_asn"] != float64(asn) {
 		return fmt.Errorf("expected asn is %d, but found %d", asn, conff["peer_asn"])
