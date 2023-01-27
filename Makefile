@@ -1,5 +1,6 @@
 RUSTUP := rustup
 CARGO := cargo
+GOBGP_VERSION := 3.10.0
 
 .PHONY: setup
 setup: setup-rust-tools setup-protoc
@@ -16,7 +17,9 @@ setup-protoc:
 
 .PHONY: setup-dev
 setup-dev:
-	sudo apt install -y frr gobgpd jq iproute2
+	sudo apt install -y frr jq iproute2
+	sudo wget -P /tmp https://github.com/osrg/gobgp/releases/download/v3.10.0/gobgp_${GOBGP_VERSION}_linux_amd64.tar.gz
+	tar -zxvf /tmp/gobgp_${GOBGP_VERSION}_linux_amd64.tar.gz -C /usr/bin/
 
 .PHONY: build
 build:
@@ -36,7 +39,7 @@ unit-test:
 .PHONY: integration-test
 integration-test:
 	sartd/test/run-integration.sh
-	
+
 
 
 SPEC = "sartd/testdata/tinet/basic/spec.yaml"
