@@ -1,0 +1,14 @@
+rib_endpoint: "test"
+asn: 65010
+router_id: 1.1.1.1
+multi_path: true
+neighbors:
+  - asn: 65020
+    router_id: 2.2.2.2
+    address: 10.0.0.2
+  - asn: 65030
+    router_id: 3.3.3.3
+    address: 10.0.1.2
+  - asn: 65040
+    router_id: 4.4.4.4
+    address: 10.0.2.2

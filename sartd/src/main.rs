@@ -2,6 +2,7 @@ pub(crate) mod bgp;
 pub(crate) mod proto;
 
 use std::{net::Ipv4Addr, str::FromStr};
+use tracing::Level;
 use tracing_subscriber;
 
 use crate::bgp::config::Config;
@@ -9,8 +10,10 @@ use crate::bgp::server;
 use clap::{App, Arg};
 
 fn main() -> Result<(), std::io::Error> {
-    let subscriber = tracing_subscriber::FmtSubscriber::new();
-    tracing::subscriber::set_global_default(subscriber).expect("failed to initialize logger");
+    tracing_subscriber::fmt()
+        .with_max_level(Level::DEBUG)
+        .init();
+    // tracing::subscriber::set_global_default(subscriber).expect("failed to initialize logger");
     let app = App::new("sartd-bgp")
         .version("v0.0.1")
         .arg(

@@ -712,13 +712,12 @@ fn compare_peer_addr(a: &Path, b: &Path) -> Ordering {
 
 #[cfg(test)]
 mod tests {
-    use futures::FutureExt;
     use ipnet::{IpNet, Ipv4Net};
     use rstest::rstest;
     use std::collections::HashMap;
     use std::net::{IpAddr, Ipv4Addr};
     use std::ops::Sub;
-    use tokio::sync::mpsc::{channel, unbounded_channel};
+    use tokio::sync::mpsc::channel;
     use tokio::time::{timeout, Duration, Instant};
 
     use crate::bgp::packet::attribute::{ASSegment, Base};

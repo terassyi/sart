@@ -1,6 +1,7 @@
 #!/bin/bash
+set -x
 
-PIDS=$(ps aux | grep target/debug/sartd | awk '( $1 == "root") {print $2}')
+PIDS=$(ps aux | grep zebra | awk '( $1 == "root" || $1 == "frr") {print $2}')
 for PID in $PIDS
 do
 	echo "sudo kill -9 ${PID}"
