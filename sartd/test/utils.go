@@ -32,7 +32,7 @@ func execInNetnsStd(ns string, args ...string) (*os.Process, error) {
 	cmd := exec.Command("sudo", a...)
 
 	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = os.Stdout
 
 	err := cmd.Run()
 
