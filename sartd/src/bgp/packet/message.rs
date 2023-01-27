@@ -1,3 +1,5 @@
+use ipnet::IpNet;
+
 use crate::bgp::capability;
 use crate::bgp::error::{Error, MessageHeaderError};
 use crate::bgp::family::{AddressFamily, Afi, Safi};
@@ -7,9 +9,6 @@ use crate::bgp::packet::prefix::Prefix;
 use crate::bgp::server::Bgp;
 use std::convert::TryFrom;
 use std::net::Ipv4Addr;
-use std::ops::Add;
-
-pub(crate) struct Builder {}
 
 // https://www.rfc-editor.org/rfc/rfc4271#section-4.1
 #[derive(Debug, Clone, PartialEq)]
@@ -25,9 +24,9 @@ pub(crate) enum Message {
     },
     // https://www.rfc-editor.org/rfc/rfc4271#section-4.3
     Update {
-        withdrawn_routes: Option<Vec<Prefix>>,
-        attributes: Option<Vec<Attribute>>,
-        nlri: Option<Vec<Prefix>>,
+        withdrawn_routes: Vec<Prefix>,
+        attributes: Vec<Attribute>,
+        nlri: Vec<Prefix>,
     },
     // https://www.rfc-editor.org/rfc/rfc4271#section-4.4
     Keepalive,
@@ -90,16 +89,7 @@ impl Message {
         }
     }
 
-    pub fn to_update(
-        self,
-    ) -> Result<
-        (
-            Option<Vec<Prefix>>,
-            Option<Vec<Attribute>>,
-            Option<Vec<Prefix>>,
-        ),
-        Error,
-    > {
+    pub fn to_update(self) -> Result<(Vec<Prefix>, Vec<Attribute>, Vec<Prefix>), Error> {
         match self {
             Self::Update {
                 withdrawn_routes,
@@ -373,21 +363,9 @@ impl MessageBuilder {
                 })
             }
             MessageType::Update => Ok(Message::Update {
-                withdrawn_routes: if self.withdrawn_routes.is_empty() {
-                    Some(self.withdrawn_routes.clone())
-                } else {
-                    None
-                },
-                attributes: if self.attributes.is_empty() {
-                    Some(self.attributes.clone())
-                } else {
-                    None
-                },
-                nlri: if self.nlri.is_empty() {
-                    Some(self.nlri.clone())
-                } else {
-                    None
-                },
+                withdrawn_routes: self.withdrawn_routes.clone(),
+                attributes: self.attributes.clone(),
+                nlri: self.nlri.clone(),
             }),
             MessageType::Keepalive => Ok(Message::Keepalive),
             MessageType::Notification => Ok(Message::Notification {
@@ -441,10 +419,29 @@ impl MessageBuilder {
         Ok(self)
     }
 
-    pub fn withdrawn_routes(&mut self, prefixes: Vec<Prefix>) -> Result<&mut Self, Error> {
+    pub fn withdrawn_routes(&mut self, prefixes: Vec<IpNet>) -> Result<&mut Self, Error> {
         if self.msg_type != MessageType::Update {
             return Err(Error::InvalidMessageField);
         }
+
+        self.withdrawn_routes = prefixes.iter().map(|&p| p.into()).collect::<Vec<Prefix>>();
+        Ok(self)
+    }
+
+    pub fn attributes(&mut self, attrs: Vec<Attribute>) -> Result<&mut Self, Error> {
+        if self.msg_type != MessageType::Update {
+            return Err(Error::InvalidMessageField);
+        }
+        self.attributes = attrs;
+        Ok(self)
+    }
+
+    pub fn nlri(&mut self, prefixes: Vec<IpNet>) -> Result<&mut Self, Error> {
+        if self.msg_type != MessageType::Update {
+            return Err(Error::InvalidMessageField);
+        }
+
+        self.nlri = prefixes.iter().map(|&p| p.into()).collect::<Vec<Prefix>>();
         Ok(self)
     }
 
@@ -517,7 +514,6 @@ mod tests {
     use crate::bgp::capability;
     use crate::bgp::error::MessageHeaderError;
     use crate::bgp::family::{AddressFamily, Afi, Safi};
-    use clap::builder;
     use rstest::rstest;
     use std::net::Ipv4Addr;
 

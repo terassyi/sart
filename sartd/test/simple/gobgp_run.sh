@@ -1,5 +1,5 @@
 #!/bin/bash
-set -x
+
 set -e
 
 sudo ip netns exec spine1 gobgpd -f sartd/test/simple/gobgp_spine1.conf &

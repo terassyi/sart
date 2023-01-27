@@ -1,5 +1,5 @@
 use std::io;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 use crate::bgp::error::*;
 use crate::bgp::family::{AddressFamily, Afi};
@@ -7,7 +7,7 @@ use crate::bgp::family::{AddressFamily, Afi};
 use bytes::{Buf, BufMut, BytesMut};
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct Prefix {
     inner: ipnet::IpNet,
     path_id: Option<u32>,
@@ -113,6 +113,12 @@ impl From<IpNet> for Prefix {
 }
 
 impl Into<IpNet> for Prefix {
+    fn into(self) -> IpNet {
+        self.inner
+    }
+}
+
+impl Into<IpNet> for &Prefix {
     fn into(self) -> IpNet {
         self.inner
     }

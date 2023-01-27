@@ -1,7 +1,6 @@
-use crate::bgp::error::Error;
 use std::convert::TryFrom;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct AddressFamily {
     pub afi: Afi,
     pub safi: Safi,
@@ -12,6 +11,20 @@ impl AddressFamily {
         let afi = Afi::try_from(afi)?;
         let safi = Safi::try_from(safi)?;
         Ok(Self { afi, safi })
+    }
+
+    pub fn ipv4_unicast() -> Self {
+        Self {
+            afi: Afi::IPv4,
+            safi: Safi::Unicast,
+        }
+    }
+
+    pub fn ipv6_unicast() -> Self {
+        Self {
+            afi: Afi::IPv6,
+            safi: Safi::Unicast,
+        }
     }
 }
 
@@ -36,7 +49,7 @@ impl<'a> Into<u32> for &'a AddressFamily {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum Afi {
     IPv4 = 1,
     IPv6 = 2,
@@ -62,7 +75,7 @@ impl Into<u16> for Afi {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum Safi {
     Unicast = 1,
     Multicast = 2,

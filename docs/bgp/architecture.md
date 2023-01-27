@@ -1,7 +1,11 @@
 # Architecture of sartd-bgp
 
+## peer handling model
 ![model](model.drawio.svg)
 
+## rib handling model
+
+![rib-model](rib-model.svg)
 
 ## BGP Finite State Machine
 
@@ -26,22 +30,22 @@
   - mandatory
 - AutomaticStart
   - 3
-  - optional 
+  - optional
 - ManualStart_with_PassiveTcpEstablishment
   - 4
-  - optional 
+  - optional
 - AutomaticStart_with_PassiveTcpEstablishment
   - 5
-  - optional 
+  - optional
 - AutomaticStart_with_DampPeerOscillations
   - 6
-  - optional 
+  - optional
 - AutomaticStart_with_DampPeerOscillations_and_PassiveTcpEstablishment
   - 7
-  - optional 
+  - optional
 - AutomaticStop
   - 8
-  - optional 
+  - optional
 
 #### Timer Event
 
@@ -68,7 +72,7 @@
   - mandatory
 - Tcp_CR_Invalid
   - 15
-  - optional 
+  - optional
 - Tcp_CR_Acked
   - 16
   - mandatory
@@ -85,22 +89,22 @@
   - 19
   - mandatory
 - BGPOpen with DelayOpenTimer running
-  - 20 
-  - optional 
+  - 20
+  - optional
 - BGPHeaderErr
-  - 21 
+  - 21
   - mandatory
 - BGPOpenMsgErr
-  - 22 
+  - 22
   - mandatory
 - OpenCollisionDump
   - 23
-  - optional 
+  - optional
 - NotifMsgVerErr
   - 24
   - mandatory
 - NotifMsg
-  - 25 
+  - 25
   - mandatory
 - KeepAliveMsg
   - 26

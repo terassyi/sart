@@ -1,10 +1,7 @@
-use super::*;
 use core::task::{Context, Poll};
-use futures::io::Error;
 use std::io::{Read, Write};
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use std::cmp::min;
 use std::io;
 use std::pin::Pin;
 

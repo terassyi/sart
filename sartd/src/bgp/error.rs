@@ -38,6 +38,8 @@ pub(crate) enum Error {
     UndesiredMessage,
     #[error("peer error")]
     Peer(#[from] PeerError),
+    #[error("rib error")]
+    Rib(#[from] RibError),
 }
 
 // https://www.rfc-editor.org/rfc/rfc1771#section-6.1
@@ -153,6 +155,8 @@ pub(crate) enum ControlError {
     PeerAlreadyExists,
     #[error("invalid data")]
     InvalidData,
+    #[error("failed to send/recv channel")]
+    FailedToSendRecvChannel,
 }
 
 #[derive(Debug, Error)]
@@ -163,4 +167,24 @@ pub(crate) enum PeerError {
     FailedToSendMessage,
     #[error("peer is down")]
     Down,
+    #[error("duplicate connection")]
+    DuplicateConnection,
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum RibError {
+    #[error("invalid address family")]
+    InvalidAddressFamily,
+    #[error("address family is not set")]
+    AddressFamilyNotSet,
+    #[error("peer is already registered")]
+    PeerAlreadyRegistered,
+    #[error("loc-rib manager down")]
+    ManagerDown,
+    #[error("protocol is already registered in Loc-RIB")]
+    ProtocolIsAlreadyRegistered,
+    #[error("path not found")]
+    PathNotFound,
+    #[error("unhandlable event")]
+    UnhandlableEvent,
 }

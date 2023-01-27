@@ -2,16 +2,12 @@ use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use bytes::{Buf, BufMut, BytesMut};
-use ipnet::IpAdd;
-use serde_yaml::with;
 
 use crate::bgp::error::*;
 use crate::bgp::family::{AddressFamily, Afi};
 use crate::bgp::packet::prefix::Prefix;
 
-use super::capability::Capability;
-
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum Attribute {
     Origin(Base, u8),
     ASPath(Base, Vec<ASSegment>),
@@ -56,6 +52,9 @@ impl Attribute {
     pub const AS_SET: u8 = 1;
     pub const AS_SEQUENCE: u8 = 2;
 
+    pub const AS_TRANS: u32 = 23456;
+    pub const AS_2BYTES_LIMIT: u32 = u16::MAX as u32;
+
     pub fn is_transitive(&self) -> bool {
         self.get_base().is_transitive()
     }
@@ -70,6 +69,17 @@ impl Attribute {
 
     pub fn is_extended(&self) -> bool {
         self.get_base().is_extended()
+    }
+
+    pub fn is_recognized(&self) -> bool {
+        match self {
+            Self::Unsupported(_, _) => false,
+            _ => true,
+        }
+    }
+
+    pub fn set_partial(&mut self) {
+        self.get_base_mut().flag += Attribute::FLAG_PARTIAL;
     }
 
     fn get_base(&self) -> &Base {
@@ -89,6 +99,116 @@ impl Attribute {
             Self::AS4Aggregator(b, _, _) => b,
             Self::Unsupported(b, _) => b,
         }
+    }
+
+    fn get_base_mut(&mut self) -> &mut Base {
+        match self {
+            Self::Origin(b, _) => b,
+            Self::ASPath(b, _) => b,
+            Self::NextHop(b, _) => b,
+            Self::MultiExitDisc(b, _) => b,
+            Self::LocalPref(b, _) => b,
+            Self::AtomicAggregate(b) => b,
+            Self::Aggregator(b, _, _) => b,
+            Self::Communities(b, _) => b,
+            Self::ExtendedCommunities(b, _, _) => b,
+            Self::MPReachNLRI(b, _, _, _) => b,
+            Self::MPUnReachNLRI(b, _, _) => b,
+            Self::AS4Path(b, _) => b,
+            Self::AS4Aggregator(b, _, _) => b,
+            Self::Unsupported(b, _) => b,
+        }
+    }
+
+    pub fn new_origin(val: u8) -> Result<Attribute, Error> {
+        match val {
+            Attribute::ORIGIN_IGP | Attribute::ORIGIN_EGP | Attribute::ORIGIN_INCOMPLETE => {
+                Ok(Attribute::Origin(
+                    Base::new(Attribute::FLAG_TRANSITIVE, Attribute::ORIGIN),
+                    val,
+                ))
+            }
+            _ => Err(Error::UpdateMessage(
+                UpdateMessageError::InvalidOriginAttribute(val),
+            )),
+        }
+    }
+
+    pub fn new_nexthop(addr: Ipv4Addr) -> Attribute {
+        Attribute::NextHop(
+            Base::new(Attribute::FLAG_TRANSITIVE, Attribute::NEXT_HOP),
+            addr,
+        )
+    }
+
+    pub fn new_as_path(
+        as_sequence: Vec<u32>,
+        as_set: Vec<u32>,
+        extend: bool,
+    ) -> Result<Attribute, Error> {
+        let flag = if extend {
+            Attribute::FLAG_TRANSITIVE + Attribute::FLAG_EXTENDED
+        } else {
+            Attribute::FLAG_TRANSITIVE
+        };
+        let segments = match as_set.is_empty() {
+            false => vec![
+                ASSegment::new(Attribute::AS_SEQUENCE, as_sequence),
+                ASSegment::new(Attribute::AS_SET, as_set),
+            ],
+            true => vec![ASSegment::new(Attribute::AS_SEQUENCE, as_sequence)],
+        };
+        Ok(Attribute::ASPath(
+            Base::new(flag, Attribute::AS_PATH),
+            segments,
+        ))
+    }
+
+    pub fn new_as4_path(
+        as_sequence: Vec<u32>,
+        as_set: Vec<u32>,
+        extend: bool,
+    ) -> Result<Attribute, Error> {
+        let flag = if extend {
+            Attribute::FLAG_TRANSITIVE + Attribute::FLAG_OPTIONAL + Attribute::FLAG_EXTENDED
+        } else {
+            Attribute::FLAG_TRANSITIVE + Attribute::FLAG_OPTIONAL
+        };
+        let segments = match as_set.is_empty() {
+            false => vec![
+                ASSegment::new(Attribute::AS_SEQUENCE, as_sequence),
+                ASSegment::new(Attribute::AS_SET, as_set),
+            ],
+            true => vec![ASSegment::new(Attribute::AS_SEQUENCE, as_sequence)],
+        };
+        Ok(Attribute::AS4Path(
+            Base::new(flag, Attribute::AS4_PATH),
+            segments,
+        ))
+    }
+
+    pub fn new_mp_reach_nlri(
+        family: AddressFamily,
+        nexthops: Vec<IpAddr>,
+        prefixes: Vec<Prefix>,
+    ) -> Result<Attribute, Error> {
+        Ok(Attribute::MPReachNLRI(
+            Base::new(Attribute::FLAG_OPTIONAL, Attribute::MP_REACH_NLRI),
+            family,
+            nexthops,
+            prefixes,
+        ))
+    }
+
+    pub fn new_mp_unreach_nlri(
+        family: AddressFamily,
+        prefixes: Vec<Prefix>,
+    ) -> Result<Attribute, Error> {
+        Ok(Attribute::MPUnReachNLRI(
+            Base::new(Attribute::FLAG_OPTIONAL, Attribute::MP_UNREACH_NLRI),
+            family,
+            prefixes,
+        ))
     }
 
     pub fn code(&self) -> u8 {
@@ -151,9 +271,9 @@ impl Attribute {
                         segments: segs,
                     })
                 }
-                if segments.is_empty() {
-                    return Err(Error::UpdateMessage(UpdateMessageError::MalformedASPath));
-                }
+                // if segments.is_empty() {
+                // return Err(Error::UpdateMessage(UpdateMessageError::MalformedASPath));
+                // }
                 Ok(Self::ASPath(b, segments))
             }
             Self::NEXT_HOP => Ok(Self::NextHop(b, Ipv4Addr::from(data.get_u32()))), // validate whether next_hop value is correct
@@ -472,7 +592,7 @@ impl Into<u8> for Attribute {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct Base {
     flag: u8,
     code: u8,
@@ -487,16 +607,20 @@ impl Base {
         (self.flag & Attribute::FLAG_EXTENDED) != 0
     }
 
-    fn is_transitive(&self) -> bool {
+    pub fn is_transitive(&self) -> bool {
         (self.flag & Attribute::FLAG_TRANSITIVE) != 0
     }
 
-    fn is_optional(&self) -> bool {
+    pub fn is_optional(&self) -> bool {
         (self.flag & Attribute::FLAG_OPTIONAL) != 0
     }
 
     fn is_partial(&self) -> bool {
         (self.flag & Attribute::FLAG_PARTIAL) != 0
+    }
+
+    pub fn set_partial(&mut self) {
+        self.flag += Attribute::FLAG_PARTIAL;
     }
 
     fn validate_attribute_flag(&self) -> bool {
@@ -532,10 +656,19 @@ impl<'a> Into<u16> for &'a Base {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct ASSegment {
     pub segment_type: u8,
     pub segments: Vec<u32>,
+}
+
+impl ASSegment {
+    fn new(segment_type: u8, segments: Vec<u32>) -> Self {
+        Self {
+            segment_type,
+            segments,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -543,7 +676,6 @@ mod tests {
     use super::*;
     use crate::bgp::family::{AddressFamily, Afi, Safi};
     use bytes::BytesMut;
-    use ipnet::{IpNet, Ipv4Net, Ipv6Net};
     use rstest::rstest;
     use std::str::FromStr;
 
@@ -627,7 +759,7 @@ mod tests {
             Attribute::MPReachNLRI(
                 Base{flag: Attribute::FLAG_OPTIONAL, code: Attribute::MP_REACH_NLRI},
                 AddressFamily{afi: Afi::IPv6, safi: Safi::Unicast},
-                vec![IpAddr::V6(Ipv6Addr::from_str("2001:db8::1").unwrap()), IpAddr::V6(Ipv6Addr::from_str("fe80::c001:bff:fe7e:0").unwrap())], 
+                vec![IpAddr::V6(Ipv6Addr::from_str("2001:db8::1").unwrap()), IpAddr::V6(Ipv6Addr::from_str("fe80::c001:bff:fe7e:0").unwrap())],
                 vec![Prefix::new("2001:db8:1:2::/64".parse().unwrap(), None), Prefix::new("2001:db8:1:1::/64".parse().unwrap(), None), Prefix::new("2001:db8:1::/64".parse().unwrap(), None)]),
         ),
     )]
@@ -654,7 +786,7 @@ mod tests {
         case(Attribute::AS4Path(Base{flag: Attribute::FLAG_TRANSITIVE + Attribute::FLAG_EXTENDED + Attribute::FLAG_OPTIONAL, code: Attribute::AS4_PATH}, vec![ASSegment{segment_type: Attribute::AS_SEQUENCE, segments: vec![655200, 100]}]), false, false, vec![0xd0, 0x11, 0x00, 0x0a, 0x02, 0x02, 0x00, 0x09, 0xff, 0x60, 0x00, 0x00, 0x00, 0x64]),
         case(Attribute::MPReachNLRI(Base{flag: Attribute::FLAG_OPTIONAL, code: Attribute::MP_REACH_NLRI},
             AddressFamily{ afi: Afi::IPv6, safi: Safi::Unicast},
-            vec![IpAddr::V6(Ipv6Addr::from_str("2001:db8::1").unwrap()), IpAddr::V6(Ipv6Addr::from_str("fe80::c001:bff:fe7e:0").unwrap())], 
+            vec![IpAddr::V6(Ipv6Addr::from_str("2001:db8::1").unwrap()), IpAddr::V6(Ipv6Addr::from_str("fe80::c001:bff:fe7e:0").unwrap())],
             vec![Prefix::new("2001:db8:1:2::/64".parse().unwrap(), None), Prefix::new("2001:db8:1:1::/64".parse().unwrap(), None), Prefix::new("2001:db8:1::/64".parse().unwrap(), None)],
         ),
         false,

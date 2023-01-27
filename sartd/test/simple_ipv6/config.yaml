@@ -1,0 +1,10 @@
+rib_endpoint: "test"
+asn: 100
+router_id: 1.1.1.1
+neighbors:
+  - asn: 200
+    router_id: 2.2.2.2
+    address: "2001:db8:1::2"
+  - asn: 300
+    router_id: 3.3.3.3
+    address: "2001:db8:2::2"

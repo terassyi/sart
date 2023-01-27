@@ -1,7 +1,38 @@
 use crate::bgp::{capability::Capability, config::NeighborConfig};
-use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 use std::net::{IpAddr, Ipv4Addr};
-use std::sync::{Arc, Mutex};
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub(crate) struct NeighborPair {
+    pub addr: IpAddr,
+    pub asn: u32,
+    pub id: Ipv4Addr,
+}
+
+impl NeighborPair {
+    pub fn new(addr: IpAddr, asn: u32, id: Ipv4Addr) -> Self {
+        Self { addr, asn, id }
+    }
+}
+
+impl From<&NeighborConfig> for NeighborPair {
+    fn from(c: &NeighborConfig) -> Self {
+        Self {
+            addr: c.address,
+            asn: c.asn,
+            id: c.router_id,
+        }
+    }
+}
+
+impl From<&Neighbor> for NeighborPair {
+    fn from(n: &Neighbor) -> Self {
+        Self {
+            addr: n.get_addr(),
+            asn: n.get_asn(),
+            id: n.get_router_id(),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct Neighbor {

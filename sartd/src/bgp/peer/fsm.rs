@@ -1,7 +1,4 @@
-use crate::bgp::error::Error;
-use crate::bgp::event::{
-    AdministrativeEvent, BgpMessageEvent, Event, TcpConnectionEvent, TimerEvent,
-};
+use crate::bgp::event::Event;
 
 #[derive(Debug)]
 pub(crate) struct FiniteStateMachine {
@@ -26,7 +23,7 @@ impl FiniteStateMachine {
 					Event::AMDIN_MANUAL_START | Event::ADMIN_AUTOMATIC_START => State::Connect,
 					Event::ADMIN_AUTOMATIC_START_WITH_PASSIVE_TCP_ESTABLISHMENT |
 					Event::ADMIN_AUTOMATIC_START_WITH_DAMP_PEER_OSCILLATIONS |
-					Event::ADMIN_AUTOMATIC_START_WITH_DAMP_PEER_OSCILLATIONS_AND_PASSIVE_TCP_ESTABLISHMENT => State::Active,
+					Event::ADMIN_AUTOMATIC_START_WITH_DAMP_PEER_OSCILLATIONS_AND_PASSIVE_TCP_ESTABLISHMENT | Event::ADMIN_MANUAL_START_WITH_PASSIVE_TCP_ESTABLISHMENT => State::Active,
 					_ => current,
 				}
 			},

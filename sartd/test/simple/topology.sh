@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-set -x
+
 
 sudo ip netns del core || true
 sudo ip netns del spine1 || true

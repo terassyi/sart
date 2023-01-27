@@ -1,14 +1,15 @@
+use ipnet::IpNet;
 use tokio::net::TcpStream;
-
-use crate::bgp::error::Error;
-use std::convert::TryFrom;
-use std::convert::TryInto;
+use tokio::sync::mpsc::Sender;
 
 use super::config::NeighborConfig;
 use super::error::MessageHeaderError;
 use super::error::OpenMessageError;
 use super::error::UpdateMessageError;
+use super::family::AddressFamily;
 use super::packet::message::Message;
+use super::path::Path;
+use super::peer::neighbor::NeighborPair;
 
 #[derive(Debug)]
 pub(crate) enum Event {
@@ -72,7 +73,7 @@ impl Into<u8> for &Event {
 			Event::Connection(TcpConnectionEvent::TcpCRAcked(_)) => 16,
 			Event::Connection(TcpConnectionEvent::TcpConnectionConfirmed(_)) => 17,
 			Event::Connection(TcpConnectionEvent::TcpConnectionFail) => 18,
-			Event::Message(BgpMessageEvent::BgpOpen(_)) => 19,
+			Event::Message(BgpMessageEvent::BgpOpen { local_port: _, peer_port: _, msg: _ }) => 19,
 			Event::Message(BgpMessageEvent::BgpOpenWithDelayOpenTimerRunning) => 20,
 			Event::Message(BgpMessageEvent::BgpHeaderError(_)) => 21,
 			Event::Message(BgpMessageEvent::BgpOpenMsgErr(_)) => 22,
@@ -230,7 +231,11 @@ impl Into<u8> for TcpConnectionEvent {
 
 #[derive(Debug, Clone)]
 pub(crate) enum BgpMessageEvent {
-    BgpOpen(Message),
+    BgpOpen {
+        local_port: u16,
+        peer_port: u16,
+        msg: Message,
+    },
     #[allow(unused)]
     BgpOpenWithDelayOpenTimerRunning,
     BgpHeaderError(MessageHeaderError),
@@ -249,7 +254,11 @@ pub(crate) enum BgpMessageEvent {
 impl std::fmt::Display for BgpMessageEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BgpMessageEvent::BgpOpen(_) => write!(f, "Message_BGPOpen"),
+            BgpMessageEvent::BgpOpen {
+                local_port,
+                peer_port,
+                msg,
+            } => write!(f, "Message_BGPOpen"),
             BgpMessageEvent::BgpOpenWithDelayOpenTimerRunning => {
                 write!(f, "Message_BgpOpenWithDelayOpenTimerRunning")
             }
@@ -270,7 +279,11 @@ impl std::fmt::Display for BgpMessageEvent {
 impl Into<u8> for BgpMessageEvent {
     fn into(self) -> u8 {
         match self {
-            BgpMessageEvent::BgpOpen(_) => 19,
+            BgpMessageEvent::BgpOpen {
+                local_port,
+                peer_port,
+                msg,
+            } => 19,
             BgpMessageEvent::BgpOpenWithDelayOpenTimerRunning => 20,
             BgpMessageEvent::BgpHeaderError(_) => 21,
             BgpMessageEvent::BgpOpenMsgErr(_) => 22,
@@ -299,4 +312,17 @@ impl std::fmt::Display for ControlEvent {
             ControlEvent::Health => write!(f, "Health"),
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum RibEvent {
+    AddPeer {
+        neighbor: NeighborPair,
+        rib_event_tx: Sender<RibEvent>,
+    },
+    AddNetwork(Vec<IpNet>),
+    InstallPaths(NeighborPair, Vec<Path>),
+    DropPaths(NeighborPair, AddressFamily, Vec<(IpNet, u64)>),
+    Advertise(Vec<Path>),
+    Withdraw(Vec<IpNet>),
 }
