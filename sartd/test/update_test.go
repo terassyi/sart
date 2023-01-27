@@ -55,7 +55,7 @@ func testUpdate() {
 
 		By("starting sartd-bgp")
 		go func(context.Context) {
-			_, _, _, err := execInNetns("core", "../target/debug/sartd", "-f", "simple/config.yaml")
+			_, err := execInNetnsStd("core", "../target/debug/sartd", "-f", "simple/config.yaml")
 			Expect(err).NotTo(HaveOccurred())
 		}(ctx)
 

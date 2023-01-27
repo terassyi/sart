@@ -17,14 +17,26 @@ func execInNetns(ns string, args ...string) ([]byte, []byte, *os.Process, error)
 	outBuf := new(bytes.Buffer)
 	errBuf := new(bytes.Buffer)
 
-	// cmd.Stdout = outBuf
-	// cmd.Stderr = errBuf
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stdout
+	cmd.Stdout = outBuf
+	cmd.Stderr = errBuf
 
 	err := cmd.Run()
 
 	return outBuf.Bytes(), errBuf.Bytes(), cmd.Process, err
+}
+
+func execInNetnsStd(ns string, args ...string) (*os.Process, error) {
+	a := []string{"ip", "netns", "exec"}
+	a = append(a, ns)
+	a = append(a, args...)
+	cmd := exec.Command("sudo", a...)
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	err := cmd.Run()
+
+	return cmd.Process, err
 }
 
 func checkGobgpConfig(node string, asn uint32) error {
