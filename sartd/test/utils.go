@@ -50,6 +50,7 @@ func checkGobgpConfig(node string, asn uint32) error {
 	if err != nil {
 		return err
 	}
+	fmt.Println(nodeJson)
 	conf, ok := nodeJson[0]["conf"]
 	if !ok {
 		return fmt.Errorf("failed to get peer conf")
