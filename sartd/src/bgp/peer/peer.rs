@@ -458,7 +458,9 @@ impl Peer {
                                 MessageType::RouteRefresh => send_counter.lock().unwrap().route_refresh += 1,
                             };
                             tracing::info!(send_counter=?send_counter);
-                            sender.send(msg).await;
+                            if let Err(e) = sender.send(msg).await {
+                                tracing::error!(error=?e);
+                            }
                         }
                     }
                     // kill all tcp connections
@@ -1042,7 +1044,7 @@ impl Peer {
     // Event 25
     #[tracing::instrument(skip(self, msg))]
     async fn notification_msg(&mut self, msg: Message) -> Result<(), Error> {
-        let (code, subcode, data) = msg.to_notification()?;
+        let (code, subcode, _data) = msg.to_notification()?;
         let (peer_addr, peer_as) = {
             let conf = self.info.lock().unwrap();
             (
@@ -1544,12 +1546,6 @@ impl Connection {
         self.msg_tx
             .send(msg)
             .map_err(|_| Error::Peer(PeerError::FailedToSendMessage))?;
-        Ok(())
-    }
-
-    fn clear(&self) -> Result<(), Error> {
-        // if self.msg_tx.
-
         Ok(())
     }
 }

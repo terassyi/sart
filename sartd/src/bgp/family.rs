@@ -138,6 +138,6 @@ mod tests {
         case(&AddressFamily{afi: Afi::IPv6, safi: Safi::Multicast}, 0x00020002),
     )]
     fn works_address_family_into(input: &AddressFamily, expected: u32) {
-        assert_eq!(expected, input.into());
+        assert_eq!(expected, Into::<u32>::into(input));
     }
 }

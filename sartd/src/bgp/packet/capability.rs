@@ -113,7 +113,6 @@ impl Capability {
             Self::GracefulRestart(flag, time, families) => {
                 dst.put_u8(Self::GRACEFUL_RESTART);
                 dst.put_u8(2 + (families.len() * 4) as u8);
-                let a = (*flag as u16) << 12;
                 dst.put_u16(((*flag as u16) << 12) + (*time & 0x0fff));
                 for (family, fa) in families.iter() {
                     dst.put_u16(family.afi as u16);
@@ -147,7 +146,6 @@ impl Capability {
                 dst.put_slice(data);
                 Ok(())
             }
-            _ => Err(io::Error::from(io::ErrorKind::InvalidData)),
         }
     }
 

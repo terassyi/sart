@@ -735,11 +735,6 @@ mod tests {
     use super::{LocRib, LocRibStatus, RibManager, Table};
 
     #[test]
-    fn works_table() {
-        let mut table = Table::new();
-    }
-
-    #[test]
     fn works_rib_manager_add_peer() {
         let mut manager = RibManager::new(
             100,

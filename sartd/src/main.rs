@@ -2,18 +2,15 @@ pub(crate) mod bgp;
 pub(crate) mod proto;
 
 use std::{net::Ipv4Addr, str::FromStr};
-use tracing::Level;
-use tracing_subscriber;
+use tracing::{Level};
+use tracing_subscriber::{self};
 
 use crate::bgp::config::Config;
 use crate::bgp::server;
 use clap::{App, Arg};
 
 fn main() -> Result<(), std::io::Error> {
-    tracing_subscriber::fmt()
-        .with_max_level(Level::DEBUG)
-        .init();
-    // tracing::subscriber::set_global_default(subscriber).expect("failed to initialize logger");
+
     let app = App::new("sartd-bgp")
         .version("v0.0.1")
         .arg(
@@ -48,6 +45,23 @@ fn main() -> Result<(), std::io::Error> {
                 .required(false)
                 .help("router-id(IPv4 address format"),
         )
+        .arg(
+            Arg::with_name("log_level")
+                .short('l')
+                .long("log-level")
+                .takes_value(true)
+                .required(false)
+                .default_value("info")
+                .help("log-level(error,warn,info,debug,trace)"),
+        )
+        .arg(
+            Arg::with_name("format")
+                .long("format")
+                .takes_value(true)
+                .required(false)
+                .default_value("plain")
+                .help("log fotmat(plain,json"),
+        )
         .get_matches();
     let conf = if let Some(file) = app.value_of("config") {
         let mut conf = Config::load(file).expect("failed to load config");
@@ -76,6 +90,24 @@ fn main() -> Result<(), std::io::Error> {
         }
         conf
     };
+
+    let level = app.value_of("log_level").unwrap();
+    let format = app.value_of("format").unwrap();
+    prepare_tracing(level, format);
+
     server::start(conf);
     Ok(())
+}
+
+fn prepare_tracing(level: &str, format: &str) {
+    if format == "json" {
+        tracing_subscriber::fmt()
+            .with_max_level(Level::from_str(level).unwrap())
+            .json()
+            .init();
+    } else {
+        tracing_subscriber::fmt()
+            .with_max_level(Level::from_str(level).unwrap())
+            .init();
+    }
 }

@@ -517,7 +517,6 @@ impl Attribute {
                 dst.put_slice(data);
                 Ok(())
             }
-            _ => Err(io::Error::from(io::ErrorKind::InvalidData)),
         }
     }
 
@@ -549,7 +548,7 @@ impl Attribute {
             }
             Self::Communities(_, _) => 4,
             Self::ExtendedCommunities(_, _, _) => 8,
-            Self::MPReachNLRI(_, family, next_hops, prefixes) => {
+            Self::MPReachNLRI(_, _, next_hops, prefixes) => {
                 let length = next_hops.iter().fold(5, |l, next_hop| match next_hop {
                     IpAddr::V4(_) => l + 4,
                     IpAddr::V6(_) => l + 16,
@@ -704,7 +703,7 @@ mod tests {
     #[rstest(
 		input,
         as4_enabled,
-        add_path_enabled,
+        _add_path_enabled,
 		expected,
 		case(vec![0x40, 0x02, 0x04, 0x02, 0x01, 0xfd, 0xe9], false, false, Attribute::ASPath(Base{flag: Attribute::FLAG_TRANSITIVE, code: Attribute::AS_PATH}, vec![ASSegment{segment_type: Attribute::AS_SEQUENCE, segments: vec![65001]}])),
 		case(vec![0x40, 0x02, 0x06, 0x02, 0x02, 0x5b, 0xa0, 0x5b, 0xa0], false, false, Attribute::ASPath(Base{flag: Attribute::FLAG_TRANSITIVE, code: Attribute::AS_PATH}, vec![ASSegment{segment_type: Attribute::AS_SEQUENCE, segments: vec![23456, 23456]}])),
@@ -717,7 +716,7 @@ mod tests {
     fn works_attribute_decode_as_path(
         input: Vec<u8>,
         as4_enabled: bool,
-        add_path_enabled: bool,
+        _add_path_enabled: bool,
         expected: Attribute,
     ) {
         let mut buf = BytesMut::from(input.as_slice());

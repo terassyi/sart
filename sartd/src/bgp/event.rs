@@ -255,9 +255,9 @@ impl std::fmt::Display for BgpMessageEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             BgpMessageEvent::BgpOpen {
-                local_port,
-                peer_port,
-                msg,
+                local_port: _,
+                peer_port: _,
+                msg: _,
             } => write!(f, "Message_BGPOpen"),
             BgpMessageEvent::BgpOpenWithDelayOpenTimerRunning => {
                 write!(f, "Message_BgpOpenWithDelayOpenTimerRunning")
@@ -280,9 +280,9 @@ impl Into<u8> for BgpMessageEvent {
     fn into(self) -> u8 {
         match self {
             BgpMessageEvent::BgpOpen {
-                local_port,
-                peer_port,
-                msg,
+                local_port: _,
+                peer_port: _,
+                msg: _,
             } => 19,
             BgpMessageEvent::BgpOpenWithDelayOpenTimerRunning => 20,
             BgpMessageEvent::BgpHeaderError(_) => 21,

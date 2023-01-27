@@ -89,9 +89,6 @@ pub(crate) enum State {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bgp::event::{
-        AdministrativeEvent, BgpMessageEvent, Event, TcpConnectionEvent, TimerEvent,
-    };
     use rstest::rstest;
     #[rstest(
 		init,

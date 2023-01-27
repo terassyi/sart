@@ -55,24 +55,24 @@ impl Message {
     pub fn msg_type(&self) -> MessageType {
         match &self {
             Self::Open {
-                version,
-                as_num,
-                hold_time,
-                identifier,
-                capabilities,
+                version: _,
+                as_num: _,
+                hold_time: _,
+                identifier: _,
+                capabilities: _,
             } => MessageType::Open,
             Self::Update {
-                withdrawn_routes,
-                attributes,
-                nlri,
+                withdrawn_routes: _,
+                attributes: _,
+                nlri: _,
             } => MessageType::Update,
             Self::Keepalive => MessageType::Keepalive,
             Self::Notification {
-                code,
-                subcode,
-                data,
+                code: _,
+                subcode: _,
+                data: _,
             } => MessageType::Notification,
-            Self::RouteRefresh { family } => MessageType::RouteRefresh,
+            Self::RouteRefresh { family: _ } => MessageType::RouteRefresh,
         }
     }
 
@@ -379,14 +379,6 @@ impl MessageBuilder {
         }
     }
 
-    pub fn version(&mut self, version: u8) -> Result<&mut Self, Error> {
-        if self.msg_type != MessageType::Open {
-            return Err(Error::InvalidMessageField);
-        }
-        self.version = version;
-        Ok(self)
-    }
-
     pub fn asn(&mut self, asn: u32) -> Result<&mut Self, Error> {
         if self.msg_type != MessageType::Open {
             return Err(Error::InvalidMessageField);
@@ -481,24 +473,24 @@ impl MessageBuilder {
 pub(crate) fn validate(msg: &Message) -> Result<(), Error> {
     match &msg {
         Message::Open {
-            version,
-            as_num,
-            hold_time,
-            identifier,
-            capabilities,
+            version: _,
+            as_num: _,
+            hold_time: _,
+            identifier: _,
+            capabilities: _,
         } => {}
         Message::Update {
-            withdrawn_routes,
-            attributes,
-            nlri,
+            withdrawn_routes: _,
+            attributes: _,
+            nlri: _,
         } => {}
         Message::Keepalive => {}
         Message::Notification {
-            code,
-            subcode,
-            data,
+            code: _,
+            subcode: _,
+            data: _,
         } => {}
-        Message::RouteRefresh { family } => {}
+        Message::RouteRefresh { family: _ } => {}
     }
     Ok(())
 }

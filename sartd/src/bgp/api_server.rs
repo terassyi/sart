@@ -26,7 +26,7 @@ impl ApiServer {
 
 #[tonic::async_trait]
 impl BgpApi for ApiServer {
-    async fn health(&self, req: Request<HealthRequest>) -> Result<Response<()>, Status> {
+    async fn health(&self, _req: Request<HealthRequest>) -> Result<Response<()>, Status> {
         self.tx.send(ControlEvent::Health).await.unwrap();
         self.signal.notified().await;
         Ok(Response::new(()))

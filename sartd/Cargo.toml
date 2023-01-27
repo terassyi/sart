@@ -24,7 +24,7 @@ tonic = "0.8.2"
 prost = "*"
 tonic-reflection = "0.5.0"
 tracing = "0.1.37"
-tracing-subscriber = "0.3.16"
+tracing-subscriber = { version = "0.3.16", features = ["json"] }
 
 [build-dependencies]
 tonic-build = {version = "0.8.2", features = ["prost"]}
