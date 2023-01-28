@@ -20,11 +20,16 @@ bytes = "1.2"
 byteorder = "1.4"
 ipnet = "2.5.0"
 socket2 = "0.4.7"
-tonic = "0.8.2"
+tonic = "0.8.3"
 prost = "*"
 tonic-reflection = "0.5.0"
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.16", features = ["json"] }
+tracing-futures = "0.2.5"
+tracing-opentelemetry = { version = "0.18.0", default-features = false, features = ["tracing-log", "metrics"] }
+opentelemetry = { version = "0.18.0", default-features = false, features = ["trace", "rt-tokio", "metrics"] }
+opentelemetry-otlp = { version = "0.11.0", default-features = false, features = ["grpc-tonic", "trace", "metrics"] }
+opentelemetry_sdk = "0.18.0"
 
 [build-dependencies]
-tonic-build = {version = "0.8.2", features = ["prost"]}
+tonic-build = {version = "0.8.4", features = ["prost"]}

@@ -70,6 +70,7 @@ impl AdjRib {
         }
     }
 
+    #[tracing::instrument(skip(self, prefix,path), fields(prefix=prefix.to_string(), path_id=path.id))]
     pub fn insert(
         &mut self,
         family: &AddressFamily,
@@ -174,7 +175,7 @@ impl LocRib {
         }
     }
 
-    #[tracing::instrument(skip(self, family, path))]
+    #[tracing::instrument(skip(self, family, path), fields(prefix=path.prefix().to_string(),path_id=path.id))]
     fn insert(&mut self, family: &AddressFamily, path: &mut Path) -> Result<LocRibStatus, Error> {
         let prefix = path.prefix.clone();
         let table = self
@@ -215,7 +216,7 @@ impl LocRib {
                     }
                 }
                 if reason != BestPathReason::NotBest {
-                    tracing::info!(reason=?reason,prefix=?prefix,path_id=path.id,"Best path is decided");
+                    tracing::info!(reason=?reason,"Best path is decided");
                     break;
                 }
                 idx += 1;
@@ -235,6 +236,7 @@ impl LocRib {
                     }
 
                     paths.insert(idx, path.clone());
+                    tracing::info!("best path is changed");
                     return Ok(LocRibStatus::BestPathChanged(prefix, path.id));
                 } else if best_idx + 1 == idx {
                     if path.is_equal_cost(&paths[best_idx]) {
@@ -262,6 +264,7 @@ impl LocRib {
                     paths[0].reason = BestPathReason::NotBest;
 
                     paths.insert(idx, path.clone());
+                    tracing::info!("best path is changed");
                     return Ok(LocRibStatus::BestPathChanged(prefix, path.id));
                 }
             }
@@ -279,6 +282,7 @@ impl LocRib {
         Ok(LocRibStatus::NotChanged)
     }
 
+    #[tracing::instrument(skip(self, family, prefix), fields(prefix=prefix.to_string(),path_id=id))]
     fn drop(
         &mut self,
         family: &AddressFamily,
@@ -399,7 +403,7 @@ impl RibManager {
 
     #[tracing::instrument(skip(self, event))]
     pub async fn handle(&mut self, event: RibEvent) -> Result<(), Error> {
-        tracing::info!(level="rib",event=?event);
+        tracing::info!(event=%event);
         match event {
             RibEvent::AddPeer {
                 neighbor,
@@ -430,7 +434,7 @@ impl RibManager {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip(self, neighbor, paths), fields(peer.asn=neighbor.asn,peer.addr=neighbor.addr.to_string(),peer.id=neighbor.id.to_string()))]
     async fn install_paths(
         &mut self,
         neighbor: NeighborPair,
@@ -491,7 +495,7 @@ impl RibManager {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip(self, neighbor), fields(peer.asn=neighbor.asn,peer.addr=neighbor.addr.to_string(),peer.id=neighbor.id.to_string()))]
     async fn drop_paths(
         &mut self,
         neighbor: NeighborPair,
@@ -503,15 +507,15 @@ impl RibManager {
         for (prefix, path_id) in path_ids.iter() {
             match self.loc_rib.drop(&family, prefix, *path_id)? {
                 LocRibStatus::BestPathChanged(prefix, id) => {
-                    tracing::info!(family=?family,prefix=?prefix,path_id=id,"best path changed");
+                    tracing::info!(new_best_id = id, "best path changed");
                     advertise_prefixes.push((prefix, id));
                 }
-                LocRibStatus::MultiPathWithdrawn(prefix, id) => {
-                    tracing::info!(family=?family,prefix=?prefix,"multiple best paths withdrawn");
+                LocRibStatus::MultiPathWithdrawn(_prefix, _id) => {
+                    tracing::info!("multiple best paths withdrawn");
                 }
                 LocRibStatus::Withdrawn(prefix, kind) => {
                     withdraw_prefixes.push((prefix, kind));
-                    tracing::info!(family=?family,prefix=?prefix,"all path are withdrawn");
+                    tracing::info!(path_kind=?kind,"all path are withdrawn");
                 }
                 _ => {}
             }

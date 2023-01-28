@@ -1,16 +1,19 @@
 pub(crate) mod bgp;
 pub(crate) mod proto;
 
+use bgp::config::TraceConfig;
 use std::{net::Ipv4Addr, str::FromStr};
-use tracing::{Level};
-use tracing_subscriber::{self};
+use tracing::Level;
+use tracing_subscriber;
+
+use opentelemetry::sdk::metrics::controllers::BasicController;
+use opentelemetry_otlp::WithExportConfig;
 
 use crate::bgp::config::Config;
 use crate::bgp::server;
 use clap::{App, Arg};
 
 fn main() -> Result<(), std::io::Error> {
-
     let app = App::new("sartd-bgp")
         .version("v0.0.1")
         .arg(
@@ -93,21 +96,13 @@ fn main() -> Result<(), std::io::Error> {
 
     let level = app.value_of("log_level").unwrap();
     let format = app.value_of("format").unwrap();
-    prepare_tracing(level, format);
 
-    server::start(conf);
+    let trace_config = TraceConfig {
+        level: level.to_string(),
+        format: format.to_string(),
+        metrics_endpoint: None,
+    };
+
+    server::start(conf, trace_config);
     Ok(())
-}
-
-fn prepare_tracing(level: &str, format: &str) {
-    if format == "json" {
-        tracing_subscriber::fmt()
-            .with_max_level(Level::from_str(level).unwrap())
-            .json()
-            .init();
-    } else {
-        tracing_subscriber::fmt()
-            .with_max_level(Level::from_str(level).unwrap())
-            .init();
-    }
 }
