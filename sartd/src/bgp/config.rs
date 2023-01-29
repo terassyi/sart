@@ -84,3 +84,10 @@ neighbors:
         assert_eq!(Ipv4Addr::new(1, 1, 1, 1), conf.router_id);
     }
 }
+
+#[derive(Debug)]
+pub(crate) struct TraceConfig {
+    pub level: String,
+    pub format: String,
+    pub metrics_endpoint: Option<String>,
+}

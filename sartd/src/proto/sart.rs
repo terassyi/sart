@@ -1,97 +1,108 @@
+#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct HealthRequest {
-}
+pub struct HealthRequest {}
+#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct BgpShowRequest {
-}
+pub struct BgpShowRequest {}
+#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BgpShowResponse {
-    #[prost(int32, tag="1")]
+    #[prost(int32, tag = "1")]
     pub r#as: i32,
-    #[prost(int32, tag="2")]
+    #[prost(int32, tag = "2")]
     pub port: i32,
-    #[prost(string, tag="3")]
+    #[prost(string, tag = "3")]
     pub router_id: ::prost::alloc::string::String,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct BgpShowRouteRequest {
-}
+pub struct BgpShowRouteRequest {}
+#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BgpShowRouteResponse {
-    #[prost(message, repeated, tag="1")]
+    #[prost(message, repeated, tag = "1")]
     pub routes: ::prost::alloc::vec::Vec<BgpRoute>,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BgpRoute {
-    #[prost(string, tag="1")]
+    #[prost(string, tag = "1")]
     pub network: ::prost::alloc::string::String,
-    #[prost(string, tag="2")]
+    #[prost(string, tag = "2")]
     pub nexthop: ::prost::alloc::string::String,
-    #[prost(int32, tag="3")]
+    #[prost(int32, tag = "3")]
     pub metric: i32,
-    #[prost(int32, tag="4")]
+    #[prost(int32, tag = "4")]
     pub local_pref: i32,
     /// optional int32 weight = 5;
-    #[prost(int32, repeated, tag="5")]
+    #[prost(int32, repeated, tag = "5")]
     pub path: ::prost::alloc::vec::Vec<i32>,
-    #[prost(bool, tag="6")]
+    #[prost(bool, tag = "6")]
     pub best: bool,
-    #[prost(string, tag="7")]
+    #[prost(string, tag = "7")]
     pub reason: ::prost::alloc::string::String,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct NeighborInfo {
-    #[prost(uint32, tag="1")]
+    #[prost(uint32, tag = "1")]
     pub r#as: u32,
-    #[prost(string, tag="2")]
+    #[prost(string, tag = "2")]
     pub address: ::prost::alloc::string::String,
-    #[prost(uint32, tag="3")]
+    #[prost(uint32, tag = "3")]
     pub port: u32,
-    #[prost(string, tag="4")]
+    #[prost(string, tag = "4")]
     pub router_id: ::prost::alloc::string::String,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetNeighborRequest {
-    #[prost(uint32, tag="1")]
+    #[prost(uint32, tag = "1")]
     pub r#as: u32,
-    #[prost(string, tag="2")]
+    #[prost(string, tag = "2")]
     pub peer_address: ::prost::alloc::string::String,
-    #[prost(string, tag="3")]
+    #[prost(string, tag = "3")]
     pub router_id: ::prost::alloc::string::String,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetNeighborResponse {
-    #[prost(message, optional, tag="1")]
+    #[prost(message, optional, tag = "1")]
     pub neighbor: ::core::option::Option<NeighborInfo>,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ListNeighborRequest {
-}
+pub struct ListNeighborRequest {}
+#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListNeighborResponse {
-    #[prost(message, repeated, tag="1")]
+    #[prost(message, repeated, tag = "1")]
     pub neighbors: ::prost::alloc::vec::Vec<NeighborInfo>,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SetAsRequest {
-    #[prost(int32, tag="1")]
+    #[prost(int32, tag = "1")]
     pub r#as: i32,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RemoteAsRequest {
-    #[prost(string, tag="1")]
+    #[prost(string, tag = "1")]
     pub addr: ::prost::alloc::string::String,
-    #[prost(int32, tag="2")]
+    #[prost(int32, tag = "2")]
     pub r#as: i32,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RouterIdRequest {
-    #[prost(string, tag="1")]
+    #[prost(string, tag = "1")]
     pub router_id: ::prost::alloc::string::String,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct NetworkRequest {
-    #[prost(string, tag="1")]
+    #[prost(string, tag = "1")]
     pub prefix: ::prost::alloc::string::String,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
@@ -204,7 +215,7 @@ pub mod bgp_api_client {
 pub mod bgp_api_server {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
-    ///Generated trait containing gRPC methods that should be implemented for use with BgpApiServer.
+    /// Generated trait containing gRPC methods that should be implemented for use with BgpApiServer.
     #[async_trait]
     pub trait BgpApi: Send + Sync + 'static {
         async fn health(

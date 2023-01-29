@@ -1,19 +1,26 @@
 use futures::stream::FuturesUnordered;
 use futures::{FutureExt, StreamExt};
+use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::metrics::controllers::BasicController;
 use socket2::{Domain, Socket, TcpKeepalive, Type};
 use std::collections::HashMap;
 use std::io;
 use std::net::{IpAddr, SocketAddr};
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::mpsc::{channel, Sender, UnboundedSender};
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
+use tokio::net::TcpListener;
+use tokio::sync::mpsc::unbounded_channel;
+use tokio::sync::mpsc::{channel, Sender};
 use tokio::sync::Notify;
 use tokio::time::{interval_at, Instant};
 use tokio_stream::wrappers::TcpListenerStream;
 use tonic::transport::Server;
 use tonic_reflection::server::Builder;
+use tracing::Level;
+use tracing_futures::Instrument;
+use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 use crate::bgp::api_server::api;
 use crate::bgp::api_server::ApiServer;
@@ -25,7 +32,7 @@ use crate::bgp::peer::fsm::State;
 use crate::proto::sart::bgp_api_server::BgpApiServer;
 
 use super::capability::CapabilitySet;
-use super::config::NeighborConfig;
+use super::config::{NeighborConfig, TraceConfig};
 use super::error::{ControlError, PeerError, RibError};
 use super::event::{AdministrativeEvent, ControlEvent, Event, RibEvent};
 use super::family::AddressFamily;
@@ -41,8 +48,6 @@ pub(crate) struct Bgp {
     families: Vec<AddressFamily>,
     api_server_port: u16,
     connect_retry_time: u64,
-    active_conn_rx: UnboundedReceiver<TcpStream>,
-    active_conn_tx: UnboundedSender<TcpStream>,
     event_signal: Arc<Notify>,
     rib_event_tx: Sender<RibEvent>,
 }
@@ -55,8 +60,6 @@ impl Bgp {
     const API_SERVER_PORT: u16 = 5000;
 
     pub fn new(conf: Config, rib_event_tx: Sender<RibEvent>) -> Self {
-        let (active_conn_tx, mut active_conn_rx) =
-            tokio::sync::mpsc::unbounded_channel::<TcpStream>();
         let asn = conf.asn;
         Self {
             config: Arc::new(Mutex::new(conf)),
@@ -66,16 +69,15 @@ impl Bgp {
             connect_retry_time: Self::DEFAULT_CONNECT_RETRY_TIME,
             api_server_port: Self::API_SERVER_PORT,
             event_signal: Arc::new(Notify::new()),
-            active_conn_rx,
-            active_conn_tx,
             rib_event_tx,
         }
     }
 
-    #[tracing::instrument(skip(conf))]
-    pub async fn serve(conf: Config) {
-        let rib_endpoint_conf = conf.rib_endpoint.clone();
+    pub async fn serve(conf: Config, trace: TraceConfig) {
+        prepare_tracing(trace);
+        let _enter = tracing::info_span!("bgp").entered();
 
+        let rib_endpoint_conf = conf.rib_endpoint.clone();
         let (rib_event_tx, mut rib_event_rx) = channel::<RibEvent>(128);
         let mut rib_manager = RibManager::new(
             conf.asn,
@@ -132,7 +134,6 @@ impl Bgp {
         let init_event: Vec<ControlEvent> = { server.config.lock().unwrap().get_control_event() };
 
         for e in init_event.into_iter() {
-            tracing::info!(level="global",event=?e);
             init_tx.send(e).await.unwrap();
         }
 
@@ -155,7 +156,7 @@ impl Bgp {
                                 }
                             },
                             Err(e) => {
-                                tracing::error!("failed to establish the passive connection: {:?}", e);
+                                tracing::error!(error=?e,"failed to establish the passive connection");
                             }
                         };
                     }
@@ -164,15 +165,17 @@ impl Bgp {
                     if let Some(event) = event {
                         match server.handle_event(event).await {
                             Ok(_) => {},
-                            Err(e) => tracing::error!(level="global",error=?e),
+                            Err(e) => tracing::error!(error=?e,"failed to handle a control event"),
                         };
                     }
                 }
                 rib_event = rib_event_rx.recv().fuse() => {
                     if let Some(rib_event) = rib_event {
-                        match rib_manager.handle(rib_event).await {
+                        match rib_manager.handle(rib_event)
+                            .instrument(tracing::info_span!("rib"))
+                            .await {
                             Ok(_) => {},
-                            Err(e) => tracing::error!(level="global",error=?e),
+                            Err(e) => tracing::error!(error=?e,"failed to handle a rib event"),
                         }
                     }
                 }
@@ -191,17 +194,18 @@ impl Bgp {
 
     #[tracing::instrument(skip(self, event))]
     async fn handle_event(&mut self, event: ControlEvent) -> Result<(), Error> {
-        tracing::info!(level="global", event=%event);
+        tracing::info!(event=%event);
         match event {
             ControlEvent::Health => {}
             ControlEvent::AddPeer(neighbor) => {
-                self.add_peer(neighbor).await?;
+                self.add_peer(neighbor).in_current_span().await?;
             }
         }
         self.event_signal.notify_one();
         Ok(())
     }
 
+    #[tracing::instrument(skip(self, neighbor), fields(peer.asn = neighbor.asn, peer.addr = neighbor.address.to_string(), peer.id = neighbor.router_id.to_string()))]
     async fn add_peer(&mut self, neighbor: NeighborConfig) -> Result<(), Error> {
         if let Some(_) = self.peer_managers.get(&neighbor.address) {
             return Err(Error::Control(ControlError::PeerAlreadyExists));
@@ -228,7 +232,7 @@ impl Bgp {
             })
             .await
             .map_err(|e| {
-                tracing::error!(level="peer",error=?e);
+                tracing::error!(error=?e);
                 Error::Rib(RibError::ManagerDown)
             })?;
 
@@ -243,8 +247,16 @@ impl Bgp {
 
         // start to handle peer event.
         tokio::spawn(async move {
-            peer.handle().await;
+            peer.handle()
+                .instrument(tracing::info_span!(
+                    "peer",
+                    peer.asn = neighbor.asn,
+                    peer.addr = neighbor.address.to_string(),
+                    peer.id = neighbor.router_id.to_string(),
+                ))
+                .await;
         });
+        tracing::debug!("start a peer handling loop");
 
         if let Some(manager) = self.peer_managers.get(&neighbor.address) {
             let start_event = if let Some(passive) = neighbor.passive {
@@ -261,20 +273,6 @@ impl Bgp {
                 .event_tx
                 .send(Event::Admin(start_event))
                 .map_err(|_| Error::Peer(PeerError::Down))?;
-
-            // start to connect to the remote peer
-            if let Some(passive) = neighbor.passive {
-                if passive {
-                    tracing::info!(
-                        level = "peer",
-                        "don't start to connect, because of passive open"
-                    );
-                    return Ok(());
-                }
-            }
-            let active_conn_tx = self.active_conn_tx.clone();
-            let event_tx = manager.event_tx.clone();
-            let connect_retry_time = self.connect_retry_time;
         }
         Ok(())
     }
@@ -308,10 +306,90 @@ fn create_tcp_listener(addr: String, port: u16, proto: Afi) -> io::Result<std::n
     Ok(sock.into())
 }
 
-pub(crate) fn start(conf: Config) {
+pub(crate) fn start(conf: Config, trace: TraceConfig) {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap()
-        .block_on(Bgp::serve(conf));
+        .block_on(Bgp::serve(conf, trace));
+}
+
+fn prepare_tracing(conf: TraceConfig) {
+    // Configure otel exporter.
+    if let Some(endpoint) = conf.metrics_endpoint {
+        let tracer = opentelemetry_otlp::new_pipeline()
+            .tracing()
+            .with_exporter(
+                opentelemetry_otlp::new_exporter()
+                    .tonic()
+                    .with_endpoint(&endpoint),
+            )
+            .with_trace_config(
+                opentelemetry::sdk::trace::config()
+                    .with_sampler(opentelemetry::sdk::trace::Sampler::AlwaysOn)
+                    .with_id_generator(opentelemetry::sdk::trace::RandomIdGenerator::default())
+                    .with_resource(opentelemetry::sdk::Resource::new(vec![
+                        opentelemetry::KeyValue::new("service.name", "sartd-bgp"),
+                    ])),
+            )
+            .install_batch(opentelemetry::runtime::Tokio)
+            .expect("Not running in tokio runtime");
+
+        // Compatible layer with tracing.
+        let otel_trace_layer = tracing_opentelemetry::layer().with_tracer(tracer);
+        let otel_metrics_layer =
+            tracing_opentelemetry::MetricsLayer::new(build_metrics_controller(&endpoint));
+
+        if conf.format == "json" {
+            tracing_subscriber::Registry::default()
+                .with(otel_trace_layer)
+                .with(otel_metrics_layer)
+                .with(
+                    tracing_subscriber::fmt::Layer::new()
+                        .with_ansi(false)
+                        .json(),
+                )
+                .with(tracing_subscriber::filter::LevelFilter::from_str(&conf.level).unwrap())
+                .init();
+        } else {
+            tracing_subscriber::Registry::default()
+                .with(otel_trace_layer)
+                .with(otel_metrics_layer)
+                .with(
+                    tracing_subscriber::fmt::Layer::new()
+                        .with_ansi(false)
+                        .json(),
+                )
+                // .with(Level::from_str(level).unwrap())
+                .with(tracing_subscriber::filter::LevelFilter::from_str(&conf.level).unwrap())
+                .init();
+        };
+    } else {
+        if conf.format == "json" {
+            tracing_subscriber::fmt()
+                .with_max_level(Level::from_str(&conf.level).unwrap())
+                .json()
+                .init();
+        } else {
+            tracing_subscriber::fmt()
+                .with_max_level(Level::from_str(&conf.level).unwrap())
+                .init();
+        };
+    }
+}
+
+fn build_metrics_controller(metrics_endpoint: &str) -> BasicController {
+    opentelemetry_otlp::new_pipeline()
+        .metrics(
+            opentelemetry::sdk::metrics::selectors::simple::histogram(Vec::new()),
+            opentelemetry::sdk::export::metrics::aggregation::cumulative_temporality_selector(),
+            opentelemetry::runtime::Tokio,
+        )
+        .with_exporter(
+            opentelemetry_otlp::new_exporter()
+                .tonic()
+                .with_endpoint(metrics_endpoint),
+        )
+        .build()
+        .expect("Failed to build metrics controller")
 }

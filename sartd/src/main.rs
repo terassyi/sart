@@ -1,19 +1,19 @@
 pub(crate) mod bgp;
 pub(crate) mod proto;
 
+use bgp::config::TraceConfig;
 use std::{net::Ipv4Addr, str::FromStr};
 use tracing::Level;
 use tracing_subscriber;
+
+use opentelemetry::sdk::metrics::controllers::BasicController;
+use opentelemetry_otlp::WithExportConfig;
 
 use crate::bgp::config::Config;
 use crate::bgp::server;
 use clap::{App, Arg};
 
 fn main() -> Result<(), std::io::Error> {
-    tracing_subscriber::fmt()
-        .with_max_level(Level::DEBUG)
-        .init();
-    // tracing::subscriber::set_global_default(subscriber).expect("failed to initialize logger");
     let app = App::new("sartd-bgp")
         .version("v0.0.1")
         .arg(
@@ -48,6 +48,23 @@ fn main() -> Result<(), std::io::Error> {
                 .required(false)
                 .help("router-id(IPv4 address format"),
         )
+        .arg(
+            Arg::with_name("log_level")
+                .short('l')
+                .long("log-level")
+                .takes_value(true)
+                .required(false)
+                .default_value("info")
+                .help("log-level(error,warn,info,debug,trace)"),
+        )
+        .arg(
+            Arg::with_name("format")
+                .long("format")
+                .takes_value(true)
+                .required(false)
+                .default_value("plain")
+                .help("log fotmat(plain,json"),
+        )
         .get_matches();
     let conf = if let Some(file) = app.value_of("config") {
         let mut conf = Config::load(file).expect("failed to load config");
@@ -76,6 +93,16 @@ fn main() -> Result<(), std::io::Error> {
         }
         conf
     };
-    server::start(conf);
+
+    let level = app.value_of("log_level").unwrap();
+    let format = app.value_of("format").unwrap();
+
+    let trace_config = TraceConfig {
+        level: level.to_string(),
+        format: format.to_string(),
+        metrics_endpoint: None,
+    };
+
+    server::start(conf, trace_config);
     Ok(())
 }

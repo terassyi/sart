@@ -47,16 +47,16 @@ impl AsyncWrite for MockTcpStream {
     fn poll_write(
         self: Pin<&mut Self>,
         _: &mut Context<'_>,
-        buf: &[u8],
+        _buf: &[u8],
     ) -> Poll<Result<usize, io::Error>> {
         Poll::Ready(Ok(self.data.len()))
     }
 
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
         todo!()
     }
 
-    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
         todo!()
     }
 }

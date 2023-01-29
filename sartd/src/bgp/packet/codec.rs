@@ -314,15 +314,14 @@ mod tests {
     use crate::bgp::packet::mock::MockTcpStream;
     use crate::bgp::packet::prefix::Prefix;
     use bytes::BytesMut;
-    use ipnet::{IpNet, Ipv4Net, Ipv6Net};
+    use ipnet::{IpNet, Ipv4Net};
     use rstest::rstest;
     use std::env;
-    use std::io::{Read, Write};
+    use std::io::Read;
     use std::net::{IpAddr, Ipv4Addr};
-    use tokio::fs::File;
     use tokio_stream::StreamExt;
+    use tokio_util::codec::FramedRead;
     use tokio_util::codec::{Decoder, Encoder};
-    use tokio_util::codec::{Framed, FramedRead, FramedWrite};
 
     #[tokio::test]
     async fn works_framedread_decode() {

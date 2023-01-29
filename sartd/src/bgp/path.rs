@@ -13,7 +13,6 @@ use crate::bgp::packet::prefix::Prefix;
 
 use super::error::UpdateMessageError;
 use super::family::AddressFamily;
-use super::peer::peer::PeerInfo;
 
 #[derive(Debug, Clone)]
 pub(crate) struct Path {
@@ -378,11 +377,6 @@ impl PathBuilder {
         self
     }
 
-    pub fn propagate_attrs(&mut self, mut attrs: Vec<Attribute>) -> &mut Self {
-        self.propagate_attrs.append(&mut attrs);
-        self
-    }
-
     fn family(&mut self, family: AddressFamily) -> &mut Self {
         self.family = family;
         self
@@ -398,17 +392,17 @@ impl PathBuilder {
             Attribute::NextHop(_, val) => Ok(self.next_hop(IpAddr::V4(val))),
             Attribute::MultiExitDisc(_, val) => Ok(self.med(val)),
             Attribute::LocalPref(_, val) => Ok(self.local_pref(val)),
-            Attribute::AtomicAggregate(b) => Ok(self),
-            Attribute::Aggregator(b, _, _) => Ok(self),
-            Attribute::Communities(b, _) => Ok(self),
-            Attribute::ExtendedCommunities(b, _, _) => Ok(self),
+            Attribute::AtomicAggregate(_) => Ok(self),
+            Attribute::Aggregator(_, _, _) => Ok(self),
+            Attribute::Communities(_, _) => Ok(self),
+            Attribute::ExtendedCommunities(_, _, _) => Ok(self),
             Attribute::MPReachNLRI(_, family, mut next_hops, nlri) => {
                 self.next_hop.append(&mut next_hops);
                 Ok(self.nlri(nlri).family(family))
             }
-            Attribute::MPUnReachNLRI(b, _, _) => Ok(self),
+            Attribute::MPUnReachNLRI(_, _, _) => Ok(self),
             Attribute::AS4Path(_, segments) => Ok(self.as_segments(segments, true)),
-            Attribute::AS4Aggregator(b, _, _) => Ok(self),
+            Attribute::AS4Aggregator(_, _, _) => Ok(self),
             Attribute::Unsupported(mut b, data) => {
                 if b.is_optional() && b.is_transitive() {
                     b.set_partial();
@@ -506,7 +500,6 @@ mod tests {
     use crate::bgp::packet::prefix::Prefix;
     use crate::bgp::path::BestPathReason;
     use crate::bgp::path::Path;
-    use crate::bgp::peer::peer::PeerInfo;
     use ipnet::{IpNet, Ipv4Net};
     use rstest::rstest;
     use std::net::{IpAddr, Ipv4Addr};

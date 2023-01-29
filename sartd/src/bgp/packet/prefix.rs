@@ -127,7 +127,7 @@ impl Into<IpNet> for &Prefix {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bytes::{Buf, BytesMut};
+    use bytes::BytesMut;
     use ipnet::{IpNet, Ipv4Net};
     use std::net::Ipv4Addr;
 
