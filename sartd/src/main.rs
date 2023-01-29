@@ -3,11 +3,6 @@ pub(crate) mod proto;
 
 use bgp::config::TraceConfig;
 use std::{net::Ipv4Addr, str::FromStr};
-use tracing::Level;
-use tracing_subscriber;
-
-use opentelemetry::sdk::metrics::controllers::BasicController;
-use opentelemetry_otlp::WithExportConfig;
 
 use crate::bgp::config::Config;
 use crate::bgp::server;

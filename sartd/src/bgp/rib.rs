@@ -1,5 +1,9 @@
 use ipnet::IpNet;
-use std::{cmp::Ordering, collections::HashMap, net::Ipv4Addr};
+use std::{
+    cmp::Ordering,
+    collections::HashMap,
+    net::{IpAddr, Ipv4Addr},
+};
 use tokio::sync::mpsc::Sender;
 
 use crate::bgp::path::PathKind;
@@ -8,7 +12,8 @@ use super::{
     error::{ControlError, Error, RibError},
     event::RibEvent,
     family::{AddressFamily, Afi},
-    path::{BestPathReason, Path},
+    packet::attribute::Attribute,
+    path::{BestPathReason, Path, PathBuilder},
     peer::neighbor::NeighborPair,
 };
 
@@ -409,7 +414,7 @@ impl RibManager {
                 neighbor,
                 rib_event_tx,
             } => self.add_peer(neighbor, rib_event_tx),
-            RibEvent::AddNetwork(networks) => self.add_network(networks),
+            RibEvent::AddNetwork(networks, attrs) => self.add_network(networks, attrs).await,
             RibEvent::InstallPaths(neighbor, paths) => self.install_paths(neighbor, paths).await,
             RibEvent::DropPaths(neighbor, family, path_ids) => {
                 self.drop_paths(neighbor, family, path_ids).await
@@ -430,7 +435,31 @@ impl RibManager {
     }
 
     #[tracing::instrument(skip(self))]
-    fn add_network(&mut self, networks: Vec<IpNet>) -> Result<(), Error> {
+    async fn add_network(
+        &mut self,
+        networks: Vec<IpNet>,
+        attrs: Vec<Attribute>,
+    ) -> Result<(), Error> {
+        let mut builder = PathBuilder::builder_local(self.router_id, self.asn);
+        for attr in attrs.into_iter() {
+            builder.attr(attr)?;
+        }
+        let paths = builder
+            .nlri(networks.iter().map(|&n| n.into()).collect())
+            .build()?;
+        self.install_paths(
+            NeighborPair::new(IpAddr::V4(self.router_id), self.asn, self.router_id),
+            paths,
+        )
+        .await
+    }
+
+    #[tracing::instrument(skip(self))]
+    async fn delete_network(
+        &mut self,
+        family: AddressFamily,
+        network: Vec<IpNet>,
+    ) -> Result<(), Error> {
         Ok(())
     }
 
@@ -2978,4 +3007,8 @@ mod tests {
             Ok(_) => panic!("peer3 should not receive event"),
         }
     }
+
+    fn rib_manager_add_network() {}
+
+    fn rib_manager_delete_network() {}
 }

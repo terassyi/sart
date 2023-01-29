@@ -275,13 +275,13 @@ impl PathBuilder {
         }
     }
 
-    pub fn builder_local(network: &str, local_id: Ipv4Addr, local_asn: u32) -> Self {
+    pub fn builder_local(local_id: Ipv4Addr, local_asn: u32) -> Self {
         Self {
             local_id,
             local_asn,
-            peer_id: Ipv4Addr::new(0, 0, 0, 0),
+            peer_id: local_id,
             peer_addr: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-            peer_asn: 0,
+            peer_asn: local_asn,
             family: AddressFamily::ipv4_unicast(),
             next_hop: Vec::new(),
             origin: Attribute::ORIGIN_IGP,
@@ -292,7 +292,7 @@ impl PathBuilder {
             local_pref: 0,
             med: 0,
             propagate_attrs: Vec::new(),
-            nlri: vec![Prefix::from(IpNet::from_str(network).unwrap())],
+            nlri: vec![],
         }
     }
 
