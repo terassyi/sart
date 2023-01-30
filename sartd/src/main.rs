@@ -63,28 +63,20 @@ fn main() -> Result<(), std::io::Error> {
         .get_matches();
     let conf = if let Some(file) = app.value_of("config") {
         let mut conf = Config::load(file).expect("failed to load config");
-        match app.value_of("as_number") {
-            Some(asn) => {
-                conf.asn = asn.parse::<u32>().unwrap();
-            }
-            None => {}
+        if let Some(asn) = app.value_of("as_number") {
+            conf.asn = asn.parse::<u32>().unwrap();
         }
-        match app.value_of("router_id") {
-            Some(router_id) => {
-                conf.router_id = Ipv4Addr::from_str(router_id).expect("invalid router-id");
-            }
-            None => {}
+        if let Some(router_id) = app.value_of("router_id") {
+            conf.router_id = Ipv4Addr::from_str(router_id).expect("invalid router-id");
         }
         conf
     } else {
         let mut conf = Config::default();
-        match app.value_of("as_number") {
-            Some(asn) => conf.set_as_number(asn.parse::<u32>().unwrap()),
-            None => {}
+        if let Some(asn) = app.value_of("as_number") {
+            conf.set_as_number(asn.parse::<u32>().unwrap())
         }
-        match app.value_of("router_id") {
-            Some(router_id) => conf.set_router_id(Ipv4Addr::from_str(router_id).unwrap()),
-            None => {}
+        if let Some(router_id) = app.value_of("router_id") {
+            conf.set_router_id(Ipv4Addr::from_str(router_id).unwrap())
         }
         conf
     };

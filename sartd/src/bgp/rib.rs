@@ -415,6 +415,7 @@ impl RibManager {
                 rib_event_tx,
             } => self.add_peer(neighbor, rib_event_tx),
             RibEvent::AddNetwork(networks, attrs) => self.add_network(networks, attrs).await,
+            RibEvent::DeleteNetwork(family, network) => self.delete_network(family, network).await,
             RibEvent::InstallPaths(neighbor, paths) => self.install_paths(neighbor, paths).await,
             RibEvent::DropPaths(neighbor, family, path_ids) => {
                 self.drop_paths(neighbor, family, path_ids).await
@@ -460,14 +461,27 @@ impl RibManager {
         family: AddressFamily,
         network: Vec<IpNet>,
     ) -> Result<(), Error> {
-        let path_ids: Vec<(IpNet, u64)> = network.iter().map(|p| {
-            if let Some(paths) = self.loc_rib.get(&family, p) {
-                paths.iter().filter(|&p| p.is_local_originated()).collect::<Vec<&Path>>()
-            } else {
-                Vec::new()
-            }
-        }).flatten().map(|p| (p.prefix(), p.id)).collect();
-        self.drop_paths(NeighborPair::new(IpAddr::V4(self.router_id), self.asn, self.router_id), family, path_ids).await
+        let path_ids: Vec<(IpNet, u64)> = network
+            .iter()
+            .map(|p| {
+                if let Some(paths) = self.loc_rib.get(&family, p) {
+                    paths
+                        .iter()
+                        .filter(|&p| p.is_local_originated())
+                        .collect::<Vec<&Path>>()
+                } else {
+                    Vec::new()
+                }
+            })
+            .flatten()
+            .map(|p| (p.prefix(), p.id))
+            .collect();
+        self.drop_paths(
+            NeighborPair::new(IpAddr::V4(self.router_id), self.asn, self.router_id),
+            family,
+            path_ids,
+        )
+        .await
     }
 
     #[tracing::instrument(skip(self, neighbor, paths), fields(peer.asn=neighbor.asn,peer.addr=neighbor.addr.to_string(),peer.id=neighbor.id.to_string()))]
@@ -3052,7 +3066,16 @@ mod tests {
         let (peer3_tx, mut peer3_rx) = channel::<RibEvent>(10);
         manager.add_peer(peer3.clone(), peer3_tx).unwrap();
 
-        manager.add_network(vec!["10.0.0.0/24".parse().unwrap(), "10.1.0.0/24".parse().unwrap()], vec![]).await.unwrap();
+        manager
+            .add_network(
+                vec![
+                    "10.0.0.0/24".parse().unwrap(),
+                    "10.1.0.0/24".parse().unwrap(),
+                ],
+                vec![],
+            )
+            .await
+            .unwrap();
 
         // recv
         match timeout(Duration::from_millis(10), peer1_rx.recv())
@@ -3086,7 +3109,16 @@ mod tests {
             _ => panic!("expected rib_event is advertise"),
         }
 
-        manager.add_network(vec!["10.0.2.0/24".parse().unwrap()], vec![Attribute::new_origin(Attribute::ORIGIN_INCOMPLETE).unwrap(), Attribute::new_local_pref(200).unwrap()]).await.unwrap();
+        manager
+            .add_network(
+                vec!["10.0.2.0/24".parse().unwrap()],
+                vec![
+                    Attribute::new_origin(Attribute::ORIGIN_INCOMPLETE).unwrap(),
+                    Attribute::new_local_pref(200).unwrap(),
+                ],
+            )
+            .await
+            .unwrap();
         // recv
         match timeout(Duration::from_millis(10), peer1_rx.recv())
             .await
@@ -3125,7 +3157,13 @@ mod tests {
             _ => panic!("expected rib_event is advertise"),
         }
 
-        manager.delete_network(AddressFamily::ipv4_unicast(), vec!["10.0.2.0/24".parse().unwrap()]).await.unwrap();
+        manager
+            .delete_network(
+                AddressFamily::ipv4_unicast(),
+                vec!["10.0.2.0/24".parse().unwrap()],
+            )
+            .await
+            .unwrap();
         //recv
         match timeout(Duration::from_millis(10), peer1_rx.recv())
             .await
