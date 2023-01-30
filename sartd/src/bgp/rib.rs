@@ -1,5 +1,9 @@
 use ipnet::IpNet;
-use std::{cmp::Ordering, collections::HashMap, net::Ipv4Addr};
+use std::{
+    cmp::Ordering,
+    collections::HashMap,
+    net::{IpAddr, Ipv4Addr},
+};
 use tokio::sync::mpsc::Sender;
 
 use crate::bgp::path::PathKind;
@@ -8,7 +12,8 @@ use super::{
     error::{ControlError, Error, RibError},
     event::RibEvent,
     family::{AddressFamily, Afi},
-    path::{BestPathReason, Path},
+    packet::attribute::Attribute,
+    path::{BestPathReason, Path, PathBuilder},
     peer::neighbor::NeighborPair,
 };
 
@@ -409,7 +414,8 @@ impl RibManager {
                 neighbor,
                 rib_event_tx,
             } => self.add_peer(neighbor, rib_event_tx),
-            RibEvent::AddNetwork(networks) => self.add_network(networks),
+            RibEvent::AddNetwork(networks, attrs) => self.add_network(networks, attrs).await,
+            RibEvent::DeleteNetwork(family, network) => self.delete_network(family, network).await,
             RibEvent::InstallPaths(neighbor, paths) => self.install_paths(neighbor, paths).await,
             RibEvent::DropPaths(neighbor, family, path_ids) => {
                 self.drop_paths(neighbor, family, path_ids).await
@@ -430,8 +436,52 @@ impl RibManager {
     }
 
     #[tracing::instrument(skip(self))]
-    fn add_network(&mut self, networks: Vec<IpNet>) -> Result<(), Error> {
-        Ok(())
+    async fn add_network(
+        &mut self,
+        networks: Vec<IpNet>,
+        attrs: Vec<Attribute>,
+    ) -> Result<(), Error> {
+        let mut builder = PathBuilder::builder_local(self.router_id, self.asn);
+        for attr in attrs.into_iter() {
+            builder.attr(attr)?;
+        }
+        let paths = builder
+            .nlri(networks.iter().map(|&n| n.into()).collect())
+            .build()?;
+        self.install_paths(
+            NeighborPair::new(IpAddr::V4(self.router_id), self.asn, self.router_id),
+            paths,
+        )
+        .await
+    }
+
+    #[tracing::instrument(skip(self))]
+    async fn delete_network(
+        &mut self,
+        family: AddressFamily,
+        network: Vec<IpNet>,
+    ) -> Result<(), Error> {
+        let path_ids: Vec<(IpNet, u64)> = network
+            .iter()
+            .map(|p| {
+                if let Some(paths) = self.loc_rib.get(&family, p) {
+                    paths
+                        .iter()
+                        .filter(|&p| p.is_local_originated())
+                        .collect::<Vec<&Path>>()
+                } else {
+                    Vec::new()
+                }
+            })
+            .flatten()
+            .map(|p| (p.prefix(), p.id))
+            .collect();
+        self.drop_paths(
+            NeighborPair::new(IpAddr::V4(self.router_id), self.asn, self.router_id),
+            family,
+            path_ids,
+        )
+        .await
     }
 
     #[tracing::instrument(skip(self, neighbor, paths), fields(peer.asn=neighbor.asn,peer.addr=neighbor.addr.to_string(),peer.id=neighbor.id.to_string()))]
@@ -2976,6 +3026,174 @@ mod tests {
         match timeout(Duration::from_millis(10), peer3_rx.recv()).await {
             Err(_) => assert!(true),
             Ok(_) => panic!("peer3 should not receive event"),
+        }
+    }
+
+    #[tokio::test]
+    async fn rib_manager_add_delete_network() {
+        let mut manager = RibManager::new(
+            65000,
+            Ipv4Addr::new(1, 1, 1, 1),
+            String::from("dummy"),
+            vec![AddressFamily::ipv4_unicast().afi],
+            true,
+        );
+
+        // peer1
+        let peer1 = NeighborPair::new(
+            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
+            65000,
+            Ipv4Addr::new(2, 2, 2, 2),
+        );
+        let (peer1_tx, mut peer1_rx) = channel::<RibEvent>(10);
+        manager.add_peer(peer1.clone(), peer1_tx).unwrap();
+
+        // peer2
+        let peer2 = NeighborPair::new(
+            IpAddr::V4(Ipv4Addr::new(10, 0, 1, 2)),
+            65000,
+            Ipv4Addr::new(3, 3, 3, 3),
+        );
+        let (peer2_tx, mut peer2_rx) = channel::<RibEvent>(10);
+        manager.add_peer(peer2.clone(), peer2_tx).unwrap();
+
+        // peer3
+        let peer3 = NeighborPair::new(
+            IpAddr::V4(Ipv4Addr::new(10, 0, 2, 2)),
+            65010,
+            Ipv4Addr::new(4, 4, 4, 4),
+        );
+        let (peer3_tx, mut peer3_rx) = channel::<RibEvent>(10);
+        manager.add_peer(peer3.clone(), peer3_tx).unwrap();
+
+        manager
+            .add_network(
+                vec![
+                    "10.0.0.0/24".parse().unwrap(),
+                    "10.1.0.0/24".parse().unwrap(),
+                ],
+                vec![],
+            )
+            .await
+            .unwrap();
+
+        // recv
+        match timeout(Duration::from_millis(10), peer1_rx.recv())
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            RibEvent::Advertise(paths) => {
+                assert_eq!(2, paths.len());
+            }
+            _ => panic!("expected rib_event is advertise"),
+        }
+        match timeout(Duration::from_millis(10), peer2_rx.recv())
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            RibEvent::Advertise(paths) => {
+                assert_eq!(2, paths.len());
+            }
+            _ => panic!("expected rib_event is advertise"),
+        }
+        match timeout(Duration::from_millis(10), peer3_rx.recv())
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            RibEvent::Advertise(paths) => {
+                assert_eq!(2, paths.len());
+            }
+            _ => panic!("expected rib_event is advertise"),
+        }
+
+        manager
+            .add_network(
+                vec!["10.0.2.0/24".parse().unwrap()],
+                vec![
+                    Attribute::new_origin(Attribute::ORIGIN_INCOMPLETE).unwrap(),
+                    Attribute::new_local_pref(200).unwrap(),
+                ],
+            )
+            .await
+            .unwrap();
+        // recv
+        match timeout(Duration::from_millis(10), peer1_rx.recv())
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            RibEvent::Advertise(paths) => {
+                assert_eq!(1, paths.len());
+                assert_eq!(Attribute::ORIGIN_INCOMPLETE, paths[0].origin);
+                assert_eq!(200, paths[0].local_pref);
+            }
+            _ => panic!("expected rib_event is advertise"),
+        }
+        match timeout(Duration::from_millis(10), peer2_rx.recv())
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            RibEvent::Advertise(paths) => {
+                assert_eq!(1, paths.len());
+                assert_eq!(Attribute::ORIGIN_INCOMPLETE, paths[0].origin);
+                assert_eq!(200, paths[0].local_pref);
+            }
+            _ => panic!("expected rib_event is advertise"),
+        }
+        match timeout(Duration::from_millis(10), peer3_rx.recv())
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            RibEvent::Advertise(paths) => {
+                assert_eq!(1, paths.len());
+                assert_eq!(Attribute::ORIGIN_INCOMPLETE, paths[0].origin);
+                assert_eq!(200, paths[0].local_pref);
+            }
+            _ => panic!("expected rib_event is advertise"),
+        }
+
+        manager
+            .delete_network(
+                AddressFamily::ipv4_unicast(),
+                vec!["10.0.2.0/24".parse().unwrap()],
+            )
+            .await
+            .unwrap();
+        //recv
+        match timeout(Duration::from_millis(10), peer1_rx.recv())
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            RibEvent::Withdraw(prefix) => {
+                assert_eq!(1, prefix.len());
+            }
+            _ => panic!("expected rib_event is withdraw"),
+        }
+        match timeout(Duration::from_millis(10), peer2_rx.recv())
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            RibEvent::Withdraw(prefix) => {
+                assert_eq!(1, prefix.len());
+            }
+            _ => panic!("expected rib_event is withdraw"),
+        }
+        match timeout(Duration::from_millis(10), peer3_rx.recv())
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            RibEvent::Withdraw(prefix) => {
+                assert_eq!(1, prefix.len());
+            }
+            _ => panic!("expected rib_event is withdraw"),
         }
     }
 }

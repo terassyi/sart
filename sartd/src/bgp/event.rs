@@ -7,6 +7,7 @@ use super::error::MessageHeaderError;
 use super::error::OpenMessageError;
 use super::error::UpdateMessageError;
 use super::family::AddressFamily;
+use super::packet::attribute::Attribute;
 use super::packet::message::Message;
 use super::path::Path;
 use super::peer::neighbor::NeighborPair;
@@ -320,7 +321,8 @@ pub(crate) enum RibEvent {
         neighbor: NeighborPair,
         rib_event_tx: Sender<RibEvent>,
     },
-    AddNetwork(Vec<IpNet>),
+    AddNetwork(Vec<IpNet>, Vec<Attribute>),
+    DeleteNetwork(AddressFamily, Vec<IpNet>),
     InstallPaths(NeighborPair, Vec<Path>),
     DropPaths(NeighborPair, AddressFamily, Vec<(IpNet, u64)>),
     Advertise(Vec<Path>),
@@ -334,7 +336,8 @@ impl std::fmt::Display for RibEvent {
                 neighbor: _,
                 rib_event_tx: _,
             } => write!(f, "Rib::AddPeer"),
-            RibEvent::AddNetwork(_) => write!(f, "Rib::AddNetwork"),
+            RibEvent::AddNetwork(_, _) => write!(f, "Rib::AddNetwork"),
+            RibEvent::DeleteNetwork(_, _) => write!(f, "Rib::DeleteNetwork"),
             RibEvent::InstallPaths(_, _) => write!(f, "Rib::InstallPaths"),
             RibEvent::DropPaths(_, _, _) => write!(f, "Rib::DropPaths"),
             RibEvent::Advertise(_) => write!(f, "Rib::Advertise"),

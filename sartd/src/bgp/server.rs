@@ -1,7 +1,5 @@
 use futures::stream::FuturesUnordered;
 use futures::{FutureExt, StreamExt};
-use opentelemetry_otlp::WithExportConfig;
-use opentelemetry_sdk::metrics::controllers::BasicController;
 use socket2::{Domain, Socket, TcpKeepalive, Type};
 use std::collections::HashMap;
 use std::io;
@@ -317,33 +315,8 @@ pub(crate) fn start(conf: Config, trace: TraceConfig) {
 fn prepare_tracing(conf: TraceConfig) {
     // Configure otel exporter.
     if let Some(endpoint) = conf.metrics_endpoint {
-        let tracer = opentelemetry_otlp::new_pipeline()
-            .tracing()
-            .with_exporter(
-                opentelemetry_otlp::new_exporter()
-                    .tonic()
-                    .with_endpoint(&endpoint),
-            )
-            .with_trace_config(
-                opentelemetry::sdk::trace::config()
-                    .with_sampler(opentelemetry::sdk::trace::Sampler::AlwaysOn)
-                    .with_id_generator(opentelemetry::sdk::trace::RandomIdGenerator::default())
-                    .with_resource(opentelemetry::sdk::Resource::new(vec![
-                        opentelemetry::KeyValue::new("service.name", "sartd-bgp"),
-                    ])),
-            )
-            .install_batch(opentelemetry::runtime::Tokio)
-            .expect("Not running in tokio runtime");
-
-        // Compatible layer with tracing.
-        let otel_trace_layer = tracing_opentelemetry::layer().with_tracer(tracer);
-        let otel_metrics_layer =
-            tracing_opentelemetry::MetricsLayer::new(build_metrics_controller(&endpoint));
-
         if conf.format == "json" {
             tracing_subscriber::Registry::default()
-                .with(otel_trace_layer)
-                .with(otel_metrics_layer)
                 .with(
                     tracing_subscriber::fmt::Layer::new()
                         .with_ansi(false)
@@ -353,8 +326,6 @@ fn prepare_tracing(conf: TraceConfig) {
                 .init();
         } else {
             tracing_subscriber::Registry::default()
-                .with(otel_trace_layer)
-                .with(otel_metrics_layer)
                 .with(
                     tracing_subscriber::fmt::Layer::new()
                         .with_ansi(false)
@@ -376,20 +347,4 @@ fn prepare_tracing(conf: TraceConfig) {
                 .init();
         };
     }
-}
-
-fn build_metrics_controller(metrics_endpoint: &str) -> BasicController {
-    opentelemetry_otlp::new_pipeline()
-        .metrics(
-            opentelemetry::sdk::metrics::selectors::simple::histogram(Vec::new()),
-            opentelemetry::sdk::export::metrics::aggregation::cumulative_temporality_selector(),
-            opentelemetry::runtime::Tokio,
-        )
-        .with_exporter(
-            opentelemetry_otlp::new_exporter()
-                .tonic()
-                .with_endpoint(metrics_endpoint),
-        )
-        .build()
-        .expect("Failed to build metrics controller")
 }
