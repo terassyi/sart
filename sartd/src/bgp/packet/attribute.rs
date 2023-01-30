@@ -211,6 +211,14 @@ impl Attribute {
         ))
     }
 
+    pub fn new_local_pref(val: u32) -> Result<Attribute, Error> {
+        Ok(Attribute::LocalPref(Base::new(Attribute::FLAG_TRANSITIVE, Attribute::LOCAL_PREF), val))
+    }
+
+    pub fn new_med(val: u32) -> Result<Attribute, Error> {
+        Ok(Attribute::MultiExitDisc(Base::new(Attribute::FLAG_OPTIONAL, Attribute::MULTI_EXIT_DISC), val))
+    }
+
     pub fn code(&self) -> u8 {
         self.get_base().code
     }
