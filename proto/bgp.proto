@@ -16,65 +16,12 @@ service BgpApi {
 	// rpc RouterId(RouterIdRequest) returns (google.protobuf.Empty);
 
 	// rpc RemoteAS(RemoteASRequest) returns (google.protobuf.Empty);
-	// rpc Network(NetworkRequest) returns (google.protobuf.Empty);
+	rpc AddPath(AddPathRequest) returns (AddPathResponse);
+	rpc DeletePath(DeletePathRequest) returns (DeletePathResponse);
 	// rpc DeleteNetwork(NetworkRequest) returns (google.protobuf.Empty);
 }
 
-enum ResultCode {
-	Ok = 0;
-	Error = 1;
-}
-
 message HealthRequest {}
-
-
-message BgpShowRequest {}
-
-message BgpShowResponse {
-	int32 as = 1;
-	int32 port = 2;
-	string routerId = 3;
-}
-
-message BgpShowRouteRequest {}
-
-message BgpShowRouteResponse {
-	repeated BgpRoute routes = 1;
-}
-
-message BgpRoute {
-	string network = 1;
-	string nexthop = 2;
-	int32 metric = 3;
-	int32 local_pref = 4;
-	// optional int32 weight = 5;
-	repeated int32 path = 5;
-	bool best = 6;
-	string reason = 7;
-}
-
-message NeighborInfo {
-	uint32 as = 1;
-	string address = 2;
-	uint32 port = 3;
-	string routerId =4;
-}
-
-message GetNeighborRequest {
-	uint32 as = 1; 
-	string peerAddress = 2;
-	string routerId = 3;
-}
-
-message GetNeighborResponse {
-	NeighborInfo neighbor = 1;
-}
-
-message ListNeighborRequest {}
-
-message ListNeighborResponse {
-	repeated NeighborInfo neighbors = 1;
-}
 
 message SetASRequest {
 	int32 as = 1;
@@ -89,6 +36,99 @@ message RouterIdRequest {
 	string routerId = 1;
 }
 
-message NetworkRequest {
-	string prefix = 1;
+message AddPathRequest {
+	repeated Path path = 1;
+}
+
+message AddPathResponse {
+
+}
+
+message DeletePathRequest {
+	repeated string path = 1;
+}
+
+message DeletePathResponse {}
+
+message AddressFamily {
+  enum Afi {
+    AFI_UNKNOWN = 0; AFI_IP4 = 1; AFI_IP6 = 2;
+  }
+
+  enum Safi {
+    SAFI_UNKNOWN = 0; SAFI_UNICAST = 1; SAFI_MULTICAST = 2;
+  }
+
+  Afi afi = 1;
+  Safi safi = 2;
+}
+
+message Path {
+	string nlri = 1;
+	AddressFamily family = 2;
+
+}
+
+message OriginAttribute { uint32 value = 1; }
+
+message AsSegment {
+	enum Type {
+		UNKNOWN = 0;
+		AS_SET = 1;
+		AS_SEQUENCE = 2;
+	}
+
+	Type type = 1;
+	repeated uint32 elm = 2;
+}
+
+message AsPathAttribute {
+	repeated AsSegment segments = 1;
+}
+
+message NextHopAttribute {
+	string value = 1;
+}
+
+message MultiExitDiscAttribute {
+	uint32 value = 1;
+}
+
+message LocalPrefAttribute {
+	uint32 value = 1;
+}
+
+message AtomicAggregateAttribute {}
+
+message AggregateAttribute {
+	uint32 asn = 1;
+	string address = 2;
+}
+
+message MultiProtocolCapability {
+	AddressFamily family = 1;
+}
+
+message RouteRefreshCapability {}
+
+message GracefulRestartCapabilityTuple {
+	AddressFamily family = 1;
+	uint32 flags = 2;
+}
+
+message GracefulRestartCapability {
+    uint32 flags = 1;
+    uint32 time = 2;
+    repeated GracefulRestartCapabilityTuple tuples = 3;
+}
+
+message FourOctedASNCapability {
+	uint32 asn = 1;
+}
+
+message EnhancedRouteRefreshCapability {}
+
+message UnknownCapability {
+	uint32 code = 1;
+	bytes value = 2;
 }

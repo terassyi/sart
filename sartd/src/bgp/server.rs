@@ -314,37 +314,15 @@ pub(crate) fn start(conf: Config, trace: TraceConfig) {
 
 fn prepare_tracing(conf: TraceConfig) {
     // Configure otel exporter.
-    if let Some(endpoint) = conf.metrics_endpoint {
-        if conf.format == "json" {
-            tracing_subscriber::Registry::default()
-                .with(
-                    tracing_subscriber::fmt::Layer::new()
-                        .with_ansi(false)
-                        .json(),
-                )
-                .with(tracing_subscriber::filter::LevelFilter::from_str(&conf.level).unwrap())
-                .init();
-        } else {
-            tracing_subscriber::Registry::default()
-                .with(
-                    tracing_subscriber::fmt::Layer::new()
-                        .with_ansi(false)
-                        .json(),
-                )
-                // .with(Level::from_str(level).unwrap())
-                .with(tracing_subscriber::filter::LevelFilter::from_str(&conf.level).unwrap())
-                .init();
-        };
+    if conf.format == "json" {
+        tracing_subscriber::Registry::default()
+            .with(tracing_subscriber::fmt::Layer::new().with_ansi(true).json())
+            .with(tracing_subscriber::filter::LevelFilter::from_str(&conf.level).unwrap())
+            .init();
     } else {
-        if conf.format == "json" {
-            tracing_subscriber::fmt()
-                .with_max_level(Level::from_str(&conf.level).unwrap())
-                .json()
-                .init();
-        } else {
-            tracing_subscriber::fmt()
-                .with_max_level(Level::from_str(&conf.level).unwrap())
-                .init();
-        };
+        tracing_subscriber::Registry::default()
+            .with(tracing_subscriber::fmt::Layer::new().with_ansi(true))
+            .with(tracing_subscriber::filter::LevelFilter::from_str(&conf.level).unwrap())
+            .init();
     }
 }
