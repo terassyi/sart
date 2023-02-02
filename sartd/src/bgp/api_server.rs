@@ -31,4 +31,18 @@ impl BgpApi for ApiServer {
         self.signal.notified().await;
         Ok(Response::new(()))
     }
+
+    async fn add_path(
+        &self,
+        req: Request<AddPathRequest>,
+    ) -> Result<Response<AddPathResponse>, Status> {
+        Ok(Response::new(AddPathResponse {}))
+    }
+
+    async fn delete_path(
+        &self,
+        req: Request<DeletePathRequest>,
+    ) -> Result<Response<DeletePathResponse>, Status> {
+        Ok(Response::new(DeletePathResponse {}))
+    }
 }

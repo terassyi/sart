@@ -3,84 +3,6 @@
 pub struct HealthRequest {}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct BgpShowRequest {}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct BgpShowResponse {
-    #[prost(int32, tag = "1")]
-    pub r#as: i32,
-    #[prost(int32, tag = "2")]
-    pub port: i32,
-    #[prost(string, tag = "3")]
-    pub router_id: ::prost::alloc::string::String,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct BgpShowRouteRequest {}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct BgpShowRouteResponse {
-    #[prost(message, repeated, tag = "1")]
-    pub routes: ::prost::alloc::vec::Vec<BgpRoute>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct BgpRoute {
-    #[prost(string, tag = "1")]
-    pub network: ::prost::alloc::string::String,
-    #[prost(string, tag = "2")]
-    pub nexthop: ::prost::alloc::string::String,
-    #[prost(int32, tag = "3")]
-    pub metric: i32,
-    #[prost(int32, tag = "4")]
-    pub local_pref: i32,
-    /// optional int32 weight = 5;
-    #[prost(int32, repeated, tag = "5")]
-    pub path: ::prost::alloc::vec::Vec<i32>,
-    #[prost(bool, tag = "6")]
-    pub best: bool,
-    #[prost(string, tag = "7")]
-    pub reason: ::prost::alloc::string::String,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct NeighborInfo {
-    #[prost(uint32, tag = "1")]
-    pub r#as: u32,
-    #[prost(string, tag = "2")]
-    pub address: ::prost::alloc::string::String,
-    #[prost(uint32, tag = "3")]
-    pub port: u32,
-    #[prost(string, tag = "4")]
-    pub router_id: ::prost::alloc::string::String,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GetNeighborRequest {
-    #[prost(uint32, tag = "1")]
-    pub r#as: u32,
-    #[prost(string, tag = "2")]
-    pub peer_address: ::prost::alloc::string::String,
-    #[prost(string, tag = "3")]
-    pub router_id: ::prost::alloc::string::String,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GetNeighborResponse {
-    #[prost(message, optional, tag = "1")]
-    pub neighbor: ::core::option::Option<NeighborInfo>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ListNeighborRequest {}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ListNeighborResponse {
-    #[prost(message, repeated, tag = "1")]
-    pub neighbors: ::prost::alloc::vec::Vec<NeighborInfo>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SetAsRequest {
     #[prost(int32, tag = "1")]
     pub r#as: i32,
@@ -101,27 +23,226 @@ pub struct RouterIdRequest {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct NetworkRequest {
-    #[prost(string, tag = "1")]
-    pub prefix: ::prost::alloc::string::String,
+pub struct AddPathRequest {
+    #[prost(message, repeated, tag = "1")]
+    pub path: ::prost::alloc::vec::Vec<Path>,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-#[repr(i32)]
-pub enum ResultCode {
-    Ok = 0,
-    Error = 1,
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AddPathResponse {}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DeletePathRequest {
+    #[prost(string, repeated, tag = "1")]
+    pub path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
-impl ResultCode {
-    /// String value of the enum field names used in the ProtoBuf definition.
-    ///
-    /// The values are not transformed in any way and thus are considered stable
-    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-    pub fn as_str_name(&self) -> &'static str {
-        match self {
-            ResultCode::Ok => "Ok",
-            ResultCode::Error => "Error",
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DeletePathResponse {}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AddressFamily {
+    #[prost(enumeration = "address_family::Afi", tag = "1")]
+    pub afi: i32,
+    #[prost(enumeration = "address_family::Safi", tag = "2")]
+    pub safi: i32,
+}
+/// Nested message and enum types in `AddressFamily`.
+pub mod address_family {
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum Afi {
+        Unknown = 0,
+        Ip4 = 1,
+        Ip6 = 2,
+    }
+    impl Afi {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Afi::Unknown => "AFI_UNKNOWN",
+                Afi::Ip4 => "AFI_IP4",
+                Afi::Ip6 => "AFI_IP6",
+            }
         }
     }
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum Safi {
+        Unknown = 0,
+        Unicast = 1,
+        Multicast = 2,
+    }
+    impl Safi {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Safi::Unknown => "SAFI_UNKNOWN",
+                Safi::Unicast => "SAFI_UNICAST",
+                Safi::Multicast => "SAFI_MULTICAST",
+            }
+        }
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Path {
+    #[prost(string, tag = "1")]
+    pub nlri: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "2")]
+    pub family: ::core::option::Option<AddressFamily>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct OriginAttribute {
+    #[prost(uint32, tag = "1")]
+    pub value: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AsSegment {
+    #[prost(enumeration = "as_segment::Type", tag = "1")]
+    pub r#type: i32,
+    #[prost(uint32, repeated, tag = "2")]
+    pub elm: ::prost::alloc::vec::Vec<u32>,
+}
+/// Nested message and enum types in `AsSegment`.
+pub mod as_segment {
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum Type {
+        Unknown = 0,
+        AsSet = 1,
+        AsSequence = 2,
+    }
+    impl Type {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Type::Unknown => "UNKNOWN",
+                Type::AsSet => "AS_SET",
+                Type::AsSequence => "AS_SEQUENCE",
+            }
+        }
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AsPathAttribute {
+    #[prost(message, repeated, tag = "1")]
+    pub segments: ::prost::alloc::vec::Vec<AsSegment>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct NextHopAttribute {
+    #[prost(string, tag = "1")]
+    pub value: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct MultiExitDiscAttribute {
+    #[prost(uint32, tag = "1")]
+    pub value: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct LocalPrefAttribute {
+    #[prost(uint32, tag = "1")]
+    pub value: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AtomicAggregateAttribute {}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AggregateAttribute {
+    #[prost(uint32, tag = "1")]
+    pub asn: u32,
+    #[prost(string, tag = "2")]
+    pub address: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct MultiProtocolCapability {
+    #[prost(message, optional, tag = "1")]
+    pub family: ::core::option::Option<AddressFamily>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RouteRefreshCapability {}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GracefulRestartCapabilityTuple {
+    #[prost(message, optional, tag = "1")]
+    pub family: ::core::option::Option<AddressFamily>,
+    #[prost(uint32, tag = "2")]
+    pub flags: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GracefulRestartCapability {
+    #[prost(uint32, tag = "1")]
+    pub flags: u32,
+    #[prost(uint32, tag = "2")]
+    pub time: u32,
+    #[prost(message, repeated, tag = "3")]
+    pub tuples: ::prost::alloc::vec::Vec<GracefulRestartCapabilityTuple>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FourOctedAsnCapability {
+    #[prost(uint32, tag = "1")]
+    pub asn: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EnhancedRouteRefreshCapability {}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UnknownCapability {
+    #[prost(uint32, tag = "1")]
+    pub code: u32,
+    #[prost(bytes = "vec", tag = "2")]
+    pub value: ::prost::alloc::vec::Vec<u8>,
 }
 /// Generated client implementations.
 pub mod bgp_api_client {
@@ -209,6 +330,41 @@ pub mod bgp_api_client {
             let path = http::uri::PathAndQuery::from_static("/sart.BgpApi/Health");
             self.inner.unary(request.into_request(), path, codec).await
         }
+        /// rpc RemoteAS(RemoteASRequest) returns (google.protobuf.Empty);
+        pub async fn add_path(
+            &mut self,
+            request: impl tonic::IntoRequest<super::AddPathRequest>,
+        ) -> Result<tonic::Response<super::AddPathResponse>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/sart.BgpApi/AddPath");
+            self.inner.unary(request.into_request(), path, codec).await
+        }
+        pub async fn delete_path(
+            &mut self,
+            request: impl tonic::IntoRequest<super::DeletePathRequest>,
+        ) -> Result<tonic::Response<super::DeletePathResponse>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/sart.BgpApi/DeletePath");
+            self.inner.unary(request.into_request(), path, codec).await
+        }
     }
 }
 /// Generated server implementations.
@@ -222,6 +378,15 @@ pub mod bgp_api_server {
             &self,
             request: tonic::Request<super::HealthRequest>,
         ) -> Result<tonic::Response<()>, tonic::Status>;
+        /// rpc RemoteAS(RemoteASRequest) returns (google.protobuf.Empty);
+        async fn add_path(
+            &self,
+            request: tonic::Request<super::AddPathRequest>,
+        ) -> Result<tonic::Response<super::AddPathResponse>, tonic::Status>;
+        async fn delete_path(
+            &self,
+            request: tonic::Request<super::DeletePathRequest>,
+        ) -> Result<tonic::Response<super::DeletePathResponse>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct BgpApiServer<T: BgpApi> {
@@ -307,6 +472,78 @@ pub mod bgp_api_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = HealthSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/sart.BgpApi/AddPath" => {
+                    #[allow(non_camel_case_types)]
+                    struct AddPathSvc<T: BgpApi>(pub Arc<T>);
+                    impl<T: BgpApi> tonic::server::UnaryService<super::AddPathRequest>
+                    for AddPathSvc<T> {
+                        type Response = super::AddPathResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::AddPathRequest>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move { (*inner).add_path(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = AddPathSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/sart.BgpApi/DeletePath" => {
+                    #[allow(non_camel_case_types)]
+                    struct DeletePathSvc<T: BgpApi>(pub Arc<T>);
+                    impl<T: BgpApi> tonic::server::UnaryService<super::DeletePathRequest>
+                    for DeletePathSvc<T> {
+                        type Response = super::DeletePathResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::DeletePathRequest>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move { (*inner).delete_path(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = DeletePathSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
