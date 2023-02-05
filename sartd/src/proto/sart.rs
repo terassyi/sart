@@ -24,8 +24,12 @@ pub struct RouterIdRequest {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AddPathRequest {
-    #[prost(message, repeated, tag = "1")]
-    pub path: ::prost::alloc::vec::Vec<Path>,
+    #[prost(message, optional, tag = "1")]
+    pub family: ::core::option::Option<AddressFamily>,
+    #[prost(string, repeated, tag = "2")]
+    pub prefixes: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(message, repeated, tag = "3")]
+    pub attributes: ::prost::alloc::vec::Vec<::prost_types::Any>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -33,8 +37,10 @@ pub struct AddPathResponse {}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DeletePathRequest {
-    #[prost(string, repeated, tag = "1")]
-    pub path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(message, optional, tag = "1")]
+    pub family: ::core::option::Option<AddressFamily>,
+    #[prost(string, repeated, tag = "2")]
+    pub prefixes: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

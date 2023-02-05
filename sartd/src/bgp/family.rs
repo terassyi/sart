@@ -37,6 +37,14 @@ impl TryFrom<u32> for AddressFamily {
     }
 }
 
+impl TryFrom<prost_types::Any> for AddressFamily {
+    type Error = &'static str;
+    fn try_from(value: prost_types::Any) -> Result<Self, Self::Error> {
+        Ok(AddressFamily::ipv4_unicast())
+    }
+
+}
+
 impl Into<u32> for AddressFamily {
     fn into(self) -> u32 {
         (((self.afi as u16) as u32) << 16) + ((self.safi as u8) as u32)
