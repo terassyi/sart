@@ -212,11 +212,17 @@ impl Attribute {
     }
 
     pub fn new_local_pref(val: u32) -> Result<Attribute, Error> {
-        Ok(Attribute::LocalPref(Base::new(Attribute::FLAG_TRANSITIVE, Attribute::LOCAL_PREF), val))
+        Ok(Attribute::LocalPref(
+            Base::new(Attribute::FLAG_TRANSITIVE, Attribute::LOCAL_PREF),
+            val,
+        ))
     }
 
     pub fn new_med(val: u32) -> Result<Attribute, Error> {
-        Ok(Attribute::MultiExitDisc(Base::new(Attribute::FLAG_OPTIONAL, Attribute::MULTI_EXIT_DISC), val))
+        Ok(Attribute::MultiExitDisc(
+            Base::new(Attribute::FLAG_OPTIONAL, Attribute::MULTI_EXIT_DISC),
+            val,
+        ))
     }
 
     pub fn code(&self) -> u8 {
@@ -411,6 +417,9 @@ impl Attribute {
                 Ok(())
             }
             Self::ASPath(_, segments) => {
+                if !segments.iter().any(|s| s.len() > 0) {
+                    return Ok(());
+                }
                 for seg in segments.iter() {
                     dst.put_u8(seg.segment_type);
                     dst.put_u8(seg.segments.len() as u8);
@@ -498,6 +507,9 @@ impl Attribute {
                 Ok(())
             }
             Self::AS4Path(_, segments) => {
+                if !segments.iter().any(|s| s.len() > 0) {
+                    return Ok(());
+                }
                 for seg in segments.iter() {
                     dst.put_u8(seg.segment_type);
                     dst.put_u8(seg.segments.len() as u8);
@@ -532,6 +544,9 @@ impl Attribute {
         match self {
             Self::Origin(_, _) => 1,
             Self::ASPath(_, segments) => segments.iter().fold(0, |a, b| {
+                if !segments.iter().any(|s| s.len() > 0) {
+                    return 0;
+                }
                 a + 2
                     + b.segments
                         .iter()
@@ -567,6 +582,9 @@ impl Attribute {
                 prefixes.iter().fold(3, |l, prefix| l + prefix.len())
             }
             Self::AS4Path(_, segments) => segments.iter().fold(0, |a, b| {
+                if !segments.iter().any(|s| s.len() > 0) {
+                    return 0;
+                }
                 a + 2 + b.segments.iter().fold(0, |aa: usize, _| aa + 4)
             }),
             Self::AS4Aggregator(_, _, addr) => match addr {
@@ -675,6 +693,10 @@ impl ASSegment {
             segment_type,
             segments,
         }
+    }
+
+    fn len(&self) -> usize {
+        self.segments.len()
     }
 }
 
