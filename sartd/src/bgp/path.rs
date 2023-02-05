@@ -137,6 +137,10 @@ impl Path {
             return Ok(self);
         }
         self.next_hops = next_hops;
+        // local_pref
+        if is_ibgp && self.local_pref == 0 {
+            self.local_pref = 100;
+        }
         Ok(self)
     }
 
@@ -214,6 +218,13 @@ impl Path {
         match self.next_hops[0] {
             IpAddr::V4(addr) => attrs.push(Attribute::new_nexthop(addr)),
             IpAddr::V6(_) => {} // mp_reach_nlri will be handled later
+        }
+
+        if self.local_pref != 0 {
+            attrs.push(Attribute::new_local_pref(self.local_pref)?);
+        }
+        if self.med != 0 {
+            attrs.push(Attribute::new_med(self.med)?);
         }
 
         Ok(attrs)

@@ -147,6 +147,8 @@ impl Into<u8> for UpdateMessageError {
 pub(crate) enum ConfigError {
     #[error("failed to load")]
     FailedToLoad,
+    #[error("invalid argument")]
+    InvalidArgument,
 }
 
 #[derive(Debug, Error)]
