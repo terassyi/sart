@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, net::Ipv4Addr};
 
 use crate::proto::sart::bgp_api_server::BgpApi;
 use crate::proto::sart::*;
@@ -14,13 +14,15 @@ pub mod api {
 
 #[derive(Debug, Clone)]
 pub(crate) struct ApiServer {
+    asn: u32,
+    router_id: Ipv4Addr,
     tx: Sender<ControlEvent>,
     signal: Arc<Notify>,
 }
 
 impl ApiServer {
-    pub fn new(tx: Sender<ControlEvent>, signal: Arc<Notify>) -> Self {
-        Self { tx, signal }
+    pub fn new(asn: u32, router_id: Ipv4Addr, tx: Sender<ControlEvent>, signal: Arc<Notify>) -> Self {
+        Self { asn, router_id, tx, signal }
     }
 }
 

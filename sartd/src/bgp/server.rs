@@ -15,7 +15,6 @@ use tokio::time::{interval_at, Instant};
 use tokio_stream::wrappers::TcpListenerStream;
 use tonic::transport::Server;
 use tonic_reflection::server::Builder;
-use tracing::Level;
 use tracing_futures::Instrument;
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -77,9 +76,11 @@ impl Bgp {
 
         let rib_endpoint_conf = conf.rib_endpoint.clone();
         let (rib_event_tx, mut rib_event_rx) = channel::<RibEvent>(128);
+        let asn = conf.asn;
+        let router_id = conf.router_id;
         let mut rib_manager = RibManager::new(
-            conf.asn,
-            conf.router_id,
+            asn,
+            router_id,
             rib_endpoint_conf,
             vec![Afi::IPv4, Afi::IPv6],
             false,
@@ -101,7 +102,7 @@ impl Bgp {
                 .unwrap();
 
             Server::builder()
-                .add_service(BgpApiServer::new(ApiServer::new(ctrl_tx, signal_api)))
+                .add_service(BgpApiServer::new(ApiServer::new(asn, router_id, ctrl_tx, signal_api)))
                 .add_service(reflection_server)
                 .serve(sock_addr)
                 .await

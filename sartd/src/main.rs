@@ -1,5 +1,6 @@
 pub(crate) mod bgp;
 pub(crate) mod proto;
+pub(crate) mod util;
 
 use bgp::config::TraceConfig;
 use std::{net::Ipv4Addr, str::FromStr};
