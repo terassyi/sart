@@ -175,6 +175,28 @@ impl LocRib {
             .map(|paths| paths.iter().filter(|p| p.best).collect::<Vec<&Path>>())
     }
 
+    fn get_all_best(&self, family: &AddressFamily) -> Option<Vec<Path>> {
+        let a = match self.table.get(&family.afi) {
+            Some(table) => {
+                let mut best_paths = Vec::new();
+                for (_prefix, paths) in table.iter() {
+                    if paths.is_empty() {
+                        continue;
+                    }
+                    // paths[0] must be best
+                    // TODO: handle add_path capability
+                    best_paths.push(paths[0].clone());
+                }
+                match best_paths.is_empty() {
+                    true => None,
+                    false => Some(best_paths),
+                }
+            }
+            None => None,
+        };
+        None
+    }
+
     #[tracing::instrument(skip(self, family, path), fields(prefix=path.prefix().to_string(),path_id=path.id))]
     fn insert(&mut self, family: &AddressFamily, path: &mut Path) -> Result<LocRibStatus, Error> {
         let prefix = path.prefix;
@@ -426,6 +448,31 @@ impl RibManager {
                 Ok(())
             }
         }
+    }
+
+    #[tracing::instrument(skip(self, neighbor), fields(peer.asn=neighbor.asn,peer.addr=neighbor.addr.to_string(),peer.id=neighbor.id.to_string()))]
+    async fn init(&self, family: AddressFamily, neighbor: NeighborPair) -> Result<(), Error> {
+        if let Some(paths) = self.loc_rib.get_all_best(&family) {
+            // exclude best paths from target neighbor
+            let p = paths
+                .iter()
+                .filter(|&p| !p.peer_id.eq(&neighbor.id))
+                .cloned()
+                .collect::<Vec<Path>>();
+            if let Some(tx) = self.peers_tx.get(&neighbor) {
+                tx.send(RibEvent::Advertise(p))
+                    .await
+                    .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;
+            } else {
+                return Err(Error::Rib(RibError::PeerNotFound));
+            }
+        }
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self, neighbor), fields(peer.asn=neighbor.asn,peer.addr=neighbor.addr.to_string(),peer.id=neighbor.id.to_string()))]
+    async fn flush(&self, neighbor: NeighborPair) -> Result<(), Error> {
+        Ok(())
     }
 
     #[tracing::instrument(skip(self))]

@@ -1,10 +1,13 @@
+use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr};
 
 use crate::bgp::error::*;
 
 use super::event::ControlEvent;
+use super::packet::attribute::Attribute;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Config {
@@ -13,6 +16,7 @@ pub(crate) struct Config {
     pub rib_endpoint: String,
     pub neighbors: Vec<NeighborConfig>,
     pub multi_path: Option<bool>,
+    pub paths: Option<Vec<PathConfig>>,
 }
 
 impl Config {
@@ -23,11 +27,12 @@ impl Config {
             router_id: Ipv4Addr::new(1, 1, 1, 1),
             neighbors: Vec::new(),
             multi_path: Some(false),
+            paths: None,
         }
     }
 
     pub fn load(file: &str) -> Result<Self, Error> {
-        let contents = fs::read_to_string(file).map_err(|e| Error::StdIoErr(e))?;
+        let contents = fs::read_to_string(file).map_err(Error::StdIoErr)?;
         serde_yaml::from_str(&contents).map_err(|_| Error::Config(ConfigError::FailedToLoad))
     }
 
@@ -47,7 +52,20 @@ impl Into<Vec<ControlEvent>> for &Config {
     fn into(self) -> Vec<ControlEvent> {
         let mut events = Vec::new();
         for neighbor in self.neighbors.iter() {
-            events.push(ControlEvent::AddPeer(neighbor.clone()));
+            events.push(ControlEvent::AddPeer(*neighbor));
+        }
+        if let Some(paths) = &self.paths {
+            for path in paths.iter() {
+                let prefixes = path.prefixes.iter().map(|p| p.parse().unwrap()).collect();
+                let attributes = match &path.attributes {
+                    Some(attrs) => attrs
+                        .iter()
+                        .map(|a| Attribute::from_str_pair(a.0, a.1).unwrap())
+                        .collect(),
+                    None => Vec::new(),
+                };
+                events.push(ControlEvent::AddPath(prefixes, attributes))
+            }
         }
         events
     }
@@ -59,6 +77,12 @@ pub(crate) struct NeighborConfig {
     pub address: IpAddr,
     pub router_id: Ipv4Addr,
     pub passive: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct PathConfig {
+    pub prefixes: Vec<String>,
+    pub attributes: Option<HashMap<String, String>>,
 }
 
 #[cfg(test)]
@@ -78,6 +102,12 @@ neighbors:
     router_id: 3.3.3.3
     address: '::1'
     passive: true
+paths:
+  - prefixes:
+      - 10.0.0.0/24
+      - 10.1.0.0/24
+    attributes:
+      origin: 1
 ";
         let conf: Config = serde_yaml::from_str(yaml_str).unwrap();
         assert_eq!(6550, conf.asn);
