@@ -106,10 +106,7 @@ impl AdjRib {
         &self,
         family: &AddressFamily,
     ) -> Option<std::collections::hash_map::Keys<'_, IpNet, Path>> {
-        match self.table.get(family) {
-            Some(table) => Some(table.inner.keys()),
-            None => None,
-        }
+        self.table.get(family).map(|table| table.inner.keys())
     }
 
     pub fn remove(&mut self, family: &AddressFamily, prefix: &IpNet) -> Option<Path> {
@@ -174,15 +171,13 @@ impl LocRib {
     }
 
     fn get_best_path(&self, family: &AddressFamily, prefix: &IpNet) -> Option<Vec<&Path>> {
-        match self.get(family, prefix) {
-            Some(paths) => Some(paths.iter().filter(|p| p.best).collect::<Vec<&Path>>()),
-            None => None,
-        }
+        self.get(family, prefix)
+            .map(|paths| paths.iter().filter(|p| p.best).collect::<Vec<&Path>>())
     }
 
     #[tracing::instrument(skip(self, family, path), fields(prefix=path.prefix().to_string(),path_id=path.id))]
     fn insert(&mut self, family: &AddressFamily, path: &mut Path) -> Result<LocRibStatus, Error> {
-        let prefix = path.prefix.clone();
+        let prefix = path.prefix;
         let table = self
             .table
             .get_mut(&family.afi)
@@ -259,19 +254,17 @@ impl LocRib {
                     paths.insert(idx, path.clone());
                     return Ok(LocRibStatus::NotChanged);
                 }
-            } else {
-                if idx == 0 {
-                    path.best = true;
-                    path.reason = reason;
+            } else if idx == 0 {
+                path.best = true;
+                path.reason = reason;
 
-                    // unmark old best path
-                    paths[0].best = false;
-                    paths[0].reason = BestPathReason::NotBest;
+                // unmark old best path
+                paths[0].best = false;
+                paths[0].reason = BestPathReason::NotBest;
 
-                    paths.insert(idx, path.clone());
-                    tracing::info!("best path is changed");
-                    return Ok(LocRibStatus::BestPathChanged(prefix, path.id));
-                }
+                paths.insert(idx, path.clone());
+                tracing::info!("best path is changed");
+                return Ok(LocRibStatus::BestPathChanged(prefix, path.id));
             }
 
             paths.insert(idx, path.clone());
@@ -414,8 +407,8 @@ impl RibManager {
                 neighbor,
                 rib_event_tx,
             } => self.add_peer(neighbor, rib_event_tx),
-            RibEvent::AddNetwork(networks, attrs) => self.add_network(networks, attrs).await,
-            RibEvent::DeleteNetwork(family, network) => self.delete_network(family, network).await,
+            RibEvent::AddPath(networks, attrs) => self.add_path(networks, attrs).await,
+            RibEvent::DeletePath(family, network) => self.delete_path(family, network).await,
             RibEvent::InstallPaths(neighbor, paths) => self.install_paths(neighbor, paths).await,
             RibEvent::DropPaths(neighbor, family, path_ids) => {
                 self.drop_paths(neighbor, family, path_ids).await
@@ -436,11 +429,7 @@ impl RibManager {
     }
 
     #[tracing::instrument(skip(self))]
-    async fn add_network(
-        &mut self,
-        networks: Vec<IpNet>,
-        attrs: Vec<Attribute>,
-    ) -> Result<(), Error> {
+    async fn add_path(&mut self, networks: Vec<IpNet>, attrs: Vec<Attribute>) -> Result<(), Error> {
         let mut builder = PathBuilder::builder_local(self.router_id, self.asn);
         for attr in attrs.into_iter() {
             builder.attr(attr)?;
@@ -456,7 +445,7 @@ impl RibManager {
     }
 
     #[tracing::instrument(skip(self))]
-    async fn delete_network(
+    async fn delete_path(
         &mut self,
         family: AddressFamily,
         network: Vec<IpNet>,
@@ -3067,7 +3056,7 @@ mod tests {
         manager.add_peer(peer3.clone(), peer3_tx).unwrap();
 
         manager
-            .add_network(
+            .add_path(
                 vec![
                     "10.0.0.0/24".parse().unwrap(),
                     "10.1.0.0/24".parse().unwrap(),
@@ -3110,7 +3099,7 @@ mod tests {
         }
 
         manager
-            .add_network(
+            .add_path(
                 vec!["10.0.2.0/24".parse().unwrap()],
                 vec![
                     Attribute::new_origin(Attribute::ORIGIN_INCOMPLETE).unwrap(),
@@ -3158,7 +3147,7 @@ mod tests {
         }
 
         manager
-            .delete_network(
+            .delete_path(
                 AddressFamily::ipv4_unicast(),
                 vec!["10.0.2.0/24".parse().unwrap()],
             )
