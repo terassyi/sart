@@ -300,9 +300,11 @@ impl Into<u8> for BgpMessageEvent {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ControlEvent {
     AddPeer(NeighborConfig),
+    AddPath(Vec<IpNet>, Vec<Attribute>),
+    DeletePath(AddressFamily, Vec<IpNet>),
     Health,
 }
 
@@ -310,6 +312,8 @@ impl std::fmt::Display for ControlEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ControlEvent::AddPeer(_) => write!(f, "Control::AddPeer"),
+            ControlEvent::AddPath(_, _) => write!(f, "Control::AddPath"),
+            ControlEvent::DeletePath(_, _) => write!(f, "Control::DeletePath"),
             ControlEvent::Health => write!(f, "Control::Health"),
         }
     }
@@ -321,8 +325,8 @@ pub(crate) enum RibEvent {
         neighbor: NeighborPair,
         rib_event_tx: Sender<RibEvent>,
     },
-    AddNetwork(Vec<IpNet>, Vec<Attribute>),
-    DeleteNetwork(AddressFamily, Vec<IpNet>),
+    AddPath(Vec<IpNet>, Vec<Attribute>),
+    DeletePath(AddressFamily, Vec<IpNet>),
     InstallPaths(NeighborPair, Vec<Path>),
     DropPaths(NeighborPair, AddressFamily, Vec<(IpNet, u64)>),
     Advertise(Vec<Path>),
@@ -336,8 +340,8 @@ impl std::fmt::Display for RibEvent {
                 neighbor: _,
                 rib_event_tx: _,
             } => write!(f, "Rib::AddPeer"),
-            RibEvent::AddNetwork(_, _) => write!(f, "Rib::AddNetwork"),
-            RibEvent::DeleteNetwork(_, _) => write!(f, "Rib::DeleteNetwork"),
+            RibEvent::AddPath(_, _) => write!(f, "Rib::AddPath"),
+            RibEvent::DeletePath(_, _) => write!(f, "Rib::DeletePath"),
             RibEvent::InstallPaths(_, _) => write!(f, "Rib::InstallPaths"),
             RibEvent::DropPaths(_, _, _) => write!(f, "Rib::DropPaths"),
             RibEvent::Advertise(_) => write!(f, "Rib::Advertise"),

@@ -1,5 +1,6 @@
 use futures::stream::FuturesUnordered;
 use futures::{FutureExt, StreamExt};
+use ipnet::IpNet;
 use socket2::{Domain, Socket, TcpKeepalive, Type};
 use std::collections::HashMap;
 use std::io;
@@ -33,6 +34,7 @@ use super::config::{NeighborConfig, TraceConfig};
 use super::error::{ControlError, PeerError, RibError};
 use super::event::{AdministrativeEvent, ControlEvent, Event, RibEvent};
 use super::family::AddressFamily;
+use super::packet::attribute::Attribute;
 use super::peer::neighbor::NeighborPair;
 use super::peer::peer::{Peer, PeerInfo, PeerManager};
 use super::rib::RibManager;
@@ -102,7 +104,9 @@ impl Bgp {
                 .unwrap();
 
             Server::builder()
-                .add_service(BgpApiServer::new(ApiServer::new(asn, router_id, ctrl_tx, signal_api)))
+                .add_service(BgpApiServer::new(ApiServer::new(
+                    asn, router_id, ctrl_tx, signal_api,
+                )))
                 .add_service(reflection_server)
                 .serve(sock_addr)
                 .await
@@ -199,6 +203,12 @@ impl Bgp {
             ControlEvent::AddPeer(neighbor) => {
                 self.add_peer(neighbor).in_current_span().await?;
             }
+            ControlEvent::AddPath(prefixes, attributes) => {
+                self.add_path(prefixes, attributes).await?;
+            }
+            ControlEvent::DeletePath(family, prefixes) => {
+                self.delete_path(family, prefixes).await?;
+            }
         }
         self.event_signal.notify_one();
         Ok(())
@@ -206,7 +216,7 @@ impl Bgp {
 
     #[tracing::instrument(skip(self, neighbor), fields(peer.asn = neighbor.asn, peer.addr = neighbor.address.to_string(), peer.id = neighbor.router_id.to_string()))]
     async fn add_peer(&mut self, neighbor: NeighborConfig) -> Result<(), Error> {
-        if let Some(_) = self.peer_managers.get(&neighbor.address) {
+        if self.peer_managers.get(&neighbor.address).is_some() {
             return Err(Error::Control(ControlError::PeerAlreadyExists));
         }
         let (tx, rx) = unbounded_channel::<Event>();
@@ -274,6 +284,24 @@ impl Bgp {
                 .map_err(|_| Error::Peer(PeerError::Down))?;
         }
         Ok(())
+    }
+
+    async fn add_path(
+        &self,
+        prefixes: Vec<IpNet>,
+        attributes: Vec<Attribute>,
+    ) -> Result<(), Error> {
+        self.rib_event_tx
+            .send(RibEvent::AddPath(prefixes, attributes))
+            .await
+            .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))
+    }
+
+    async fn delete_path(&self, family: AddressFamily, prefixes: Vec<IpNet>) -> Result<(), Error> {
+        self.rib_event_tx
+            .send(RibEvent::DeletePath(family, prefixes))
+            .await
+            .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))
     }
 }
 
