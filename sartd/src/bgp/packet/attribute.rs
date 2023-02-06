@@ -8,7 +8,6 @@ use crate::bgp::error::*;
 use crate::bgp::family::{AddressFamily, Afi};
 use crate::bgp::packet::prefix::Prefix;
 use crate::proto;
-use crate::proto::sart::AsSegment;
 use crate::util;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -596,6 +595,19 @@ impl Attribute {
                 IpAddr::V6(_) => 20,
             },
             Self::Unsupported(_, data) => data.len(),
+        }
+    }
+
+    // this is not enough to express all attribute's key and value pair
+    pub fn from_str_pair(key: &str, value: &str) -> Result<Attribute, Error> {
+        if key == "origin" {
+            Attribute::new_origin(value.parse().unwrap())
+        } else if key == "local_pref" {
+            Attribute::new_local_pref(value.parse().unwrap())
+        } else if key == "med" {
+            Attribute::new_med(value.parse().unwrap())
+        } else {
+            Err(Error::Config(ConfigError::InvalidArgument))
         }
     }
 }
