@@ -105,9 +105,15 @@ message LocalPrefAttribute {
 
 message AtomicAggregateAttribute {}
 
-message AggregateAttribute {
+message AggregatorAttribute {
 	uint32 asn = 1;
 	string address = 2;
+}
+
+message UnknownAttribute {
+	uint32 flags = 1;
+	uint32 code = 2;
+	bytes data = 3;
 }
 
 message MultiProtocolCapability {

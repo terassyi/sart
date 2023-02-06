@@ -149,6 +149,8 @@ pub(crate) enum ConfigError {
     FailedToLoad,
     #[error("invalid argument")]
     InvalidArgument,
+    #[error("invalid data")]
+    InvalidData,
 }
 
 #[derive(Debug, Error)]

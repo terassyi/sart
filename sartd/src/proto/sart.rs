@@ -200,11 +200,21 @@ pub struct LocalPrefAttribute {
 pub struct AtomicAggregateAttribute {}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct AggregateAttribute {
+pub struct AggregatorAttribute {
     #[prost(uint32, tag = "1")]
     pub asn: u32,
     #[prost(string, tag = "2")]
     pub address: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UnknownAttribute {
+    #[prost(uint32, tag = "1")]
+    pub flags: u32,
+    #[prost(uint32, tag = "2")]
+    pub code: u32,
+    #[prost(bytes = "vec", tag = "3")]
+    pub data: ::prost::alloc::vec::Vec<u8>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
