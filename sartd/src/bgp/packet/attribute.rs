@@ -2,10 +2,14 @@ use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use bytes::{Buf, BufMut, BytesMut};
+use prost::Message;
 
 use crate::bgp::error::*;
 use crate::bgp::family::{AddressFamily, Afi};
 use crate::bgp::packet::prefix::Prefix;
+use crate::proto;
+use crate::proto::sart::AsSegment;
+use crate::util;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum Attribute {
@@ -617,6 +621,132 @@ impl Into<u8> for Attribute {
     }
 }
 
+impl TryFrom<prost_types::Any> for Attribute {
+    type Error = Error;
+    fn try_from(value: prost_types::Any) -> Result<Self, Self::Error> {
+        if value.type_url == util::type_url("OriginAttribute") {
+            let a = proto::sart::OriginAttribute::decode(&*value.value)
+                .map_err(|_| Error::Config(ConfigError::InvalidArgument))?;
+            Ok(Attribute::new_origin(a.value as u8)?)
+        } else if value.type_url == util::type_url("AsPathAttribute") {
+            let a = proto::sart::AsPathAttribute::decode(&*value.value)
+                .map_err(|_| Error::Config(ConfigError::InvalidArgument))?;
+            let seq = match a
+                .segments
+                .iter()
+                .find(|s| s.r#type == Attribute::AS_SEQUENCE as i32)
+            {
+                Some(seq) => seq.elm.clone(),
+                None => Vec::new(),
+            };
+            let set = match a
+                .segments
+                .iter()
+                .find(|s| s.r#type == Attribute::AS_SET as i32)
+            {
+                Some(set) => set.elm.clone(),
+                None => Vec::new(),
+            };
+            Ok(Attribute::new_as_path(seq, set, true)?)
+        } else if value.type_url == util::type_url("NextHopAttribute") {
+            let a = proto::sart::NextHopAttribute::decode(&*value.value)
+                .map_err(|_| Error::Config(ConfigError::InvalidArgument))?;
+            Ok(Attribute::new_nexthop(
+                a.value
+                    .parse()
+                    .map_err(|_| Error::Config(ConfigError::InvalidData))?,
+            ))
+        } else if value.type_url == util::type_url("LocalPrefAttribute") {
+            let a = proto::sart::LocalPrefAttribute::decode(&*value.value)
+                .map_err(|_| Error::Config(ConfigError::InvalidArgument))?;
+            Ok(Attribute::new_local_pref(a.value)?)
+        } else if value.type_url == util::type_url("MultiExitDiscAttribute") {
+            let a = proto::sart::MultiExitDiscAttribute::decode(&*value.value)
+                .map_err(|_| Error::Config(ConfigError::InvalidArgument))?;
+            Ok(Attribute::new_med(a.value)?)
+        } else if value.type_url == util::type_url("AtomicAggregateAttribute") {
+            Ok(Attribute::AtomicAggregate(Base::new(
+                0,
+                Attribute::ATOMIC_AGGREGATE,
+            )))
+        } else if value.type_url == util::type_url("AggregatorAttribute") {
+            let a = proto::sart::AggregatorAttribute::decode(&*value.value)
+                .map_err(|_| Error::Config(ConfigError::InvalidArgument))?;
+            Ok(Attribute::AS4Aggregator(
+                Base::new(
+                    Attribute::FLAG_TRANSITIVE + Attribute::FLAG_OPTIONAL,
+                    Attribute::AGGREGATOR,
+                ),
+                a.asn,
+                a.address
+                    .parse()
+                    .map_err(|_| Error::Config(ConfigError::InvalidData))?,
+            ))
+        } else {
+            Err(Error::Config(ConfigError::InvalidArgument))
+        }
+    }
+}
+
+impl From<&Attribute> for prost_types::Any {
+    fn from(attr: &Attribute) -> Self {
+        match attr {
+            Attribute::Origin(_, val) => util::to_any(
+                proto::sart::OriginAttribute { value: *val as u32 },
+                "OriginAttribute",
+            ),
+            Attribute::ASPath(_, segments) => util::to_any(
+                proto::sart::AsPathAttribute {
+                    segments: segments
+                        .iter()
+                        .map(|s| proto::sart::AsSegment::from(s))
+                        .collect(),
+                },
+                "AsPathAttribute",
+            ),
+            Attribute::NextHop(_, addr) => util::to_any(
+                proto::sart::NextHopAttribute {
+                    value: addr.to_string(),
+                },
+                "NextHopAttribute",
+            ),
+            Attribute::LocalPref(_, val) => util::to_any(
+                proto::sart::LocalPrefAttribute { value: *val },
+                "LocalPrefAttribute",
+            ),
+            Attribute::MultiExitDisc(_, val) => util::to_any(
+                proto::sart::MultiExitDiscAttribute { value: *val },
+                "MultiExitDiscAttribute",
+            ),
+            Attribute::AtomicAggregate(_) => util::to_any(
+                proto::sart::AtomicAggregateAttribute {},
+                "AtomicAggregateAttribute",
+            ),
+            Attribute::Aggregator(_, asn, addr) => util::to_any(
+                proto::sart::AggregatorAttribute {
+                    asn: *asn,
+                    address: addr.to_string(),
+                },
+                "AggregatorAttribute",
+            ),
+            Attribute::Unsupported(b, data) => util::to_any(
+                proto::sart::UnknownAttribute {
+                    flags: b.flag as u32,
+                    code: b.code as u32,
+                    data: data.to_vec(),
+                },
+                "UnknownAttribute",
+            ),
+            Attribute::Communities(_, _) => todo!(),
+            Attribute::MPReachNLRI(_, _, _, _) => todo!(),
+            Attribute::MPUnReachNLRI(_, _, _) => todo!(),
+            Attribute::ExtendedCommunities(_, _, _) => todo!(),
+            Attribute::AS4Path(_, _) => todo!(),
+            Attribute::AS4Aggregator(_, _, _) => todo!(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct Base {
     flag: u8,
@@ -697,6 +827,43 @@ impl ASSegment {
 
     fn len(&self) -> usize {
         self.segments.len()
+    }
+}
+
+impl TryFrom<prost_types::Any> for ASSegment {
+    type Error = Error;
+    fn try_from(value: prost_types::Any) -> Result<Self, Self::Error> {
+        if value.type_url == util::type_url("AsSegment") {
+            let s = proto::sart::AsSegment::decode(&*value.value)
+                .map_err(|_| Error::Config(ConfigError::InvalidData))?;
+            Ok(ASSegment {
+                segment_type: s.r#type as u8,
+                segments: s.elm,
+            })
+        } else {
+            Err(Error::Config(ConfigError::InvalidArgument))
+        }
+    }
+}
+
+impl From<&ASSegment> for proto::sart::AsSegment {
+    fn from(segment: &ASSegment) -> Self {
+        proto::sart::AsSegment {
+            r#type: segment.segment_type as i32,
+            elm: segment.segments.clone(),
+        }
+    }
+}
+
+impl From<&ASSegment> for prost_types::Any {
+    fn from(segment: &ASSegment) -> Self {
+        util::to_any(
+            proto::sart::AsSegment {
+                r#type: segment.segment_type as i32,
+                elm: segment.segments.clone(),
+            },
+            "AsSegment",
+        )
     }
 }
 
