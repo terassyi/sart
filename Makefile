@@ -40,9 +40,6 @@ unit-test:
 integration-test:
 	sartd/test/run-integration.sh
 
-
-
-SPEC = "sartd/testdata/tinet/basic/spec.yaml"
-.PHONY: tinet
-tinet.%:
-	tinet ${@:tinet.%=%} -c $(SPEC) | sudo sh -x
+.PHONY: dev-container
+dev-container:
+	docker run -it --privileged --rm -p 8080:8080 -w /work/sart -v `pwd`:/work/sart ghcr.io/terassyi/terakoya:0.1.0 bash
