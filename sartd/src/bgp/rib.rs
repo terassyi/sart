@@ -456,7 +456,14 @@ impl RibManager {
             // exclude best paths from target neighbor
             let p = paths
                 .iter()
-                .filter(|&p| !p.peer_id.eq(&neighbor.id))
+                .filter(|&p| {
+                    !p.peer_id.eq(&neighbor.id) || if self.asn == neighbor.asn {
+                        // ibgp peer
+                        p.kind() != PathKind::Internal
+                    } else {
+                        false
+                    }
+                })
                 .cloned()
                 .collect::<Vec<Path>>();
             if let Some(tx) = self.peers_tx.get(&neighbor) {

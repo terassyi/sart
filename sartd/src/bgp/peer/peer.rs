@@ -15,12 +15,11 @@ use tokio::sync::mpsc::{
 use tokio::sync::Notify;
 use tokio::time::{interval_at, sleep, timeout, Instant, Interval, Sleep};
 use tokio_util::codec::Framed;
-use tracing_futures::Instrument;
 
 use crate::bgp::capability::{Capability, CapabilitySet};
 use crate::bgp::config::NeighborConfig;
 use crate::bgp::error::{
-    Error, MessageHeaderError, OpenMessageError, PeerError, RibError, UpdateMessageError,
+    Error, MessageHeaderError, OpenMessageError, PeerError, RibError, UpdateMessageError, ControlError,
 };
 use crate::bgp::event::{
     AdministrativeEvent, BgpMessageEvent, Event, RibEvent, TcpConnectionEvent, TimerEvent,
@@ -834,6 +833,13 @@ impl Peer {
                 self.send(msg)?;
                 tracing::info!(state=?self.state(),"establish bgp session");
                 let _negotiated_hold_time = self.negotiate_hold_time(hold_time as u64)?;
+
+                // when new session is established, it needs to advertise all paths.
+                let (peer_asn, peer_id, peer_addr) = {
+                    let info = self.info.lock().unwrap();
+                    (info.neighbor.get_asn(), info.neighbor.get_router_id(), info.neighbor.get_addr())
+                };
+                self.rib_tx.send(RibEvent::Init(NeighborPair::new(peer_addr, peer_asn, peer_id))).await.map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;
             }
             State::OpenSent => {
                 // Collision detection mechanisms (Section 6.8) need to be applied
@@ -846,6 +852,13 @@ impl Peer {
                 tracing::info!(state=?self.state(),"establish bgp session");
                 let _negotiated_hold_time = self.negotiate_hold_time(hold_time as u64)?;
                 self.send(msg)?;
+
+                // when new session is established, it needs to advertise all paths.
+                let (peer_asn, peer_id, peer_addr) = {
+                    let info = self.info.lock().unwrap();
+                    (info.neighbor.get_asn(), info.neighbor.get_router_id(), info.neighbor.get_addr())
+                };
+                self.rib_tx.send(RibEvent::Init(NeighborPair::new(peer_addr, peer_asn, peer_id))).await.map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;
             }
             State::OpenConfirm => {
                 // If the local system receives a valid OPEN message (BGPOpen (Event
