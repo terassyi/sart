@@ -42,4 +42,8 @@ integration-test:
 
 .PHONY: dev-container
 dev-container:
-	docker run -it --privileged --rm -p 8080:8080 -w /work/sart -v `pwd`:/work/sart ghcr.io/terassyi/terakoya:0.1.0 bash
+	docker run -it --privileged --rm --name sart-dev -p 8080:8080 -w /work/sart -v `pwd`:/work/sart ghcr.io/terassyi/terakoya:0.1.0 bash
+
+.PHONY: in-container
+in-container:
+	docker exec -it sart-dev bash

@@ -121,10 +121,11 @@ impl Path {
         asn: u32,
         next_hops: Vec<IpAddr>,
     ) -> Result<&mut Self, Error> {
-        self.origin = match self.kind() {
-            PathKind::Local => Attribute::ORIGIN_IGP,
-            _ => Attribute::ORIGIN_IGP,
-        };
+        if self.kind() == PathKind::Internal {
+            if !is_ibgp {
+                self.origin = Attribute::ORIGIN_INCOMPLETE;
+            }
+        }
 
         // add as_path
         if !is_ibgp {

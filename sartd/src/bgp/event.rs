@@ -321,12 +321,10 @@ impl std::fmt::Display for ControlEvent {
 
 #[derive(Debug, Clone)]
 pub(crate) enum RibEvent {
-    AddPeer {
-        neighbor: NeighborPair,
-        rib_event_tx: Sender<RibEvent>,
-    },
-    Init(NeighborPair),
-    Flush(NeighborPair),
+    AddPeer(NeighborPair, Sender<RibEvent>),
+    DeletePeer(NeighborPair),
+    Init(AddressFamily, NeighborPair),
+    Flush(AddressFamily, NeighborPair),
     AddPath(Vec<IpNet>, Vec<Attribute>),
     DeletePath(AddressFamily, Vec<IpNet>),
     InstallPaths(NeighborPair, Vec<Path>),
@@ -338,12 +336,10 @@ pub(crate) enum RibEvent {
 impl std::fmt::Display for RibEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RibEvent::AddPeer {
-                neighbor: _,
-                rib_event_tx: _,
-            } => write!(f, "Rib::AddPeer"),
-            RibEvent::Init(_) => write!(f, "Rib::Init"),
-            RibEvent::Flush(_) => write!(f, "Rib::Flush"),
+            RibEvent::AddPeer(_, _) => write!(f, "Rib::AddPeer"),
+            RibEvent::DeletePeer(_) => write!(f, "Rib::DeletePeer"),
+            RibEvent::Init(_, _) => write!(f, "Rib::Init"),
+            RibEvent::Flush(_, _) => write!(f, "Rib::Flush"),
             RibEvent::AddPath(_, _) => write!(f, "Rib::AddPath"),
             RibEvent::DeletePath(_, _) => write!(f, "Rib::DeletePath"),
             RibEvent::InstallPaths(_, _) => write!(f, "Rib::InstallPaths"),

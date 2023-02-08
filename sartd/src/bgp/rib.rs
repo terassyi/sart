@@ -176,7 +176,7 @@ impl LocRib {
     }
 
     fn get_all_best(&self, family: &AddressFamily) -> Option<Vec<Path>> {
-        let a = match self.table.get(&family.afi) {
+        match self.table.get(&family.afi) {
             Some(table) => {
                 let mut best_paths = Vec::new();
                 for (_prefix, paths) in table.iter() {
@@ -193,8 +193,7 @@ impl LocRib {
                 }
             }
             None => None,
-        };
-        None
+        }
     }
 
     #[tracing::instrument(skip(self, family, path), fields(prefix=path.prefix().to_string(),path_id=path.id))]
@@ -429,6 +428,8 @@ impl RibManager {
                 neighbor,
                 rib_event_tx,
             } => self.add_peer(neighbor, rib_event_tx),
+            RibEvent::Init(family, neighbor) => self.init(family, neighbor).await,
+            RibEvent::Flush(family, neighbor) => self.flush(family, neighbor).await,
             RibEvent::AddPath(networks, attrs) => self.add_path(networks, attrs).await,
             RibEvent::DeletePath(family, network) => self.delete_path(family, network).await,
             RibEvent::InstallPaths(neighbor, paths) => self.install_paths(neighbor, paths).await,
@@ -452,6 +453,7 @@ impl RibManager {
 
     #[tracing::instrument(skip(self, neighbor), fields(peer.asn=neighbor.asn,peer.addr=neighbor.addr.to_string(),peer.id=neighbor.id.to_string()))]
     async fn init(&self, family: AddressFamily, neighbor: NeighborPair) -> Result<(), Error> {
+        tracing::debug!("hogehoge");
         if let Some(paths) = self.loc_rib.get_all_best(&family) {
             // exclude best paths from target neighbor
             let p = paths
@@ -467,6 +469,8 @@ impl RibManager {
                 .cloned()
                 .collect::<Vec<Path>>();
             if let Some(tx) = self.peers_tx.get(&neighbor) {
+                let prefixes = p.iter().map(|pp| pp.prefix().to_string()).collect::<Vec<String>>();
+                tracing::info!(prefixes=?prefixes, "advertise initially installed paths");
                 tx.send(RibEvent::Advertise(p))
                     .await
                     .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;
@@ -478,7 +482,7 @@ impl RibManager {
     }
 
     #[tracing::instrument(skip(self, neighbor), fields(peer.asn=neighbor.asn,peer.addr=neighbor.addr.to_string(),peer.id=neighbor.id.to_string()))]
-    async fn flush(&self, neighbor: NeighborPair) -> Result<(), Error> {
+    async fn flush(&self, family: AddressFamily, neighbor: NeighborPair) -> Result<(), Error> {
         Ok(())
     }
 
