@@ -235,10 +235,10 @@ impl Bgp {
         let (peer_rib_event_tx, peer_rib_event_rx) = channel(128);
 
         self.rib_event_tx
-            .send(RibEvent::AddPeer {
-                neighbor: NeighborPair::from(&neighbor),
-                rib_event_tx: peer_rib_event_tx,
-            })
+            .send(RibEvent::AddPeer(
+                NeighborPair::from(&neighbor),
+                peer_rib_event_tx,
+            ))
             .await
             .map_err(|e| {
                 tracing::error!(error=?e);

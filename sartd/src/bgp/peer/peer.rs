@@ -19,7 +19,8 @@ use tokio_util::codec::Framed;
 use crate::bgp::capability::{Capability, CapabilitySet};
 use crate::bgp::config::NeighborConfig;
 use crate::bgp::error::{
-    Error, MessageHeaderError, OpenMessageError, PeerError, RibError, UpdateMessageError, ControlError,
+    ControlError, Error, MessageHeaderError, OpenMessageError, PeerError, RibError,
+    UpdateMessageError,
 };
 use crate::bgp::event::{
     AdministrativeEvent, BgpMessageEvent, Event, RibEvent, TcpConnectionEvent, TimerEvent,
@@ -486,6 +487,7 @@ impl Peer {
         self.connections.lock().unwrap().clear();
         self.send_counter.lock().unwrap().reset();
         self.recv_counter.lock().unwrap().reset();
+
         tracing::warn!(state=?self.state(),"release session");
         Ok(())
     }
@@ -833,10 +835,21 @@ impl Peer {
                 // when new session is established, it needs to advertise all paths.
                 let (peer_asn, peer_id, peer_addr, families) = {
                     let info = self.info.lock().unwrap();
-                    (info.neighbor.get_asn(), info.neighbor.get_router_id(), info.neighbor.get_addr(), info.families.clone())
+                    (
+                        info.neighbor.get_asn(),
+                        info.neighbor.get_router_id(),
+                        info.neighbor.get_addr(),
+                        info.families.clone(),
+                    )
                 };
                 for family in families.iter() {
-                    self.rib_tx.send(RibEvent::Init(*family, NeighborPair::new(peer_addr, peer_asn, peer_id))).await.map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;
+                    self.rib_tx
+                        .send(RibEvent::Init(
+                            *family,
+                            NeighborPair::new(peer_addr, peer_asn, peer_id),
+                        ))
+                        .await
+                        .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;
                 }
             }
             State::OpenSent => {
@@ -854,10 +867,21 @@ impl Peer {
                 // when new session is established, it needs to advertise all paths.
                 let (peer_asn, peer_id, peer_addr, families) = {
                     let info = self.info.lock().unwrap();
-                    (info.neighbor.get_asn(), info.neighbor.get_router_id(), info.neighbor.get_addr(), info.families.clone())
+                    (
+                        info.neighbor.get_asn(),
+                        info.neighbor.get_router_id(),
+                        info.neighbor.get_addr(),
+                        info.families.clone(),
+                    )
                 };
                 for family in families.iter() {
-                    self.rib_tx.send(RibEvent::Init(*family, NeighborPair::new(peer_addr, peer_asn, peer_id))).await.map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;
+                    self.rib_tx
+                        .send(RibEvent::Init(
+                            *family,
+                            NeighborPair::new(peer_addr, peer_asn, peer_id),
+                        ))
+                        .await
+                        .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;
                 }
             }
             State::OpenConfirm => {
@@ -870,11 +894,7 @@ impl Peer {
                 //   - releases all BGP resources,
                 //   - drops the TCP connection (send TCP FIN),
                 //   - increments the ConnectRetryCounter by 1,
-                let passive = if local_port == Bgp::BGP_PORT {
-                    true
-                } else {
-                    false
-                };
+                let passive = local_port == Bgp::BGP_PORT;
                 let mut builder = MessageBuilder::builder(MessageType::Notification);
                 let msg = builder.code(NotificationCode::Cease)?.build()?;
                 self.send_to_dup_conn(msg, passive)?;

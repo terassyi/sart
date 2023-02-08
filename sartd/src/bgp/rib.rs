@@ -424,10 +424,8 @@ impl RibManager {
     pub async fn handle(&mut self, event: RibEvent) -> Result<(), Error> {
         tracing::info!(event=%event);
         match event {
-            RibEvent::AddPeer {
-                neighbor,
-                rib_event_tx,
-            } => self.add_peer(neighbor, rib_event_tx),
+            RibEvent::AddPeer(neighbor, rib_event_tx) => self.add_peer(neighbor, rib_event_tx),
+            RibEvent::DeletePeer(neighbor, path_ids) => self.delete_peer(neighbor, path_ids),
             RibEvent::Init(family, neighbor) => self.init(family, neighbor).await,
             RibEvent::Flush(family, neighbor) => self.flush(family, neighbor).await,
             RibEvent::AddPath(networks, attrs) => self.add_path(networks, attrs).await,
@@ -451,25 +449,33 @@ impl RibManager {
         }
     }
 
+    #[tracing::instrument(skip(self))]
+    fn delete_peer(&mut self, neighbor: NeighborPair, path_ids: Vec<u64>) -> Result<(), Error> {
+        Ok(())
+    }
+
     #[tracing::instrument(skip(self, neighbor), fields(peer.asn=neighbor.asn,peer.addr=neighbor.addr.to_string(),peer.id=neighbor.id.to_string()))]
     async fn init(&self, family: AddressFamily, neighbor: NeighborPair) -> Result<(), Error> {
-        tracing::debug!("hogehoge");
         if let Some(paths) = self.loc_rib.get_all_best(&family) {
             // exclude best paths from target neighbor
             let p = paths
                 .iter()
                 .filter(|&p| {
-                    !p.peer_id.eq(&neighbor.id) || if self.asn == neighbor.asn {
-                        // ibgp peer
-                        p.kind() != PathKind::Internal
-                    } else {
-                        false
-                    }
+                    !p.peer_id.eq(&neighbor.id)
+                        || if self.asn == neighbor.asn {
+                            // ibgp peer
+                            p.kind() != PathKind::Internal
+                        } else {
+                            false
+                        }
                 })
                 .cloned()
                 .collect::<Vec<Path>>();
             if let Some(tx) = self.peers_tx.get(&neighbor) {
-                let prefixes = p.iter().map(|pp| pp.prefix().to_string()).collect::<Vec<String>>();
+                let prefixes = p
+                    .iter()
+                    .map(|pp| pp.prefix().to_string())
+                    .collect::<Vec<String>>();
                 tracing::info!(prefixes=?prefixes, "advertise initially installed paths");
                 tx.send(RibEvent::Advertise(p))
                     .await
