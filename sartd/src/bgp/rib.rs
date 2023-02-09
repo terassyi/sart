@@ -50,6 +50,16 @@ impl Table {
     fn get_mut(&mut self, prefix: &IpNet) -> Option<&mut Path> {
         self.inner.get_mut(prefix)
     }
+
+    fn get_all(&self) -> Vec<&Path> {
+        self.inner.iter().map(|(_prefix, path)| path).collect()
+    }
+
+    fn clear(&mut self) {
+        self.inner = HashMap::new();
+        self.received = 0;
+        self.dropped = 0;
+    }
 }
 
 #[derive(Debug)]
@@ -102,6 +112,16 @@ impl AdjRib {
         }
     }
 
+    pub fn get_all(&self, family: &AddressFamily) -> Option<Vec<&Path>> {
+        match self.table.get(family) {
+            Some(table) => match table.inner.is_empty() {
+                true => None,
+                false => Some(table.get_all()),
+            },
+            None => None,
+        }
+    }
+
     pub fn prefixes(
         &self,
         family: &AddressFamily,
@@ -113,6 +133,12 @@ impl AdjRib {
         match self.table.get_mut(family) {
             Some(table) => table.remove(prefix),
             None => None,
+        }
+    }
+
+    pub fn clear(&mut self) {
+        for (_family, table) in self.table.iter_mut() {
+            table.clear();
         }
     }
 }
@@ -687,14 +713,15 @@ impl RibManager {
 }
 
 fn get_comparison_funcs(multi_path: bool) -> Vec<(BestPathReason, ComparisonFunc)> {
-    let mut funcs: Vec<(BestPathReason, ComparisonFunc)> = Vec::new();
-    funcs.push((BestPathReason::Weight, compare_weight));
-    funcs.push((BestPathReason::LocalPref, compare_local_pref));
-    funcs.push((BestPathReason::LocalOriginated, compare_local_originated));
-    funcs.push((BestPathReason::ASPath, compare_as_path));
-    funcs.push((BestPathReason::Origin, compare_origin));
-    funcs.push((BestPathReason::MultiExitDisc, compare_med));
-    funcs.push((BestPathReason::External, compare_external));
+    let mut funcs: Vec<(BestPathReason, ComparisonFunc)> = vec![
+        (BestPathReason::Weight, compare_weight),
+        (BestPathReason::LocalPref, compare_local_pref),
+        (BestPathReason::LocalOriginated, compare_local_originated),
+        (BestPathReason::ASPath, compare_as_path),
+        (BestPathReason::Origin, compare_origin),
+        (BestPathReason::MultiExitDisc, compare_med),
+        (BestPathReason::External, compare_external),
+    ];
     if multi_path {
         return funcs;
     }
@@ -713,12 +740,7 @@ fn compare_weight(_a: &Path, _b: &Path) -> Ordering {
 }
 
 fn compare_local_pref(a: &Path, b: &Path) -> Ordering {
-    if a.local_pref > b.local_pref {
-        return Ordering::Less;
-    } else if a.local_pref == b.local_pref {
-        return Ordering::Equal;
-    }
-    Ordering::Greater
+    b.local_pref.cmp(&a.local_pref)
 }
 
 fn compare_local_originated(a: &Path, b: &Path) -> Ordering {
@@ -744,30 +766,15 @@ fn compare_as_path(a: &Path, b: &Path) -> Ordering {
     } else {
         b.as_sequence.len()
     };
-    if a_len < b_len {
-        return Ordering::Less;
-    } else if a_len == b_len {
-        return Ordering::Equal;
-    }
-    Ordering::Greater
+    a_len.cmp(&b_len)
 }
 
 fn compare_origin(a: &Path, b: &Path) -> Ordering {
-    if a.origin < b.origin {
-        return Ordering::Less;
-    } else if a.origin == b.origin {
-        return Ordering::Equal;
-    }
-    Ordering::Greater
+    a.origin.cmp(&b.origin)
 }
 
 fn compare_med(a: &Path, b: &Path) -> Ordering {
-    if a.med < b.med {
-        return Ordering::Less;
-    } else if a.med == b.med {
-        return Ordering::Equal;
-    }
-    Ordering::Greater
+    a.med.cmp(&b.med)
 }
 
 fn compare_external(a: &Path, b: &Path) -> Ordering {
@@ -786,35 +793,17 @@ fn compare_older_route(a: &Path, b: &Path) -> Ordering {
     let a_ebgp = a.local_asn != a.peer_asn;
     let b_ebgp = b.local_asn != b.peer_asn;
     if a_ebgp == b_ebgp {
-        return if a.timestamp < b.timestamp {
-            Ordering::Less
-        } else if a.timestamp.eq(&b.timestamp) {
-            Ordering::Equal
-        } else {
-            Ordering::Greater
-        };
+        return a.timestamp.cmp(&b.timestamp);
     }
     Ordering::Equal
 }
 
 fn compare_peer_router_id(a: &Path, b: &Path) -> Ordering {
-    return if a.peer_id < b.peer_id {
-        Ordering::Less
-    } else if a.peer_id == b.peer_id {
-        Ordering::Equal
-    } else {
-        Ordering::Greater
-    };
+    a.peer_id.cmp(&b.peer_id)
 }
 
 fn compare_peer_addr(a: &Path, b: &Path) -> Ordering {
-    return if a.peer_addr < b.peer_addr {
-        Ordering::Less
-    } else if a.peer_addr == b.peer_addr {
-        Ordering::Equal
-    } else {
-        Ordering::Greater
-    };
+    a.peer_addr.cmp(&b.peer_addr)
 }
 
 #[cfg(test)]
@@ -2283,7 +2272,7 @@ mod tests {
         // drop from peer2
         let prefixes: Vec<(IpNet, u64)> = vec![("10.0.0.0/24".parse().unwrap(), 3)];
         manager
-            .drop_paths(peer2.clone(), family.clone(), prefixes)
+            .drop_paths(peer2.clone(), family, prefixes)
             .await
             .unwrap();
 
@@ -2299,7 +2288,7 @@ mod tests {
         // drop from peer1
         let prefixes: Vec<(IpNet, u64)> = vec![("10.0.0.0/24".parse().unwrap(), 0)];
         manager
-            .drop_paths(peer1.clone(), family.clone(), prefixes)
+            .drop_paths(peer1.clone(), family, prefixes)
             .await
             .unwrap();
 
@@ -2328,7 +2317,7 @@ mod tests {
                     65000,
                     Ipv4Addr::new(1, 1, 1, 1),
                 ),
-                family.clone(),
+                family,
                 prefixes,
             )
             .await
@@ -2480,7 +2469,7 @@ mod tests {
         // drop from peer1
         let prefixes: Vec<(IpNet, u64)> = vec![("10.0.0.0/24".parse().unwrap(), 0)];
         manager
-            .drop_paths(peer1.clone(), family.clone(), prefixes)
+            .drop_paths(peer1.clone(), family, prefixes)
             .await
             .unwrap();
 
@@ -2502,7 +2491,7 @@ mod tests {
                     65000,
                     Ipv4Addr::new(1, 1, 1, 1),
                 ),
-                family.clone(),
+                family,
                 prefixes,
             )
             .await
@@ -2724,7 +2713,7 @@ mod tests {
             ("10.0.10.0/24".parse().unwrap(), 2),
         ];
         manager
-            .drop_paths(peer2.clone(), family.clone(), prefixes)
+            .drop_paths(peer2.clone(), family, prefixes)
             .await
             .unwrap();
 
@@ -2753,7 +2742,7 @@ mod tests {
                     65000,
                     Ipv4Addr::new(1, 1, 1, 1),
                 ),
-                family.clone(),
+                family,
                 prefixes,
             )
             .await
@@ -2988,7 +2977,7 @@ mod tests {
             ("10.0.10.0/24".parse().unwrap(), 2),
         ];
         manager
-            .drop_paths(peer2.clone(), family.clone(), prefixes)
+            .drop_paths(peer2.clone(), family, prefixes)
             .await
             .unwrap();
 
@@ -3023,7 +3012,7 @@ mod tests {
         // drop from peer1
         let prefixes: Vec<(IpNet, u64)> = vec![("10.0.20.0/24".parse().unwrap(), 0)];
         manager
-            .drop_paths(peer1.clone(), family.clone(), prefixes)
+            .drop_paths(peer1.clone(), family, prefixes)
             .await
             .unwrap();
 
@@ -3050,7 +3039,7 @@ mod tests {
         // drop from peer3
         let prefixes: Vec<(IpNet, u64)> = vec![("10.0.30.0/24".parse().unwrap(), 4)];
         manager
-            .drop_paths(peer3.clone(), family.clone(), prefixes)
+            .drop_paths(peer3.clone(), family, prefixes)
             .await
             .unwrap();
 

@@ -488,6 +488,35 @@ impl Peer {
         self.send_counter.lock().unwrap().reset();
         self.recv_counter.lock().unwrap().reset();
 
+        if self.state() == State::Established {
+            let (peer_asn, peer_addr, peer_id, families) = {
+                let info = self.info.lock().unwrap();
+                (
+                    info.neighbor.get_asn(),
+                    info.neighbor.get_addr(),
+                    info.neighbor.get_router_id(),
+                    info.families.clone(),
+                )
+            };
+            for family in families.iter() {
+                if let Some(paths) = self.adj_rib_in.get_all(family) {
+                    let ids = paths.iter().map(|p| (p.prefix(), p.id)).collect();
+                    self.rib_tx
+                        .send(RibEvent::DropPaths(
+                            NeighborPair::new(peer_addr, peer_asn, peer_id),
+                            *family,
+                            ids,
+                        ))
+                        .await
+                        .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;
+                    tracing::info!("drop all paths received from");
+                }
+            }
+        }
+
+        self.adj_rib_in.clear();
+        self.adj_rib_out.clear();
+
         tracing::warn!(state=?self.state(),"release session");
         Ok(())
     }
