@@ -2,12 +2,14 @@ use std::{net::Ipv4Addr, sync::Arc};
 
 use crate::proto::sart::bgp_api_server::BgpApi;
 use crate::proto::sart::*;
+use ipnet::IpNet;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::Notify;
 use tonic::{Request, Response, Status};
 
 use super::{
     event::{ControlEvent, RibEvent},
+    family::AddressFamily,
     packet::attribute::{self, Attribute},
 };
 
@@ -47,6 +49,7 @@ impl BgpApi for ApiServer {
         Ok(Response::new(()))
     }
 
+    #[tracing::instrument(skip(self, req))]
     async fn add_path(
         &self,
         req: Request<AddPathRequest>,
@@ -70,14 +73,45 @@ impl BgpApi for ApiServer {
                 }
             }
         }
-        let event = RibEvent::AddPath(prefixes, attributes);
-        Ok(Response::new(AddPathResponse {}))
+        match self
+            .tx
+            .send(ControlEvent::AddPath(prefixes, attributes))
+            .await
+        {
+            Ok(_) => Ok(Response::new(AddPathResponse {})),
+            Err(_) => Err(Status::aborted("failed to send rib event")),
+        }
     }
 
+    #[tracing::instrument(skip(self, req))]
     async fn delete_path(
         &self,
         req: Request<DeletePathRequest>,
     ) -> Result<Response<DeletePathResponse>, Status> {
-        Ok(Response::new(DeletePathResponse {}))
+        let family = match &req.get_ref().family {
+            Some(family) => AddressFamily::new(family.afi as u16, family.safi as u8).unwrap(),
+            None => {
+                let n: IpNet = req.get_ref().prefixes.first().unwrap().parse().unwrap(); // a request must have at lease one prefix
+                match n {
+                    IpNet::V4(_) => AddressFamily::ipv4_unicast(),
+                    IpNet::V6(_) => AddressFamily::ipv6_unicast(),
+                }
+            }
+        };
+        let mut prefixes = Vec::new();
+        for p in req.get_ref().prefixes.iter() {
+            match p.parse() {
+                Ok(p) => prefixes.push(p),
+                Err(e) => return Err(Status::aborted(format!("invalid network format: {:?}", e))),
+            }
+        }
+        match self
+            .tx
+            .send(ControlEvent::DeletePath(family, prefixes))
+            .await
+        {
+            Ok(_) => Ok(Response::new(DeletePathResponse {})),
+            Err(_) => Err(Status::aborted("failed to send rib event")),
+        }
     }
 }

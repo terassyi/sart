@@ -20,7 +20,6 @@ service BgpApi {
 	// rpc RemoteAS(RemoteASRequest) returns (google.protobuf.Empty);
 	rpc AddPath(AddPathRequest) returns (AddPathResponse);
 	rpc DeletePath(DeletePathRequest) returns (DeletePathResponse);
-	// rpc DeleteNetwork(NetworkRequest) returns (google.protobuf.Empty);
 }
 
 message HealthRequest {}
