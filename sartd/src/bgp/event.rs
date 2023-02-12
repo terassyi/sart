@@ -1,3 +1,6 @@
+use std::net::IpAddr;
+use std::net::Ipv4Addr;
+
 use ipnet::IpNet;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::Sender;
@@ -302,7 +305,10 @@ impl Into<u8> for BgpMessageEvent {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ControlEvent {
+    SetAsn(u32),
+    SetRouterId(Ipv4Addr),
     AddPeer(NeighborConfig),
+    DeletePeer(IpAddr),
     AddPath(Vec<IpNet>, Vec<Attribute>),
     DeletePath(AddressFamily, Vec<IpNet>),
     Health,
@@ -311,7 +317,10 @@ pub(crate) enum ControlEvent {
 impl std::fmt::Display for ControlEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            ControlEvent::SetAsn(_) => write!(f, "Control::SetAsn"),
+            ControlEvent::SetRouterId(_) => write!(f, "Control::SetRouterId"),
             ControlEvent::AddPeer(_) => write!(f, "Control::AddPeer"),
+            ControlEvent::DeletePeer(_) => write!(f, "Control::DeletePeer"),
             ControlEvent::AddPath(_, _) => write!(f, "Control::AddPath"),
             ControlEvent::DeletePath(_, _) => write!(f, "Control::DeletePath"),
             ControlEvent::Health => write!(f, "Control::Health"),
@@ -321,8 +330,10 @@ impl std::fmt::Display for ControlEvent {
 
 #[derive(Debug, Clone)]
 pub(crate) enum RibEvent {
+    SetAsn(u32),
+    SetRouterId(Ipv4Addr),
     AddPeer(NeighborPair, Sender<RibEvent>),
-    DeletePeer(NeighborPair, Vec<u64>),
+    DeletePeer(NeighborPair),
     Init(AddressFamily, NeighborPair),
     Flush(AddressFamily, NeighborPair),
     AddPath(Vec<IpNet>, Vec<Attribute>),   // from local
@@ -336,8 +347,10 @@ pub(crate) enum RibEvent {
 impl std::fmt::Display for RibEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            RibEvent::SetAsn(_) => write!(f, "Rib::SetAsn"),
+            RibEvent::SetRouterId(_) => write!(f, "Rib::SetRouterId"),
             RibEvent::AddPeer(_, _) => write!(f, "Rib::AddPeer"),
-            RibEvent::DeletePeer(_, _) => write!(f, "Rib::DeletePeer"),
+            RibEvent::DeletePeer(_) => write!(f, "Rib::DeletePeer"),
             RibEvent::Init(_, _) => write!(f, "Rib::Init"),
             RibEvent::Flush(_, _) => write!(f, "Rib::Flush"),
             RibEvent::AddPath(_, _) => write!(f, "Rib::AddPath"),

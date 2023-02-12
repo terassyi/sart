@@ -1,10 +1,10 @@
-use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr};
 
 use crate::bgp::error::*;
+use crate::proto;
 
 use super::event::ControlEvent;
 use super::packet::attribute::Attribute;
@@ -24,7 +24,7 @@ impl Config {
         Config {
             asn: 0,
             rib_endpoint: "".to_string(),
-            router_id: Ipv4Addr::new(1, 1, 1, 1),
+            router_id: Ipv4Addr::new(0, 0, 0, 0),
             neighbors: Vec::new(),
             multi_path: Some(false),
             paths: None,
@@ -77,6 +77,26 @@ pub(crate) struct NeighborConfig {
     pub address: IpAddr,
     pub router_id: Ipv4Addr,
     pub passive: Option<bool>,
+}
+
+impl TryFrom<&proto::sart::Peer> for NeighborConfig {
+    type Error = Error;
+    fn try_from(value: &proto::sart::Peer) -> Result<Self, Self::Error> {
+        let addr = match value.address.parse() {
+            Ok(a) => a,
+            Err(_) => return Err(Error::Config(ConfigError::InvalidArgument)),
+        };
+        let id = match value.router_id.parse() {
+            Ok(id) => id,
+            Err(_) => return Err(Error::Config(ConfigError::InvalidArgument)),
+        };
+        Ok(NeighborConfig {
+            asn: value.asn,
+            address: addr,
+            router_id: id,
+            passive: Some(value.passive_open),
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -1,10 +1,10 @@
 use futures::stream::FuturesUnordered;
-use futures::{FutureExt, StreamExt};
+use futures::{FutureExt, StreamExt, TryFutureExt};
 use ipnet::IpNet;
 use socket2::{Domain, Socket, TcpKeepalive, Type};
 use std::collections::HashMap;
 use std::io;
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -29,11 +29,13 @@ use crate::bgp::family::Afi;
 use crate::bgp::peer::fsm::State;
 use crate::proto::sart::bgp_api_server::BgpApiServer;
 
+use super::capability::Capability;
 use super::capability::CapabilitySet;
 use super::config::{NeighborConfig, TraceConfig};
-use super::error::{ControlError, PeerError, RibError};
+use super::error::{ConfigError, ControlError, PeerError, RibError};
 use super::event::{AdministrativeEvent, ControlEvent, Event, RibEvent};
 use super::family::AddressFamily;
+use super::packet;
 use super::packet::attribute::Attribute;
 use super::peer::neighbor::NeighborPair;
 use super::peer::peer::{Peer, PeerInfo, PeerManager};
@@ -104,9 +106,7 @@ impl Bgp {
                 .unwrap();
 
             Server::builder()
-                .add_service(BgpApiServer::new(ApiServer::new(
-                    asn, router_id, ctrl_tx, signal_api,
-                )))
+                .add_service(BgpApiServer::new(ApiServer::new(ctrl_tx, signal_api)))
                 .add_service(reflection_server)
                 .serve(sock_addr)
                 .await
@@ -200,11 +200,12 @@ impl Bgp {
         tracing::info!(event=%event);
         match event {
             ControlEvent::Health => {}
-            ControlEvent::AddPeer(neighbor) => {
-                self.add_peer(neighbor).in_current_span().await?;
-            }
+            ControlEvent::SetAsn(asn) => self.set_asn(asn).await?,
+            ControlEvent::SetRouterId(id) => self.set_router_id(id).await?,
+            ControlEvent::AddPeer(neighbor) => self.add_peer(neighbor).in_current_span().await?,
+            ControlEvent::DeletePeer(addr) => self.delete_peer(addr).await?,
             ControlEvent::AddPath(prefixes, attributes) => {
-                self.add_path(prefixes, attributes).await?;
+                self.add_path(prefixes, attributes).await?
             }
             ControlEvent::DeletePath(family, prefixes) => {
                 self.delete_path(family, prefixes).await?;
@@ -212,6 +213,49 @@ impl Bgp {
         }
         self.event_signal.notify_one();
         Ok(())
+    }
+
+    #[tracing::instrument(skip(self))]
+    async fn set_asn(&mut self, asn: u32) -> Result<(), Error> {
+        let mut config = self.config.lock().unwrap();
+        if config.asn != 0 {
+            return Err(Error::Config(ConfigError::AlreadyConfigured));
+        }
+        config.asn = asn;
+        if let Some(cap) = self
+            .global_capabilities
+            .get_mut(&packet::capability::Capability::FOUR_OCTET_AS_NUMBER)
+        {
+            match cap {
+                Capability::FourOctetASNumber(c) => c.set(asn),
+                _ => return Err(Error::Config(ConfigError::InvalidArgument)),
+            }
+        }
+        tracing::info!("set local asn");
+        self.rib_event_tx
+            .send(RibEvent::SetAsn(asn))
+            .await
+            .map_err(|e| {
+                tracing::error!(error=?e);
+                Error::Rib(RibError::ManagerDown)
+            })
+    }
+
+    #[tracing::instrument(skip(self))]
+    async fn set_router_id(&mut self, router_id: Ipv4Addr) -> Result<(), Error> {
+        let mut config = self.config.lock().unwrap();
+        if config.router_id.ne(&Ipv4Addr::new(0, 0, 0, 0)) {
+            return Err(Error::Config(ConfigError::AlreadyConfigured));
+        }
+        config.router_id = router_id;
+        tracing::info!("set local router_id");
+        self.rib_event_tx
+            .send(RibEvent::SetRouterId(router_id))
+            .await
+            .map_err(|e| {
+                tracing::error!(error=?e);
+                Error::Rib(RibError::ManagerDown)
+            })
     }
 
     #[tracing::instrument(skip(self, neighbor), fields(peer.asn = neighbor.asn, peer.addr = neighbor.address.to_string(), peer.id = neighbor.router_id.to_string()))]
@@ -224,6 +268,7 @@ impl Bgp {
             let conf = self.config.lock().unwrap();
             (conf.asn, conf.router_id)
         };
+        tracing::info!(local_as=local_as,local_router_id=?local_router_id);
         let info = Arc::new(Mutex::new(PeerInfo::new(
             local_as,
             local_router_id,
@@ -283,6 +328,39 @@ impl Bgp {
                 .send(Event::Admin(start_event))
                 .map_err(|_| Error::Peer(PeerError::Down))?;
         }
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self))]
+    async fn delete_peer(&mut self, addr: IpAddr) -> Result<(), Error> {
+        if let Some(peer) = self.peer_managers.get(&addr) {
+            peer.event_tx
+                .send(Event::Admin(AdministrativeEvent::ManualStop))
+                .map_err(|_| Error::Peer(PeerError::Down))?;
+            let (peer_asn, peer_id) = {
+                let info = peer.info.lock().unwrap();
+                (info.neighbor.get_asn(), info.neighbor.get_router_id())
+            };
+            for _ in 0..10 {
+                let state = {
+                    let info = peer.info.lock().unwrap();
+                    info.state
+                };
+                if state == State::Idle {
+                    tracing::info!(peer.addr=?addr,"success to stop peer event handler");
+                    break;
+                }
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+            self.rib_event_tx
+                .send(RibEvent::DeletePeer(NeighborPair::new(
+                    addr, peer_asn, peer_id,
+                )))
+                .await
+                .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;
+        }
+        tracing::warn!(peer.addr=?addr,"remove peer from peer_manager");
+        self.peer_managers.remove(&addr);
         Ok(())
     }
 

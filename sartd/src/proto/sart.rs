@@ -4,22 +4,26 @@ pub struct HealthRequest {}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SetAsRequest {
-    #[prost(int32, tag = "1")]
-    pub r#as: i32,
+    #[prost(uint32, tag = "1")]
+    pub asn: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct RemoteAsRequest {
-    #[prost(string, tag = "1")]
-    pub addr: ::prost::alloc::string::String,
-    #[prost(int32, tag = "2")]
-    pub r#as: i32,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct RouterIdRequest {
+pub struct SetRouterIdRequest {
     #[prost(string, tag = "1")]
     pub router_id: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AddPeerRequest {
+    #[prost(message, optional, tag = "1")]
+    pub peer: ::core::option::Option<Peer>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DeletePeerRequest {
+    #[prost(string, tag = "1")]
+    pub addr: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -118,6 +122,71 @@ pub mod address_family {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Peer {
+    #[prost(uint32, tag = "1")]
+    pub asn: u32,
+    #[prost(string, tag = "2")]
+    pub address: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub router_id: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "4")]
+    pub families: ::prost::alloc::vec::Vec<AddressFamily>,
+    #[prost(uint32, tag = "5")]
+    pub hold_time: u32,
+    #[prost(uint32, tag = "6")]
+    pub keepalive_time: u32,
+    #[prost(message, optional, tag = "7")]
+    pub uptime: ::core::option::Option<::prost_types::Timestamp>,
+    #[prost(message, optional, tag = "8")]
+    pub send_counter: ::core::option::Option<MessageCounter>,
+    #[prost(message, optional, tag = "9")]
+    pub recv_counter: ::core::option::Option<MessageCounter>,
+    #[prost(enumeration = "peer::State", tag = "10")]
+    pub state: i32,
+    #[prost(bool, tag = "11")]
+    pub passive_open: bool,
+}
+/// Nested message and enum types in `Peer`.
+pub mod peer {
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum State {
+        Idle = 0,
+        Connect = 1,
+        Active = 2,
+        OpenSent = 3,
+        OpenConfirm = 4,
+        Established = 5,
+    }
+    impl State {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                State::Idle => "IDLE",
+                State::Connect => "CONNECT",
+                State::Active => "ACTIVE",
+                State::OpenSent => "OPEN_SENT",
+                State::OpenConfirm => "OPEN_CONFIRM",
+                State::Established => "ESTABLISHED",
+            }
+        }
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Path {
     #[prost(string, tag = "1")]
     pub nlri: ::prost::alloc::string::String,
@@ -205,6 +274,20 @@ pub struct AggregatorAttribute {
     pub asn: u32,
     #[prost(string, tag = "2")]
     pub address: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct MessageCounter {
+    #[prost(uint32, tag = "1")]
+    pub open: u32,
+    #[prost(uint32, tag = "2")]
+    pub update: u32,
+    #[prost(uint32, tag = "3")]
+    pub keepalive: u32,
+    #[prost(uint32, tag = "4")]
+    pub notification: u32,
+    #[prost(uint32, tag = "5")]
+    pub route_refresh: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -346,7 +429,74 @@ pub mod bgp_api_client {
             let path = http::uri::PathAndQuery::from_static("/sart.BgpApi/Health");
             self.inner.unary(request.into_request(), path, codec).await
         }
-        /// rpc RemoteAS(RemoteASRequest) returns (google.protobuf.Empty);
+        pub async fn set_as(
+            &mut self,
+            request: impl tonic::IntoRequest<super::SetAsRequest>,
+        ) -> Result<tonic::Response<()>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/sart.BgpApi/SetAS");
+            self.inner.unary(request.into_request(), path, codec).await
+        }
+        pub async fn set_router_id(
+            &mut self,
+            request: impl tonic::IntoRequest<super::SetRouterIdRequest>,
+        ) -> Result<tonic::Response<()>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/sart.BgpApi/SetRouterId");
+            self.inner.unary(request.into_request(), path, codec).await
+        }
+        pub async fn add_peer(
+            &mut self,
+            request: impl tonic::IntoRequest<super::AddPeerRequest>,
+        ) -> Result<tonic::Response<()>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/sart.BgpApi/AddPeer");
+            self.inner.unary(request.into_request(), path, codec).await
+        }
+        pub async fn delete_peer(
+            &mut self,
+            request: impl tonic::IntoRequest<super::DeletePeerRequest>,
+        ) -> Result<tonic::Response<()>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/sart.BgpApi/DeletePeer");
+            self.inner.unary(request.into_request(), path, codec).await
+        }
         pub async fn add_path(
             &mut self,
             request: impl tonic::IntoRequest<super::AddPathRequest>,
@@ -394,7 +544,22 @@ pub mod bgp_api_server {
             &self,
             request: tonic::Request<super::HealthRequest>,
         ) -> Result<tonic::Response<()>, tonic::Status>;
-        /// rpc RemoteAS(RemoteASRequest) returns (google.protobuf.Empty);
+        async fn set_as(
+            &self,
+            request: tonic::Request<super::SetAsRequest>,
+        ) -> Result<tonic::Response<()>, tonic::Status>;
+        async fn set_router_id(
+            &self,
+            request: tonic::Request<super::SetRouterIdRequest>,
+        ) -> Result<tonic::Response<()>, tonic::Status>;
+        async fn add_peer(
+            &self,
+            request: tonic::Request<super::AddPeerRequest>,
+        ) -> Result<tonic::Response<()>, tonic::Status>;
+        async fn delete_peer(
+            &self,
+            request: tonic::Request<super::DeletePeerRequest>,
+        ) -> Result<tonic::Response<()>, tonic::Status>;
         async fn add_path(
             &self,
             request: tonic::Request<super::AddPathRequest>,
@@ -488,6 +653,154 @@ pub mod bgp_api_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = HealthSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/sart.BgpApi/SetAS" => {
+                    #[allow(non_camel_case_types)]
+                    struct SetASSvc<T: BgpApi>(pub Arc<T>);
+                    impl<T: BgpApi> tonic::server::UnaryService<super::SetAsRequest>
+                    for SetASSvc<T> {
+                        type Response = ();
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::SetAsRequest>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move { (*inner).set_as(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = SetASSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/sart.BgpApi/SetRouterId" => {
+                    #[allow(non_camel_case_types)]
+                    struct SetRouterIdSvc<T: BgpApi>(pub Arc<T>);
+                    impl<
+                        T: BgpApi,
+                    > tonic::server::UnaryService<super::SetRouterIdRequest>
+                    for SetRouterIdSvc<T> {
+                        type Response = ();
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::SetRouterIdRequest>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move {
+                                (*inner).set_router_id(request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = SetRouterIdSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/sart.BgpApi/AddPeer" => {
+                    #[allow(non_camel_case_types)]
+                    struct AddPeerSvc<T: BgpApi>(pub Arc<T>);
+                    impl<T: BgpApi> tonic::server::UnaryService<super::AddPeerRequest>
+                    for AddPeerSvc<T> {
+                        type Response = ();
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::AddPeerRequest>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move { (*inner).add_peer(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = AddPeerSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/sart.BgpApi/DeletePeer" => {
+                    #[allow(non_camel_case_types)]
+                    struct DeletePeerSvc<T: BgpApi>(pub Arc<T>);
+                    impl<T: BgpApi> tonic::server::UnaryService<super::DeletePeerRequest>
+                    for DeletePeerSvc<T> {
+                        type Response = ();
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::DeletePeerRequest>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move { (*inner).delete_peer(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = DeletePeerSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

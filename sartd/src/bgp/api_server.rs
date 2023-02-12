@@ -1,17 +1,15 @@
 use std::{net::Ipv4Addr, sync::Arc};
 
-use crate::proto::sart::bgp_api_server::BgpApi;
 use crate::proto::sart::*;
+use crate::proto::{google, sart::bgp_api_server::BgpApi};
 use ipnet::IpNet;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::Notify;
 use tonic::{Request, Response, Status};
 
-use super::{
-    event::{ControlEvent, RibEvent},
-    family::AddressFamily,
-    packet::attribute::{self, Attribute},
-};
+use super::config::NeighborConfig;
+use super::peer::neighbor;
+use super::{event::ControlEvent, family::AddressFamily, packet::attribute::Attribute};
 
 pub mod api {
     pub(crate) const FILE_DESCRIPTOR_SET: &[u8] = tonic::include_file_descriptor_set!("bgp");
@@ -19,25 +17,13 @@ pub mod api {
 
 #[derive(Debug, Clone)]
 pub(crate) struct ApiServer {
-    asn: u32,
-    router_id: Ipv4Addr,
     tx: Sender<ControlEvent>,
     signal: Arc<Notify>,
 }
 
 impl ApiServer {
-    pub fn new(
-        asn: u32,
-        router_id: Ipv4Addr,
-        tx: Sender<ControlEvent>,
-        signal: Arc<Notify>,
-    ) -> Self {
-        Self {
-            asn,
-            router_id,
-            tx,
-            signal,
-        }
+    pub fn new(tx: Sender<ControlEvent>, signal: Arc<Notify>) -> Self {
+        Self { tx, signal }
     }
 }
 
@@ -47,6 +33,53 @@ impl BgpApi for ApiServer {
         self.tx.send(ControlEvent::Health).await.unwrap();
         self.signal.notified().await;
         Ok(Response::new(()))
+    }
+
+    async fn set_as(&self, req: Request<SetAsRequest>) -> Result<Response<()>, Status> {
+        match self.tx.send(ControlEvent::SetAsn(req.get_ref().asn)).await {
+            Ok(_) => Ok(Response::new(())),
+            Err(_) => Err(Status::aborted("failed to send rib event")),
+        }
+    }
+
+    async fn set_router_id(
+        &self,
+        req: Request<SetRouterIdRequest>,
+    ) -> Result<Response<()>, Status> {
+        let router_id = match req.get_ref().router_id.parse() {
+            Ok(id) => id,
+            Err(_) => return Err(Status::aborted("failed to parse router_id as Ipv4Addr")),
+        };
+        match self.tx.send(ControlEvent::SetRouterId(router_id)).await {
+            Ok(_) => Ok(Response::new(())),
+            Err(_) => Err(Status::aborted("failed to send rib event")),
+        }
+    }
+
+    #[tracing::instrument(skip(self, req))]
+    async fn add_peer(&self, req: Request<AddPeerRequest>) -> Result<Response<()>, Status> {
+        let neighbor_config = match &req.get_ref().peer {
+            Some(peer) => match NeighborConfig::try_from(peer) {
+                Ok(config) => config,
+                Err(_) => return Err(Status::aborted("")),
+            },
+            None => return Err(Status::aborted("")),
+        };
+        match self.tx.send(ControlEvent::AddPeer(neighbor_config)).await {
+            Ok(_) => Ok(Response::new(())),
+            Err(_) => Err(Status::aborted("failed to send rib event")),
+        }
+    }
+
+    async fn delete_peer(&self, req: Request<DeletePeerRequest>) -> Result<Response<()>, Status> {
+        let addr = match req.get_ref().addr.parse() {
+            Ok(addr) => addr,
+            Err(_) => return Err(Status::aborted("failed to parse peer addr as IpAddr")),
+        };
+        match self.tx.send(ControlEvent::DeletePeer(addr)).await {
+            Ok(_) => Ok(Response::new(())),
+            Err(_) => Err(Status::aborted("failed to send rib event")),
+        }
     }
 
     #[tracing::instrument(skip(self, req))]

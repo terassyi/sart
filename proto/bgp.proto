@@ -14,10 +14,12 @@ service BgpApi {
 	// rpc GetNeighbor(GetNeighborRequest) returns (GetNeighborResponse);
 	// rpc ListNeighbor(ListNeighborRequest) returns (ListNeighborResponse);
 
-	// rpc SetAS(SetASRequest) returns (google.protobuf.Empty);
-	// rpc RouterId(RouterIdRequest) returns (google.protobuf.Empty);
+	rpc SetAS(SetASRequest) returns (google.protobuf.Empty);
+	rpc SetRouterId(SetRouterIdRequest) returns (google.protobuf.Empty);
 
-	// rpc RemoteAS(RemoteASRequest) returns (google.protobuf.Empty);
+	rpc AddPeer(AddPeerRequest) returns (google.protobuf.Empty);
+	rpc DeletePeer(DeletePeerRequest) returns (google.protobuf.Empty);
+
 	rpc AddPath(AddPathRequest) returns (AddPathResponse);
 	rpc DeletePath(DeletePathRequest) returns (DeletePathResponse);
 }
@@ -25,16 +27,19 @@ service BgpApi {
 message HealthRequest {}
 
 message SetASRequest {
-	int32 as = 1;
+	uint32 asn = 1;
 }
 
-message RemoteASRequest {
+message SetRouterIdRequest {
+	string router_id = 1;
+}
+
+message AddPeerRequest {
+	Peer peer = 1;
+}
+
+message DeletePeerRequest {
 	string addr = 1;
-	int32 as = 2;
-}
-
-message RouterIdRequest {
-	string routerId = 1;
 }
 
 message AddPathRequest {
@@ -44,7 +49,6 @@ message AddPathRequest {
 }
 
 message AddPathResponse {
-
 }
 
 message DeletePathRequest {
@@ -65,6 +69,23 @@ message AddressFamily {
 
   Afi afi = 1;
   Safi safi = 2;
+}
+
+message Peer {
+	enum State {
+		IDLE = 0; CONNECT = 1; ACTIVE = 2; OPEN_SENT = 3; OPEN_CONFIRM = 4; ESTABLISHED = 5;
+	}
+	uint32 asn = 1;
+	string address = 2;
+	string router_id = 3;
+	repeated AddressFamily families = 4;
+	uint32 hold_time = 5;
+	uint32 keepalive_time = 6;
+	google.protobuf.Timestamp uptime = 7;
+	MessageCounter send_counter = 8;
+	MessageCounter recv_counter = 9;
+	State state = 10;
+	bool passive_open = 11;
 }
 
 message Path {
@@ -107,6 +128,14 @@ message AtomicAggregateAttribute {}
 message AggregatorAttribute {
 	uint32 asn = 1;
 	string address = 2;
+}
+
+message MessageCounter {
+	uint32 open = 1;
+	uint32 update = 2;
+	uint32 keepalive = 3;
+	uint32 notification = 4;
+	uint32 route_refresh = 5;
 }
 
 message UnknownAttribute {

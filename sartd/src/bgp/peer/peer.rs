@@ -177,6 +177,7 @@ impl Peer {
         self.info.lock().unwrap().state = state;
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn handle(&mut self) {
         // handle event
 
@@ -218,6 +219,14 @@ impl Peer {
                             Event::Admin(event) => match event {
                                 AdministrativeEvent::ManualStart => self.manual_start(),
                                 AdministrativeEvent::ManualStartWithPassiveTcpEstablishment => self.manual_start_with_passive_tcp_establishment(),
+                                AdministrativeEvent::ManualStop => {
+                                    match self.manual_stop().await {
+                                        Ok(_) => {},
+                                        Err(e) => tracing::error!(state=?current_state,error=?e),
+                                    };
+                                    tracing::warn!("peer event handler is stopped");
+                                    return;
+                                },
                                 _ => unimplemented!(),
                             },
                             Event::Connection(event) => match event {
@@ -345,11 +354,7 @@ impl Peer {
         let local_addr = stream.local_addr().unwrap().ip();
         self.info.lock().unwrap().addr = local_addr;
 
-        let passive = if local_port == Bgp::BGP_PORT {
-            true
-        } else {
-            false
-        };
+        let passive = local_port == Bgp::BGP_PORT;
 
         let codec = Framed::new(stream, Codec::new(true, false));
         let (msg_tx, mut msg_rx) = unbounded_channel::<Message>();
@@ -518,6 +523,7 @@ impl Peer {
         self.adj_rib_out.clear();
 
         tracing::warn!(state=?self.state(),"release session");
+        self.initialized.store(true, Ordering::Relaxed);
         Ok(())
     }
 
@@ -569,7 +575,12 @@ impl Peer {
     }
 
     // Event 2
-    fn manual_stop(&mut self) -> Result<(), Error> {
+    async fn manual_stop(&mut self) -> Result<(), Error> {
+        let mut builder = MessageBuilder::builder(MessageType::Notification);
+        let msg = builder.code(NotificationCode::Cease)?.build()?;
+        self.send(msg)?;
+        self.release(true).await?;
+        self.connect_retry_counter += 1;
         self.move_state(Event::ADMIN_MANUAL_STOP);
         Ok(())
     }
@@ -1347,10 +1358,11 @@ impl Peer {
             .asn(conf.asn)?
             .hold_time(conf.hold_time as u16)?
             .identifier(conf.router_id)?;
+        tracing::info!(local.asn=conf.asn,local.id=?conf.router_id,"build open message");
         let mut caps: Vec<(&u8, &Capability)> = conf.local_capabilities.iter().collect();
-        caps.sort_by(|a, b| a.0.cmp(&b.0));
+        caps.sort_by(|a, b| a.0.cmp(b.0));
         for cap in caps.iter() {
-            builder.capability(&cap.1)?;
+            builder.capability(cap.1)?;
         }
         builder.build()
     }
@@ -1427,7 +1439,7 @@ impl Peer {
             }
             self.adj_rib_in
                 .insert(&path.family(), path.prefix(), path.clone())
-                .map_err(|e| Error::Rib(e))?;
+                .map_err(Error::Rib)?;
             // TODO: apply import policy
             propagate_paths.push(path);
         }

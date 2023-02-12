@@ -67,3 +67,24 @@ func checkEstablished(node string) error {
 	}
 	return nil
 }
+
+func checkDesiredState(node string, s int) error {
+	nodeJson := make([]map[string]any, 0, 1)
+	out, _, _, err := execInNetns(node, "gobgp", "neighbor", "-j")
+	if err != nil {
+		return err
+	}
+	err = json.Unmarshal(out, &nodeJson)
+	if err != nil {
+		return err
+	}
+	state, ok := nodeJson[0]["state"]
+	if !ok {
+		return fmt.Errorf("failed to get gobgp peer status")
+	}
+	statej := state.(map[string]any)
+	if statej["session_state"] != float64(s) {
+		return fmt.Errorf("%s is not desired state. state is %d", node, statej["session_state"])
+	}
+	return nil
+}

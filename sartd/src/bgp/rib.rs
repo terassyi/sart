@@ -450,8 +450,16 @@ impl RibManager {
     pub async fn handle(&mut self, event: RibEvent) -> Result<(), Error> {
         tracing::info!(event=%event);
         match event {
+            RibEvent::SetAsn(asn) => {
+                self.asn = asn;
+                Ok(())
+            }
+            RibEvent::SetRouterId(id) => {
+                self.router_id = id;
+                Ok(())
+            }
             RibEvent::AddPeer(neighbor, rib_event_tx) => self.add_peer(neighbor, rib_event_tx),
-            RibEvent::DeletePeer(neighbor, path_ids) => self.delete_peer(neighbor, path_ids),
+            RibEvent::DeletePeer(neighbor) => self.delete_peer(neighbor),
             RibEvent::Init(family, neighbor) => self.init(family, neighbor).await,
             RibEvent::Flush(family, neighbor) => self.flush(family, neighbor).await,
             RibEvent::AddPath(networks, attrs) => self.add_path(networks, attrs).await,
@@ -476,7 +484,7 @@ impl RibManager {
     }
 
     #[tracing::instrument(skip(self))]
-    fn delete_peer(&mut self, neighbor: NeighborPair, path_ids: Vec<u64>) -> Result<(), Error> {
+    fn delete_peer(&mut self, neighbor: NeighborPair) -> Result<(), Error> {
         Ok(())
     }
 

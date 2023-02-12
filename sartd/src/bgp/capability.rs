@@ -55,6 +55,10 @@ impl CapabilitySet {
         self.inner.get(k)
     }
 
+    pub fn get_mut(&mut self, k: &u8) -> Option<&mut Capability> {
+        self.inner.get_mut(k)
+    }
+
     pub fn insert(&mut self, k: u8, v: Capability) -> Option<Capability> {
         self.inner.insert(k, v)
     }
@@ -178,6 +182,10 @@ pub(crate) struct FourOctetASNumber {
 impl FourOctetASNumber {
     pub fn new(asn: u32) -> Self {
         Self { inner: asn }
+    }
+
+    pub fn set(&mut self, asn: u32) {
+        self.inner = asn;
     }
 }
 
