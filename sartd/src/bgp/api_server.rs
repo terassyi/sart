@@ -1,14 +1,13 @@
-use std::{net::Ipv4Addr, sync::Arc};
+use std::sync::Arc;
 
+use crate::proto::sart::bgp_api_server::BgpApi;
 use crate::proto::sart::*;
-use crate::proto::{google, sart::bgp_api_server::BgpApi};
 use ipnet::IpNet;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::Notify;
 use tonic::{Request, Response, Status};
 
 use super::config::NeighborConfig;
-use super::peer::neighbor;
 use super::{event::ControlEvent, family::AddressFamily, packet::attribute::Attribute};
 
 pub mod api {
@@ -33,6 +32,13 @@ impl BgpApi for ApiServer {
         self.tx.send(ControlEvent::Health).await.unwrap();
         self.signal.notified().await;
         Ok(Response::new(()))
+    }
+
+    async fn show(
+        &self,
+        req: Request<BgpShowRequest>,
+    ) -> Result<Response<BgpShowResponse>, Status> {
+        Err(Status::aborted("message"))
     }
 
     async fn set_as(&self, req: Request<SetAsRequest>) -> Result<Response<()>, Status> {
@@ -148,3 +154,6 @@ impl BgpApi for ApiServer {
         }
     }
 }
+
+#[derive(Debug)]
+pub(crate) struct ApiResponse {}

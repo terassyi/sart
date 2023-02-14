@@ -3,6 +3,12 @@
 pub struct HealthRequest {}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct BgpShowRequest {}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct BgpShowResponse {}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SetAsRequest {
     #[prost(uint32, tag = "1")]
     pub asn: u32,
@@ -49,6 +55,16 @@ pub struct DeletePathRequest {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DeletePathResponse {}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct BgpInfo {
+    #[prost(uint32, tag = "1")]
+    pub asn: u32,
+    #[prost(string, tag = "2")]
+    pub router_id: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "3")]
+    pub port: u32,
+}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AddressFamily {
@@ -429,6 +445,23 @@ pub mod bgp_api_client {
             let path = http::uri::PathAndQuery::from_static("/sart.BgpApi/Health");
             self.inner.unary(request.into_request(), path, codec).await
         }
+        pub async fn show(
+            &mut self,
+            request: impl tonic::IntoRequest<super::BgpShowRequest>,
+        ) -> Result<tonic::Response<super::BgpShowResponse>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/sart.BgpApi/Show");
+            self.inner.unary(request.into_request(), path, codec).await
+        }
         pub async fn set_as(
             &mut self,
             request: impl tonic::IntoRequest<super::SetAsRequest>,
@@ -544,6 +577,10 @@ pub mod bgp_api_server {
             &self,
             request: tonic::Request<super::HealthRequest>,
         ) -> Result<tonic::Response<()>, tonic::Status>;
+        async fn show(
+            &self,
+            request: tonic::Request<super::BgpShowRequest>,
+        ) -> Result<tonic::Response<super::BgpShowResponse>, tonic::Status>;
         async fn set_as(
             &self,
             request: tonic::Request<super::SetAsRequest>,
@@ -653,6 +690,42 @@ pub mod bgp_api_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = HealthSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/sart.BgpApi/Show" => {
+                    #[allow(non_camel_case_types)]
+                    struct ShowSvc<T: BgpApi>(pub Arc<T>);
+                    impl<T: BgpApi> tonic::server::UnaryService<super::BgpShowRequest>
+                    for ShowSvc<T> {
+                        type Response = super::BgpShowResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::BgpShowRequest>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move { (*inner).show(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = ShowSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

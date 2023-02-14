@@ -9,7 +9,7 @@ import "google/protobuf/timestamp.proto";
 service BgpApi {
 	rpc Health(HealthRequest) returns (google.protobuf.Empty);
 
-	// rpc Show(BgpShowRequest) returns (BgpShowResponse);
+	rpc Show(BgpShowRequest) returns (BgpShowResponse);
 	// rpc ShowRoute(BgpShowRouteRequest) returns (BgpShowRouteResponse);
 	// rpc GetNeighbor(GetNeighborRequest) returns (GetNeighborResponse);
 	// rpc ListNeighbor(ListNeighborRequest) returns (ListNeighborResponse);
@@ -25,6 +25,12 @@ service BgpApi {
 }
 
 message HealthRequest {}
+
+message BgpShowRequest {}
+
+message BgpShowResponse {
+
+}
 
 message SetASRequest {
 	uint32 asn = 1;
@@ -57,6 +63,13 @@ message DeletePathRequest {
 }
 
 message DeletePathResponse {}
+
+message BgpInfo {
+	uint32 asn = 1;
+	string router_id = 2;
+	uint32 port = 3;
+
+}
 
 message AddressFamily {
   enum Afi {
