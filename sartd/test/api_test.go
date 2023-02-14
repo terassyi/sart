@@ -61,7 +61,9 @@ func testApi() {
 		}(ctx)
 
 		By("configuring local settings")
-		_, _, _, err = execInNetns("core", "simple_rib/grpcurl_set_local.sh")
+		out, er, _, err := execInNetns("core", "simple_rib/grpcurl_set_local.sh")
+		fmt.Println(string(out))
+		fmt.Println(string(er))
 		Expect(err).NotTo(HaveOccurred())
 
 		By("configuring peer settings")
@@ -86,7 +88,7 @@ func testApi() {
 		time.Sleep(time.Second)
 
 		By("checking spine1 received paths advertised by core(sartd-bgp)")
-		out, _, _, err := execInNetns("spine1", "gobgp", "global", "rib", "-a", "ipv4", "-j")
+		out, _, _, err = execInNetns("spine1", "gobgp", "global", "rib", "-a", "ipv4", "-j")
 		var res map[string]any
 		err = json.Unmarshal(out, &res)
 		Expect(err).NotTo(HaveOccurred())
@@ -128,9 +130,7 @@ func testApi() {
 		Expect(len(pref1)).To(Equal(1))
 
 		By("deleting peer(10.0.1.2) via api")
-		out, er, _, err := execInNetns("core", "simple_rib/grpcurl_delete_peer.sh")
-		fmt.Println(string(out))
-		fmt.Println(string(er))
+		_, _, _, err = execInNetns("core", "simple_rib/grpcurl_delete_peer.sh")
 		Expect(err).NotTo(HaveOccurred())
 
 		time.Sleep(time.Second)
