@@ -61,6 +61,15 @@ fn main() -> Result<(), std::io::Error> {
                 .default_value("plain")
                 .help("log fotmat(plain,json"),
         )
+        .arg(
+            Arg::with_name("log_file")
+                .short('o')
+                .long("log-file")
+                .takes_value(true)
+                .required(false)
+                .default_value("")
+                .help("log output file")
+        )
         .get_matches();
     let conf = if let Some(file) = app.value_of("config") {
         let mut conf = Config::load(file).expect("failed to load config");
@@ -84,10 +93,17 @@ fn main() -> Result<(), std::io::Error> {
 
     let level = app.value_of("log_level").unwrap();
     let format = app.value_of("format").unwrap();
+    let log_file = app.value_of("log_file").unwrap();
+    let log_file = if log_file == "" {
+        None
+    } else {
+        Some(log_file.to_string())
+    };
 
     let trace_config = TraceConfig {
         level: level.to_string(),
         format: format.to_string(),
+        file: log_file,
         metrics_endpoint: None,
     };
 

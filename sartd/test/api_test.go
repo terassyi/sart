@@ -133,7 +133,7 @@ func testApi() {
 		_, _, _, err = execInNetns("core", "simple_rib/grpcurl_delete_peer.sh")
 		Expect(err).NotTo(HaveOccurred())
 
-		time.Sleep(time.Second)
+		time.Sleep(time.Second * 2)
 
 		By("checking spine2 is down")
 		Eventually(func(g Gomega) error {

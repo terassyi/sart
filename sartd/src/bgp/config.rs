@@ -139,5 +139,6 @@ paths:
 pub(crate) struct TraceConfig {
     pub level: String,
     pub format: String,
+    pub file: Option<String>,
     pub metrics_endpoint: Option<String>,
 }

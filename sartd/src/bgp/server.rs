@@ -422,14 +422,32 @@ pub(crate) fn start(conf: Config, trace: TraceConfig) {
 fn prepare_tracing(conf: TraceConfig) {
     // Configure otel exporter.
     if conf.format == "json" {
-        tracing_subscriber::Registry::default()
-            .with(tracing_subscriber::fmt::Layer::new().with_ansi(true).json())
-            .with(tracing_subscriber::filter::LevelFilter::from_str(&conf.level).unwrap())
-            .init();
+        if let Some(path) = conf.file {
+            let file = std::fs::File::create(path).unwrap();
+            tracing_subscriber::Registry::default()
+                .with(tracing_subscriber::fmt::Layer::new().with_writer(file))
+                .with(tracing_subscriber::fmt::Layer::new().with_ansi(true).json())
+                .with(tracing_subscriber::filter::LevelFilter::from_str(&conf.level).unwrap())
+                .init();
+        } else {
+            tracing_subscriber::Registry::default()
+                .with(tracing_subscriber::fmt::Layer::new().with_ansi(true).json())
+                .with(tracing_subscriber::filter::LevelFilter::from_str(&conf.level).unwrap())
+                .init();
+        }
     } else {
-        tracing_subscriber::Registry::default()
-            .with(tracing_subscriber::fmt::Layer::new().with_ansi(true))
-            .with(tracing_subscriber::filter::LevelFilter::from_str(&conf.level).unwrap())
-            .init();
+        if let Some(path) = conf.file {
+            let file = std::fs::File::create(path).unwrap();
+            tracing_subscriber::Registry::default()
+                .with(tracing_subscriber::fmt::Layer::new().with_writer(file))
+                .with(tracing_subscriber::fmt::Layer::new().with_ansi(true))
+                .with(tracing_subscriber::filter::LevelFilter::from_str(&conf.level).unwrap())
+                .init();
+        } else {
+            tracing_subscriber::Registry::default()
+                .with(tracing_subscriber::fmt::Layer::new().with_ansi(true))
+                .with(tracing_subscriber::filter::LevelFilter::from_str(&conf.level).unwrap())
+                .init();
+        }
     }
 }
