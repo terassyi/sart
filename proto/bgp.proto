@@ -9,10 +9,10 @@ import "google/protobuf/timestamp.proto";
 service BgpApi {
 	rpc Health(HealthRequest) returns (google.protobuf.Empty);
 
-	rpc Show(BgpShowRequest) returns (BgpShowResponse);
-	// rpc ShowRoute(BgpShowRouteRequest) returns (BgpShowRouteResponse);
-	// rpc GetNeighbor(GetNeighborRequest) returns (GetNeighborResponse);
+	rpc GetBgpInfo(GetBgpInfoRequest) returns (GetBgpInfoResponse);
+	rpc GetNeighbor(GetNeighborRequest) returns (GetNeighborResponse);
 	// rpc ListNeighbor(ListNeighborRequest) returns (ListNeighborResponse);
+	rpc GetPath(GetPathRequest) returns (GetPathResponse);
 
 	rpc SetAS(SetASRequest) returns (google.protobuf.Empty);
 	rpc SetRouterId(SetRouterIdRequest) returns (google.protobuf.Empty);
@@ -26,10 +26,26 @@ service BgpApi {
 
 message HealthRequest {}
 
-message BgpShowRequest {}
+message GetBgpInfoRequest {}
 
-message BgpShowResponse {
+message GetBgpInfoResponse {
+	BgpInfo info = 1;
+}
 
+message GetNeighborRequest {
+	string addr = 1;
+}
+
+message GetNeighborResponse {
+	Peer peer = 1;
+}
+
+message GetPathRequest {
+	AddressFamily family = 1;
+}
+
+message GetPathResponse {
+	repeated Path paths = 1;
 }
 
 message SetASRequest {
@@ -68,7 +84,6 @@ message BgpInfo {
 	uint32 asn = 1;
 	string router_id = 2;
 	uint32 port = 3;
-
 }
 
 message AddressFamily {
@@ -104,6 +119,15 @@ message Peer {
 message Path {
 	string nlri = 1;
 	AddressFamily family = 2;
+	uint32 origin = 3;
+	repeated string next_hops = 4;
+	repeated AsSegment segments = 5;
+	uint32 local_pref = 6;
+	uint32 med = 7;
+	uint32 peer_asn = 8;
+	string peer_addr = 9;
+	bool best = 10;
+	google.protobuf.Timestamp timestamp = 11;
 
 }
 

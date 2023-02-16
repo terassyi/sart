@@ -305,6 +305,7 @@ impl Into<u8> for BgpMessageEvent {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ControlEvent {
+    GetBgpInfo,
     SetAsn(u32),
     SetRouterId(Ipv4Addr),
     AddPeer(NeighborConfig),
@@ -317,6 +318,7 @@ pub(crate) enum ControlEvent {
 impl std::fmt::Display for ControlEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            ControlEvent::GetBgpInfo => write!(f, "Control::GetBgpInfo"),
             ControlEvent::SetAsn(_) => write!(f, "Control::SetAsn"),
             ControlEvent::SetRouterId(_) => write!(f, "Control::SetRouterId"),
             ControlEvent::AddPeer(_) => write!(f, "Control::AddPeer"),

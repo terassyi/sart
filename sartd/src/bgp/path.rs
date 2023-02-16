@@ -1,7 +1,6 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::net::{IpAddr, Ipv4Addr};
-use std::str::FromStr;
 
 use ipnet::IpNet;
 use tokio::time::Instant;
@@ -121,10 +120,8 @@ impl Path {
         asn: u32,
         next_hops: Vec<IpAddr>,
     ) -> Result<&mut Self, Error> {
-        if self.kind() == PathKind::Internal {
-            if !is_ibgp {
-                self.origin = Attribute::ORIGIN_INCOMPLETE;
-            }
+        if self.kind() == PathKind::Internal && !is_ibgp {
+            self.origin = Attribute::ORIGIN_INCOMPLETE;
         }
 
         // add as_path

@@ -1,5 +1,5 @@
 use futures::stream::FuturesUnordered;
-use futures::{FutureExt, StreamExt, TryFutureExt};
+use futures::{FutureExt, StreamExt};
 use ipnet::IpNet;
 use socket2::{Domain, Socket, TcpKeepalive, Type};
 use std::collections::HashMap;
@@ -20,13 +20,14 @@ use tracing_futures::Instrument;
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-use crate::bgp::api_server::api;
 use crate::bgp::api_server::ApiServer;
+use crate::bgp::api_server::{api, ApiResponse};
 use crate::bgp::config::Config;
 use crate::bgp::error::Error;
 use crate::bgp::event::TcpConnectionEvent;
 use crate::bgp::family::Afi;
 use crate::bgp::peer::fsm::State;
+use crate::proto;
 use crate::proto::sart::bgp_api_server::BgpApiServer;
 
 use super::capability::Capability;
@@ -51,6 +52,7 @@ pub(crate) struct Bgp {
     connect_retry_time: u64,
     event_signal: Arc<Notify>,
     rib_event_tx: Sender<RibEvent>,
+    api_tx: Sender<ApiResponse>,
 }
 
 impl Bgp {
@@ -59,8 +61,9 @@ impl Bgp {
     pub const DEFAULT_CONNECT_RETRY_TIME: u64 = 10;
     pub const DEFAULT_KEEPALIVE_TIME: u64 = 60;
     const API_SERVER_PORT: u16 = 5000;
+    const DEFAULT_API_TIMEOUT: u64 = 30;
 
-    pub fn new(conf: Config, rib_event_tx: Sender<RibEvent>) -> Self {
+    pub fn new(conf: Config, rib_event_tx: Sender<RibEvent>, api_tx: Sender<ApiResponse>) -> Self {
         let asn = conf.asn;
         Self {
             config: Arc::new(Mutex::new(conf)),
@@ -71,6 +74,7 @@ impl Bgp {
             api_server_port: Self::API_SERVER_PORT,
             event_signal: Arc::new(Notify::new()),
             rib_event_tx,
+            api_tx,
         }
     }
 
@@ -90,7 +94,9 @@ impl Bgp {
             false,
         ); // TODO: enable to disable ipv6 or ipv4 by config or event
 
-        let mut server = Self::new(conf, rib_event_tx);
+        let (api_tx, mut api_rx) = channel::<ApiResponse>(128);
+
+        let mut server = Self::new(conf, rib_event_tx, api_tx);
 
         let (ctrl_tx, mut ctrl_rx) = channel::<ControlEvent>(128);
         let init_tx = ctrl_tx.clone();
@@ -106,7 +112,12 @@ impl Bgp {
                 .unwrap();
 
             Server::builder()
-                .add_service(BgpApiServer::new(ApiServer::new(ctrl_tx, signal_api)))
+                .add_service(BgpApiServer::new(ApiServer::new(
+                    ctrl_tx,
+                    api_rx,
+                    Bgp::DEFAULT_API_TIMEOUT,
+                    signal_api,
+                )))
                 .add_service(reflection_server)
                 .serve(sock_addr)
                 .await
@@ -200,6 +211,7 @@ impl Bgp {
         tracing::info!(event=%event);
         match event {
             ControlEvent::Health => {}
+            ControlEvent::GetBgpInfo => self.get_bgp_info().await?,
             ControlEvent::SetAsn(asn) => self.set_asn(asn).await?,
             ControlEvent::SetRouterId(id) => self.set_router_id(id).await?,
             ControlEvent::AddPeer(neighbor) => self.add_peer(neighbor).in_current_span().await?,
@@ -213,6 +225,19 @@ impl Bgp {
         }
         self.event_signal.notify_one();
         Ok(())
+    }
+
+    #[tracing::instrument(skip(self))]
+    async fn get_bgp_info(&self) -> Result<(), Error> {
+        let config = self.config.lock().unwrap();
+        self.api_tx
+            .send(ApiResponse::BgpInfo(proto::sart::BgpInfo {
+                asn: config.asn,
+                router_id: config.router_id.to_string(),
+                port: Bgp::BGP_PORT as u32,
+            }))
+            .await
+            .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))
     }
 
     #[tracing::instrument(skip(self))]

@@ -1,10 +1,13 @@
-use std::sync::Arc;
+use std::marker::{Send, Sync};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use crate::proto::sart::bgp_api_server::BgpApi;
-use crate::proto::sart::*;
+use crate::proto::{self, sart::*};
 use ipnet::IpNet;
-use tokio::sync::mpsc::Sender;
+use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::Notify;
+use tokio::time::timeout;
 use tonic::{Request, Response, Status};
 
 use super::config::NeighborConfig;
@@ -14,15 +17,27 @@ pub mod api {
     pub(crate) const FILE_DESCRIPTOR_SET: &[u8] = tonic::include_file_descriptor_set!("bgp");
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct ApiServer {
     tx: Sender<ControlEvent>,
+    response_rx: Mutex<Receiver<ApiResponse>>,
+    timeout: u64,
     signal: Arc<Notify>,
 }
 
 impl ApiServer {
-    pub fn new(tx: Sender<ControlEvent>, signal: Arc<Notify>) -> Self {
-        Self { tx, signal }
+    pub fn new(
+        tx: Sender<ControlEvent>,
+        response_rx: Receiver<ApiResponse>,
+        timeout: u64,
+        signal: Arc<Notify>,
+    ) -> Self {
+        Self {
+            tx,
+            response_rx: Mutex::new(response_rx),
+            timeout,
+            signal,
+        }
     }
 }
 
@@ -34,10 +49,39 @@ impl BgpApi for ApiServer {
         Ok(Response::new(()))
     }
 
-    async fn show(
+    async fn get_bgp_info(
         &self,
-        req: Request<BgpShowRequest>,
-    ) -> Result<Response<BgpShowResponse>, Status> {
+        req: Request<GetBgpInfoRequest>,
+    ) -> Result<Response<GetBgpInfoResponse>, Status> {
+        self.tx.send(ControlEvent::GetBgpInfo).await.unwrap();
+        let mut rx = self.response_rx.lock().unwrap();
+        match timeout(Duration::from_secs(self.timeout), rx.recv()).await {
+            Ok(res) => match res {
+                Some(info) => match info {
+                    ApiResponse::BgpInfo(info) => {
+                        Ok(Response::new(proto::sart::GetBgpInfoResponse {
+                            info: Some(info),
+                        }))
+                    }
+                    _ => Err(Status::internal("failed to get bgp information")),
+                },
+                None => Err(Status::internal("failed to get bgp information")),
+            },
+            Err(e) => Err(Status::deadline_exceeded("timeout")),
+        }
+    }
+
+    async fn get_neighbor(
+        &self,
+        req: Request<GetNeighborRequest>,
+    ) -> Result<Response<GetNeighborResponse>, Status> {
+        Err(Status::aborted("message"))
+    }
+
+    async fn get_path(
+        &self,
+        req: Request<GetPathRequest>,
+    ) -> Result<Response<GetPathResponse>, Status> {
         Err(Status::aborted("message"))
     }
 
@@ -155,5 +199,14 @@ impl BgpApi for ApiServer {
     }
 }
 
-#[derive(Debug)]
-pub(crate) struct ApiResponse {}
+#[derive(Debug, Clone)]
+pub(crate) enum ApiResponse {
+    BgpInfo(proto::sart::BgpInfo),
+    Neighbor(proto::sart::Peer),
+    Neighbors(Vec<proto::sart::Peer>),
+    Path(proto::sart::Path),
+    Paths(Vec<proto::sart::Path>),
+}
+
+unsafe impl Send for ApiResponse {}
+unsafe impl Sync for ApiResponse {}
