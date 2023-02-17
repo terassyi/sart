@@ -64,6 +64,15 @@ impl From<&AddressFamily> for prost_types::Any {
     }
 }
 
+impl From<&AddressFamily> for proto::sart::AddressFamily {
+    fn from(family: &AddressFamily) -> Self {
+        proto::sart::AddressFamily {
+            afi: family.afi as i32,
+            safi: family.safi as i32,
+        } 
+    }
+}
+
 impl Into<u32> for AddressFamily {
     fn into(self) -> u32 {
         (((self.afi as u16) as u32) << 16) + ((self.safi as u8) as u32)

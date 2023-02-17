@@ -1,12 +1,12 @@
 use std::marker::{Send, Sync};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc};
 use std::time::Duration;
 
 use crate::proto::sart::bgp_api_server::BgpApi;
 use crate::proto::{self, sart::*};
 use ipnet::IpNet;
 use tokio::sync::mpsc::{Receiver, Sender};
-use tokio::sync::Notify;
+use tokio::sync::{Notify, Mutex};
 use tokio::time::timeout;
 use tonic::{Request, Response, Status};
 
@@ -51,10 +51,10 @@ impl BgpApi for ApiServer {
 
     async fn get_bgp_info(
         &self,
-        req: Request<GetBgpInfoRequest>,
+        _req: Request<GetBgpInfoRequest>,
     ) -> Result<Response<GetBgpInfoResponse>, Status> {
         self.tx.send(ControlEvent::GetBgpInfo).await.unwrap();
-        let mut rx = self.response_rx.lock().unwrap();
+        let mut rx = self.response_rx.lock().await;
         match timeout(Duration::from_secs(self.timeout), rx.recv()).await {
             Ok(res) => match res {
                 Some(info) => match info {
@@ -67,7 +67,7 @@ impl BgpApi for ApiServer {
                 },
                 None => Err(Status::internal("failed to get bgp information")),
             },
-            Err(e) => Err(Status::deadline_exceeded("timeout")),
+            Err(_e) => Err(Status::deadline_exceeded("timeout")),
         }
     }
 
@@ -75,14 +75,58 @@ impl BgpApi for ApiServer {
         &self,
         req: Request<GetNeighborRequest>,
     ) -> Result<Response<GetNeighborResponse>, Status> {
-        Err(Status::aborted("message"))
+        let addr = match req.get_ref().addr.parse() {
+            Ok(addr) => addr,
+            Err(_) => return Err(Status::aborted("failed to parse peer address"))
+        };
+        self.tx.send(ControlEvent::GetPeer(addr)).await.unwrap();
+
+        let mut rx = self.response_rx.lock().await;
+        match timeout(Duration::from_secs(self.timeout), rx.recv()).await {
+            Ok(res) => match res {
+                Some(info) => match info {
+                    ApiResponse::Neighbor(peer) => {
+                        Ok(Response::new(proto::sart::GetNeighborResponse {
+                            peer: Some(peer),
+                        }))
+                    }
+                    _ => Err(Status::internal("failed to get neighbor information")),
+                },
+                None => Err(Status::internal("failed to get neighbor information")),
+            },
+            Err(_e) => Err(Status::deadline_exceeded("timeout")),
+        }
     }
 
     async fn get_path(
         &self,
         req: Request<GetPathRequest>,
     ) -> Result<Response<GetPathResponse>, Status> {
-        Err(Status::aborted("message"))
+        if req.get_ref().family.is_none() {
+            return Err(Status::aborted("failed to receive AddressFamily"));
+        }
+        let f = req.get_ref().family.as_ref().unwrap();
+        let family = match AddressFamily::new(f.afi as u16, f.safi as u8) {
+            Ok(f) => f,
+            Err(_) => return Err(Status::aborted("failed to get AddressFamily")),
+        };
+        self.tx.send(ControlEvent::GetPath(family)).await.unwrap();
+
+        let mut rx = self.response_rx.lock().await;
+        match timeout(Duration::from_secs(self.timeout), rx.recv()).await {
+            Ok(res) => match res {
+                Some(info) => match info {
+                    ApiResponse::Paths(paths) => {
+                        Ok(Response::new(proto::sart::GetPathResponse {
+                            paths,
+                        }))
+                    }
+                    _ => Err(Status::internal("failed to get path information")),
+                },
+                None => Err(Status::internal("failed to get path information")),
+            },
+            Err(_e) => Err(Status::deadline_exceeded("timeout")),
+        }
     }
 
     async fn set_as(&self, req: Request<SetAsRequest>) -> Result<Response<()>, Status> {

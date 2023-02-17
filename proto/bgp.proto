@@ -101,7 +101,7 @@ message AddressFamily {
 
 message Peer {
 	enum State {
-		IDLE = 0; CONNECT = 1; ACTIVE = 2; OPEN_SENT = 3; OPEN_CONFIRM = 4; ESTABLISHED = 5;
+		UNKNOWN = 0; IDLE = 1; CONNECT = 2; ACTIVE = 3; OPEN_SENT = 4; OPEN_CONFIRM = 5; ESTABLISHED = 6;
 	}
 	uint32 asn = 1;
 	string address = 2;

@@ -22,6 +22,7 @@ pub(crate) enum Event {
     Connection(TcpConnectionEvent),
     Message(BgpMessageEvent),
     Control(ControlEvent),
+    Api(PeerLevelApiEvent),
 }
 
 impl Event {
@@ -102,6 +103,7 @@ impl std::fmt::Display for Event {
             Event::Connection(e) => write!(f, "{}", e),
             Event::Message(e) => write!(f, "{}", e),
             Event::Control(e) => write!(f, "{}", e),
+            Event::Api(e) => write!(f, "{}", e),
         }
     }
 }
@@ -306,6 +308,8 @@ impl Into<u8> for BgpMessageEvent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ControlEvent {
     GetBgpInfo,
+    GetPeer(IpAddr),
+    GetPath(AddressFamily),
     SetAsn(u32),
     SetRouterId(Ipv4Addr),
     AddPeer(NeighborConfig),
@@ -319,6 +323,8 @@ impl std::fmt::Display for ControlEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ControlEvent::GetBgpInfo => write!(f, "Control::GetBgpInfo"),
+            ControlEvent::GetPeer(_) => write!(f, "Control::GetPeer"),
+            ControlEvent::GetPath(_) => write!(f, "Control::GetPath"),
             ControlEvent::SetAsn(_) => write!(f, "Control::SetAsn"),
             ControlEvent::SetRouterId(_) => write!(f, "Control::SetRouterId"),
             ControlEvent::AddPeer(_) => write!(f, "Control::AddPeer"),
@@ -344,6 +350,7 @@ pub(crate) enum RibEvent {
     DropPaths(NeighborPair, AddressFamily, Vec<(IpNet, u64)>), // from peer
     Advertise(Vec<Path>),
     Withdraw(Vec<IpNet>),
+    GetPath(AddressFamily),
 }
 
 impl std::fmt::Display for RibEvent {
@@ -361,6 +368,20 @@ impl std::fmt::Display for RibEvent {
             RibEvent::DropPaths(_, _, _) => write!(f, "Rib::DropPaths"),
             RibEvent::Advertise(_) => write!(f, "Rib::Advertise"),
             RibEvent::Withdraw(_) => write!(f, "Rib::Withdraw"),
+            RibEvent::GetPath(_) => write!(f, "Rib::GetPath"),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum PeerLevelApiEvent {
+    GetPeer,
+}
+
+impl std::fmt::Display for PeerLevelApiEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PeerLevelApiEvent::GetPeer => write!(f, "PeerLevelApi::GetPeer"),
         }
     }
 }

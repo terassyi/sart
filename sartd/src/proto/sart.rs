@@ -204,12 +204,13 @@ pub mod peer {
     )]
     #[repr(i32)]
     pub enum State {
-        Idle = 0,
-        Connect = 1,
-        Active = 2,
-        OpenSent = 3,
-        OpenConfirm = 4,
-        Established = 5,
+        Unknown = 0,
+        Idle = 1,
+        Connect = 2,
+        Active = 3,
+        OpenSent = 4,
+        OpenConfirm = 5,
+        Established = 6,
     }
     impl State {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -218,6 +219,7 @@ pub mod peer {
         /// (if the ProtoBuf definition does not change) and safe for programmatic use.
         pub fn as_str_name(&self) -> &'static str {
             match self {
+                State::Unknown => "UNKNOWN",
                 State::Idle => "IDLE",
                 State::Connect => "CONNECT",
                 State::Active => "ACTIVE",

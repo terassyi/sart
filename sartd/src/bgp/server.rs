@@ -34,7 +34,7 @@ use super::capability::Capability;
 use super::capability::CapabilitySet;
 use super::config::{NeighborConfig, TraceConfig};
 use super::error::{ConfigError, ControlError, PeerError, RibError};
-use super::event::{AdministrativeEvent, ControlEvent, Event, RibEvent};
+use super::event::{AdministrativeEvent, ControlEvent, Event, RibEvent, PeerLevelApiEvent};
 use super::family::AddressFamily;
 use super::packet;
 use super::packet::attribute::Attribute;
@@ -84,6 +84,9 @@ impl Bgp {
 
         let rib_endpoint_conf = conf.rib_endpoint.clone();
         let (rib_event_tx, mut rib_event_rx) = channel::<RibEvent>(128);
+
+        let (api_tx, mut api_rx) = channel::<ApiResponse>(128);
+
         let asn = conf.asn;
         let router_id = conf.router_id;
         let mut rib_manager = RibManager::new(
@@ -92,9 +95,9 @@ impl Bgp {
             rib_endpoint_conf,
             vec![Afi::IPv4, Afi::IPv6],
             false,
+            api_tx.clone(),
         ); // TODO: enable to disable ipv6 or ipv4 by config or event
 
-        let (api_tx, mut api_rx) = channel::<ApiResponse>(128);
 
         let mut server = Self::new(conf, rib_event_tx, api_tx);
 
@@ -212,6 +215,8 @@ impl Bgp {
         match event {
             ControlEvent::Health => {}
             ControlEvent::GetBgpInfo => self.get_bgp_info().await?,
+            ControlEvent::GetPeer(addr) => self.get_peer(addr).await?,
+            ControlEvent::GetPath(family) => self.get_path(family).await?,
             ControlEvent::SetAsn(asn) => self.set_asn(asn).await?,
             ControlEvent::SetRouterId(id) => self.set_router_id(id).await?,
             ControlEvent::AddPeer(neighbor) => self.add_peer(neighbor).in_current_span().await?,
@@ -238,6 +243,19 @@ impl Bgp {
             }))
             .await
             .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))
+    }
+
+    #[tracing::instrument(skip(self))]
+    async fn get_peer(&self, addr: IpAddr) -> Result<(), Error> {
+        if let Some(manager) = self.peer_managers.get(&addr) {
+            manager.event_tx.send(Event::Api(PeerLevelApiEvent::GetPeer)).map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;
+        }
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self))]
+    async fn get_path(&self, family: AddressFamily) -> Result<(), Error> {
+        self.rib_event_tx.send(RibEvent::GetPath(family)).await.map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))
     }
 
     #[tracing::instrument(skip(self))]
@@ -320,6 +338,7 @@ impl Bgp {
             rx,
             self.rib_event_tx.clone(),
             peer_rib_event_rx,
+            self.api_tx.clone(),
         );
         let manager = PeerManager::new(info, tx);
         self.peer_managers.insert(neighbor.address, manager);

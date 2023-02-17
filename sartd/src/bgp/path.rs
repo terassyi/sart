@@ -1,6 +1,7 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::net::{IpAddr, Ipv4Addr};
+use std::time::SystemTime;
 
 use ipnet::IpNet;
 use tokio::time::Instant;
@@ -9,6 +10,7 @@ use crate::bgp::error::Error;
 use crate::bgp::packet::attribute::ASSegment;
 use crate::bgp::packet::attribute::Attribute;
 use crate::bgp::packet::prefix::Prefix;
+use crate::proto;
 
 use super::error::UpdateMessageError;
 use super::family::AddressFamily;
@@ -18,7 +20,7 @@ pub(crate) struct Path {
     pub id: u64,
     pub best: bool,
     pub reason: BestPathReason,
-    pub timestamp: Instant,
+    pub timestamp: SystemTime,
     pub local_id: Ipv4Addr,
     pub local_asn: u32,
     pub peer_id: Ipv4Addr,
@@ -226,6 +228,37 @@ impl Path {
         }
 
         Ok(attrs)
+    }
+}
+
+impl From<&Path> for proto::sart::Path {
+    fn from(path: &Path) -> Self {
+        let mut segs = Vec::new();
+        if !path.as_sequence.is_empty() {
+            segs.push(proto::sart::AsSegment{
+                r#type: Attribute::AS_SEQUENCE as i32,
+                elm: path.as_sequence.clone()
+            });
+        }
+        if !path.as_set.is_empty() {
+            segs.push(proto::sart::AsSegment{
+                r#type: Attribute::AS_SET as i32,
+                elm: path.as_set.clone(),
+            });
+        }
+        proto::sart::Path { 
+            nlri: path.prefix.to_string(), 
+            family: Some(proto::sart::AddressFamily::from(&path.family)), 
+            origin: path.origin as u32, 
+            next_hops: path.next_hops.iter().map(|n| n.to_string()).collect(), 
+            segments: segs, 
+            local_pref: path.local_pref, 
+            med: path.med, 
+            peer_asn: path.peer_asn, 
+            peer_addr: path.peer_addr.to_string(), 
+            best: path.best, 
+            timestamp: Some(prost_types::Timestamp::from(path.timestamp)),
+        }
     }
 }
 
@@ -463,7 +496,7 @@ impl PathBuilder {
                 id: h.finish(),
                 best: false,
                 reason: BestPathReason::NotBest,
-                timestamp: Instant::now(),
+                timestamp: SystemTime::now(),
                 local_id: self.local_id,
                 local_asn: self.local_asn,
                 peer_id: self.peer_id,
@@ -512,7 +545,7 @@ mod tests {
     use ipnet::{IpNet, Ipv4Net};
     use rstest::rstest;
     use std::net::{IpAddr, Ipv4Addr};
-    use tokio::time::Instant;
+    use std::time::SystemTime;
 
     use super::PathBuilder;
 
@@ -535,7 +568,7 @@ mod tests {
 					id: 0,
 					best: false,
 					reason: BestPathReason::NotBest,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
     				local_id: Ipv4Addr::new(1, 1, 1, 1),
     				local_asn: 100,
     				peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -573,7 +606,7 @@ mod tests {
 					id: 0,
 					best: false,
 					reason: BestPathReason::NotBest,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
     				local_id: Ipv4Addr::new(1, 1, 1, 1),
     				local_asn: 100,
     				peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -609,7 +642,7 @@ mod tests {
 					id: 0,
 					best: false,
 					reason: BestPathReason::NotBest,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
     				local_id: Ipv4Addr::new(1, 1, 1, 1),
     				local_asn: 100,
     				peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -629,7 +662,7 @@ mod tests {
 					id: 0,
 					best: false,
 					reason: BestPathReason::NotBest,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
     				local_id: Ipv4Addr::new(1, 1, 1, 1),
     				local_asn: 100,
     				peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -649,7 +682,7 @@ mod tests {
 					id: 0,
 					best: false,
 					reason: BestPathReason::NotBest,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
     				local_id: Ipv4Addr::new(1, 1, 1, 1),
     				local_asn: 100,
     				peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -687,7 +720,7 @@ mod tests {
 					id: 0,
 					best: false,
 					reason: BestPathReason::NotBest,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
     				local_id: Ipv4Addr::new(1, 1, 1, 1),
     				local_asn: 100,
     				peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -707,7 +740,7 @@ mod tests {
 					id: 0,
 					best: false,
 					reason: BestPathReason::NotBest,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
     				local_id: Ipv4Addr::new(1, 1, 1, 1),
     				local_asn: 100,
     				peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -727,7 +760,7 @@ mod tests {
 					id: 0,
 					best: false,
 					reason: BestPathReason::NotBest,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
     				local_id: Ipv4Addr::new(1, 1, 1, 1),
     				local_asn: 100,
     				peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -780,7 +813,7 @@ mod tests {
 				id: 0,
 				best: false,
 				reason: BestPathReason::NotBest,
-				timestamp: Instant::now(),
+				timestamp: SystemTime::now(),
 				local_id: Ipv4Addr::new(1, 1, 1, 1),
 				local_asn: 100,
 				peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -804,7 +837,7 @@ mod tests {
 				id: 0,
 				best: false,
 				reason: BestPathReason::NotBest,
-				timestamp: Instant::now(),
+				timestamp: SystemTime::now(),
 				local_id: Ipv4Addr::new(1, 1, 1, 1),
 				local_asn: 65200,
 				peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -828,7 +861,7 @@ mod tests {
 				id: 0,
 				best: false,
 				reason: BestPathReason::NotBest,
-				timestamp: Instant::now(),
+				timestamp: SystemTime::now(),
 				local_id: Ipv4Addr::new(1, 1, 1, 1),
 				local_asn: 100,
 				peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -852,7 +885,7 @@ mod tests {
 				id: 0,
 				best: false,
 				reason: BestPathReason::NotBest,
-				timestamp: Instant::now(),
+				timestamp: SystemTime::now(),
 				local_id: Ipv4Addr::new(1, 1, 1, 1),
 				local_asn: 100,
 				peer_id: Ipv4Addr::new(2, 2, 2, 2),
