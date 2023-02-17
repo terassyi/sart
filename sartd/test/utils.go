@@ -27,11 +27,10 @@ func execInNetns(ns string, args ...string) ([]byte, []byte, *os.Process, error)
 
 func checkGobgpConfig(node string, asn uint32) error {
 	nodeJson := make([]map[string]any, 0, 1)
-	out, serr, _, err := execInNetns(node, "gobgp", "neighbor", "-j")
+	out, _, _, err := execInNetns(node, "gobgp", "neighbor", "-j")
 	if err != nil {
 		return err
 	}
-	fmt.Println(string(serr))
 	err = json.Unmarshal(out, &nodeJson)
 	if err != nil {
 		return err

@@ -61,10 +61,20 @@ func testApi() {
 		}(ctx)
 
 		By("configuring local settings")
-		out, er, _, err := execInNetns("core", "simple_rib/grpcurl_set_local.sh")
-		fmt.Println(string(out))
-		fmt.Println(string(er))
+		_, _, _, err = execInNetns("core", "simple_rib/grpcurl_set_local.sh")
 		Expect(err).NotTo(HaveOccurred())
+
+		time.Sleep(time.Millisecond * 100)
+		By("getting bgp global information via api")
+		out, _, _, err := execInNetns("core", "simple_rib/grpcurl_bgp_info.sh")
+		Expect(err).NotTo(HaveOccurred())
+		var resBgpInfo map[string]any
+		err = json.Unmarshal(out, &resBgpInfo)
+		Expect(err).NotTo(HaveOccurred())
+		localAsn := resBgpInfo["info"].(map[string]any)["asn"].(float64)
+		Expect(localAsn).To(Equal(float64(100)))
+		localRouterId := resBgpInfo["info"].(map[string]any)["routerId"].(string)
+		Expect(localRouterId).To(Equal("1.1.1.1"))
 
 		By("configuring peer settings")
 		_, _, _, err = execInNetns("core", "simple_rib/grpcurl_add_peer.sh")
@@ -80,6 +90,16 @@ func testApi() {
 			}
 			return nil
 		}, "1m").Should(Succeed())
+
+		By("getting peer information via api")
+		out, _, _, err = execInNetns("core", "simple_rib/grpcurl_get_neighbor.sh")
+		Expect(err).NotTo(HaveOccurred())
+		var resPeer map[string]any
+		err = json.Unmarshal(out, &resPeer)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resPeer["peer"].(map[string]any)["asn"].(float64)).To(Equal(float64(200)))
+		Expect(resPeer["peer"].(map[string]any)["routerId"].(string)).To(Equal("2.2.2.2"))
+		Expect(resPeer["peer"].(map[string]any)["state"].(string)).To(Equal("ESTABLISHED"))
 
 		By("adding paths by core")
 		_, _, _, err = execInNetns("core", "simple_rib/grpcurl_add_path.sh")
@@ -98,6 +118,15 @@ func testApi() {
 		Expect(len(pref2)).To(Equal(1))
 		pref3 := res["10.2.0.0/24"].([]any)
 		Expect(len(pref3)).To(Equal(1))
+
+		By("getting path information via api")
+		out, _, _, err = execInNetns("core", "simple_rib/grpcurl_get_path.sh")
+		var resPaths map[string]any
+		fmt.Println(string(out))
+		err = json.Unmarshal(out, &resPaths)
+		Expect(err).NotTo(HaveOccurred())
+		paths := resPaths["paths"].([]any)
+		Expect(len(paths)).To(Equal(3))
 
 		By("deleting a path by core")
 		_, _, _, err = execInNetns("core", "simple_rib/grpcurl_delete_path.sh")
@@ -148,7 +177,6 @@ func testApi() {
 
 		By("checking spine1 received a withdrawn message from core")
 		out2, _, _, err := execInNetns("spine1", "gobgp", "global", "rib", "-a", "ipv4", "-j")
-		fmt.Println(string(out2))
 		var res4 map[string]any
 		err = json.Unmarshal(out2, &res4)
 		Expect(err).NotTo(HaveOccurred())

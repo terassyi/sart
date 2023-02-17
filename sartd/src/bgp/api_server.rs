@@ -1,12 +1,12 @@
 use std::marker::{Send, Sync};
-use std::sync::{Arc};
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::proto::sart::bgp_api_server::BgpApi;
 use crate::proto::{self, sart::*};
 use ipnet::IpNet;
 use tokio::sync::mpsc::{Receiver, Sender};
-use tokio::sync::{Notify, Mutex};
+use tokio::sync::{Mutex, Notify};
 use tokio::time::timeout;
 use tonic::{Request, Response, Status};
 
@@ -77,7 +77,7 @@ impl BgpApi for ApiServer {
     ) -> Result<Response<GetNeighborResponse>, Status> {
         let addr = match req.get_ref().addr.parse() {
             Ok(addr) => addr,
-            Err(_) => return Err(Status::aborted("failed to parse peer address"))
+            Err(_) => return Err(Status::aborted("failed to parse peer address")),
         };
         self.tx.send(ControlEvent::GetPeer(addr)).await.unwrap();
 
@@ -117,9 +117,7 @@ impl BgpApi for ApiServer {
             Ok(res) => match res {
                 Some(info) => match info {
                     ApiResponse::Paths(paths) => {
-                        Ok(Response::new(proto::sart::GetPathResponse {
-                            paths,
-                        }))
+                        Ok(Response::new(proto::sart::GetPathResponse { paths }))
                     }
                     _ => Err(Status::internal("failed to get path information")),
                 },
