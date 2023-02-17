@@ -78,13 +78,22 @@ impl FiniteStateMachine {
 // https://www.rfc-editor.org/rfc/rfc4271#section-8.2.2
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub(crate) enum State {
-    Idle,
-    Connect,
-    Active,
-    OpenSent,
-    OpenConfirm,
-    Established,
+    Idle = 1,
+    Connect = 2,
+    Active = 3,
+    OpenSent = 4,
+    OpenConfirm = 5,
+    Established = 6,
 }
+
+// impl From<State> for u32 {
+// 	fn from(state: State) -> Self {
+// 		match state {
+// 			State::Idle => 1,
+// 			State
+// 		}
+// 	}
+// }
 
 #[cfg(test)]
 mod tests {

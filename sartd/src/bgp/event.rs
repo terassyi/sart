@@ -1,3 +1,6 @@
+use std::net::IpAddr;
+use std::net::Ipv4Addr;
+
 use ipnet::IpNet;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::Sender;
@@ -19,6 +22,7 @@ pub(crate) enum Event {
     Connection(TcpConnectionEvent),
     Message(BgpMessageEvent),
     Control(ControlEvent),
+    Api(PeerLevelApiEvent),
 }
 
 impl Event {
@@ -99,6 +103,7 @@ impl std::fmt::Display for Event {
             Event::Connection(e) => write!(f, "{}", e),
             Event::Message(e) => write!(f, "{}", e),
             Event::Control(e) => write!(f, "{}", e),
+            Event::Api(e) => write!(f, "{}", e),
         }
     }
 }
@@ -300,16 +305,32 @@ impl Into<u8> for BgpMessageEvent {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ControlEvent {
+    GetBgpInfo,
+    GetPeer(IpAddr),
+    GetPath(AddressFamily),
+    SetAsn(u32),
+    SetRouterId(Ipv4Addr),
     AddPeer(NeighborConfig),
+    DeletePeer(IpAddr),
+    AddPath(Vec<IpNet>, Vec<Attribute>),
+    DeletePath(AddressFamily, Vec<IpNet>),
     Health,
 }
 
 impl std::fmt::Display for ControlEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            ControlEvent::GetBgpInfo => write!(f, "Control::GetBgpInfo"),
+            ControlEvent::GetPeer(_) => write!(f, "Control::GetPeer"),
+            ControlEvent::GetPath(_) => write!(f, "Control::GetPath"),
+            ControlEvent::SetAsn(_) => write!(f, "Control::SetAsn"),
+            ControlEvent::SetRouterId(_) => write!(f, "Control::SetRouterId"),
             ControlEvent::AddPeer(_) => write!(f, "Control::AddPeer"),
+            ControlEvent::DeletePeer(_) => write!(f, "Control::DeletePeer"),
+            ControlEvent::AddPath(_, _) => write!(f, "Control::AddPath"),
+            ControlEvent::DeletePath(_, _) => write!(f, "Control::DeletePath"),
             ControlEvent::Health => write!(f, "Control::Health"),
         }
     }
@@ -317,31 +338,50 @@ impl std::fmt::Display for ControlEvent {
 
 #[derive(Debug, Clone)]
 pub(crate) enum RibEvent {
-    AddPeer {
-        neighbor: NeighborPair,
-        rib_event_tx: Sender<RibEvent>,
-    },
-    AddNetwork(Vec<IpNet>, Vec<Attribute>),
-    DeleteNetwork(AddressFamily, Vec<IpNet>),
-    InstallPaths(NeighborPair, Vec<Path>),
-    DropPaths(NeighborPair, AddressFamily, Vec<(IpNet, u64)>),
+    SetAsn(u32),
+    SetRouterId(Ipv4Addr),
+    AddPeer(NeighborPair, Sender<RibEvent>),
+    DeletePeer(NeighborPair),
+    Init(AddressFamily, NeighborPair),
+    Flush(AddressFamily, NeighborPair),
+    AddPath(Vec<IpNet>, Vec<Attribute>),   // from local
+    DeletePath(AddressFamily, Vec<IpNet>), // from local
+    InstallPaths(NeighborPair, Vec<Path>), // from peer
+    DropPaths(NeighborPair, AddressFamily, Vec<(IpNet, u64)>), // from peer
     Advertise(Vec<Path>),
     Withdraw(Vec<IpNet>),
+    GetPath(AddressFamily),
 }
 
 impl std::fmt::Display for RibEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RibEvent::AddPeer {
-                neighbor: _,
-                rib_event_tx: _,
-            } => write!(f, "Rib::AddPeer"),
-            RibEvent::AddNetwork(_, _) => write!(f, "Rib::AddNetwork"),
-            RibEvent::DeleteNetwork(_, _) => write!(f, "Rib::DeleteNetwork"),
+            RibEvent::SetAsn(_) => write!(f, "Rib::SetAsn"),
+            RibEvent::SetRouterId(_) => write!(f, "Rib::SetRouterId"),
+            RibEvent::AddPeer(_, _) => write!(f, "Rib::AddPeer"),
+            RibEvent::DeletePeer(_) => write!(f, "Rib::DeletePeer"),
+            RibEvent::Init(_, _) => write!(f, "Rib::Init"),
+            RibEvent::Flush(_, _) => write!(f, "Rib::Flush"),
+            RibEvent::AddPath(_, _) => write!(f, "Rib::AddPath"),
+            RibEvent::DeletePath(_, _) => write!(f, "Rib::DeletePath"),
             RibEvent::InstallPaths(_, _) => write!(f, "Rib::InstallPaths"),
             RibEvent::DropPaths(_, _, _) => write!(f, "Rib::DropPaths"),
             RibEvent::Advertise(_) => write!(f, "Rib::Advertise"),
             RibEvent::Withdraw(_) => write!(f, "Rib::Withdraw"),
+            RibEvent::GetPath(_) => write!(f, "Rib::GetPath"),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum PeerLevelApiEvent {
+    GetPeer,
+}
+
+impl std::fmt::Display for PeerLevelApiEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PeerLevelApiEvent::GetPeer => write!(f, "PeerLevelApi::GetPeer"),
         }
     }
 }

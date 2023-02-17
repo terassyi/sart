@@ -2,11 +2,12 @@ use ipnet::IpNet;
 use std::{
     cmp::Ordering,
     collections::HashMap,
-    net::{IpAddr, Ipv4Addr},
+    net::{IpAddr, Ipv4Addr}
 };
 use tokio::sync::mpsc::Sender;
 
 use crate::bgp::path::PathKind;
+use crate::proto;
 
 use super::{
     error::{ControlError, Error, RibError},
@@ -14,7 +15,7 @@ use super::{
     family::{AddressFamily, Afi},
     packet::attribute::Attribute,
     path::{BestPathReason, Path, PathBuilder},
-    peer::neighbor::NeighborPair,
+    peer::neighbor::NeighborPair, api_server::ApiResponse,
 };
 
 #[derive(Debug)]
@@ -49,6 +50,16 @@ impl Table {
 
     fn get_mut(&mut self, prefix: &IpNet) -> Option<&mut Path> {
         self.inner.get_mut(prefix)
+    }
+
+    fn get_all(&self) -> Vec<&Path> {
+        self.inner.iter().map(|(_prefix, path)| path).collect()
+    }
+
+    fn clear(&mut self) {
+        self.inner = HashMap::new();
+        self.received = 0;
+        self.dropped = 0;
     }
 }
 
@@ -102,20 +113,33 @@ impl AdjRib {
         }
     }
 
+    pub fn get_all(&self, family: &AddressFamily) -> Option<Vec<&Path>> {
+        match self.table.get(family) {
+            Some(table) => match table.inner.is_empty() {
+                true => None,
+                false => Some(table.get_all()),
+            },
+            None => None,
+        }
+    }
+
     pub fn prefixes(
         &self,
         family: &AddressFamily,
     ) -> Option<std::collections::hash_map::Keys<'_, IpNet, Path>> {
-        match self.table.get(family) {
-            Some(table) => Some(table.inner.keys()),
-            None => None,
-        }
+        self.table.get(family).map(|table| table.inner.keys())
     }
 
     pub fn remove(&mut self, family: &AddressFamily, prefix: &IpNet) -> Option<Path> {
         match self.table.get_mut(family) {
             Some(table) => table.remove(prefix),
             None => None,
+        }
+    }
+
+    pub fn clear(&mut self) {
+        for (_family, table) in self.table.iter_mut() {
+            table.clear();
         }
     }
 }
@@ -174,15 +198,49 @@ impl LocRib {
     }
 
     fn get_best_path(&self, family: &AddressFamily, prefix: &IpNet) -> Option<Vec<&Path>> {
-        match self.get(family, prefix) {
-            Some(paths) => Some(paths.iter().filter(|p| p.best).collect::<Vec<&Path>>()),
+        self.get(family, prefix)
+            .map(|paths| paths.iter().filter(|p| p.best).collect::<Vec<&Path>>())
+    }
+
+    fn get_all_best(&self, family: &AddressFamily) -> Option<Vec<Path>> {
+        match self.table.get(&family.afi) {
+            Some(table) => {
+                let mut best_paths = Vec::new();
+                for (_prefix, paths) in table.iter() {
+                    if paths.is_empty() {
+                        continue;
+                    }
+                    // paths[0] must be best
+                    // TODO: handle add_path capability
+                    best_paths.push(paths[0].clone());
+                }
+                match best_paths.is_empty() {
+                    true => None,
+                    false => Some(best_paths),
+                }
+            }
+            None => None,
+        }
+    }
+
+    fn get_all(&self, family: &AddressFamily) -> Option<Vec<&Path>> {
+        match self.table.get(&family.afi) {
+            Some(table) => {
+                let mut all = Vec::new();
+                for (_prefix, paths) in table.iter() {
+                    for path in paths.iter() {
+                        all.push(path);
+                    }
+                }
+                Some(all)
+            },
             None => None,
         }
     }
 
     #[tracing::instrument(skip(self, family, path), fields(prefix=path.prefix().to_string(),path_id=path.id))]
     fn insert(&mut self, family: &AddressFamily, path: &mut Path) -> Result<LocRibStatus, Error> {
-        let prefix = path.prefix.clone();
+        let prefix = path.prefix;
         let table = self
             .table
             .get_mut(&family.afi)
@@ -259,19 +317,17 @@ impl LocRib {
                     paths.insert(idx, path.clone());
                     return Ok(LocRibStatus::NotChanged);
                 }
-            } else {
-                if idx == 0 {
-                    path.best = true;
-                    path.reason = reason;
+            } else if idx == 0 {
+                path.best = true;
+                path.reason = reason;
 
-                    // unmark old best path
-                    paths[0].best = false;
-                    paths[0].reason = BestPathReason::NotBest;
+                // unmark old best path
+                paths[0].best = false;
+                paths[0].reason = BestPathReason::NotBest;
 
-                    paths.insert(idx, path.clone());
-                    tracing::info!("best path is changed");
-                    return Ok(LocRibStatus::BestPathChanged(prefix, path.id));
-                }
+                paths.insert(idx, path.clone());
+                tracing::info!("best path is changed");
+                return Ok(LocRibStatus::BestPathChanged(prefix, path.id));
             }
 
             paths.insert(idx, path.clone());
@@ -387,6 +443,7 @@ pub(crate) struct RibManager {
     loc_rib: LocRib,
     endpoint: String,
     peers_tx: HashMap<NeighborPair, Sender<RibEvent>>,
+    api_tx: Sender<ApiResponse>,
 }
 
 impl RibManager {
@@ -396,6 +453,7 @@ impl RibManager {
         endpoint: String,
         protocols: Vec<Afi>,
         multi_path_enabled: bool,
+        api_tx: Sender<ApiResponse>,
     ) -> Self {
         Self {
             asn,
@@ -403,6 +461,7 @@ impl RibManager {
             loc_rib: LocRib::new(protocols, multi_path_enabled),
             endpoint,
             peers_tx: HashMap::new(),
+            api_tx,
         }
     }
 
@@ -410,16 +469,25 @@ impl RibManager {
     pub async fn handle(&mut self, event: RibEvent) -> Result<(), Error> {
         tracing::info!(event=%event);
         match event {
-            RibEvent::AddPeer {
-                neighbor,
-                rib_event_tx,
-            } => self.add_peer(neighbor, rib_event_tx),
-            RibEvent::AddNetwork(networks, attrs) => self.add_network(networks, attrs).await,
-            RibEvent::DeleteNetwork(family, network) => self.delete_network(family, network).await,
+            RibEvent::SetAsn(asn) => {
+                self.asn = asn;
+                Ok(())
+            }
+            RibEvent::SetRouterId(id) => {
+                self.router_id = id;
+                Ok(())
+            }
+            RibEvent::AddPeer(neighbor, rib_event_tx) => self.add_peer(neighbor, rib_event_tx),
+            RibEvent::DeletePeer(neighbor) => self.delete_peer(neighbor),
+            RibEvent::Init(family, neighbor) => self.init(family, neighbor).await,
+            RibEvent::Flush(family, neighbor) => self.flush(family, neighbor).await,
+            RibEvent::AddPath(networks, attrs) => self.add_path(networks, attrs).await,
+            RibEvent::DeletePath(family, network) => self.delete_path(family, network).await,
             RibEvent::InstallPaths(neighbor, paths) => self.install_paths(neighbor, paths).await,
             RibEvent::DropPaths(neighbor, family, path_ids) => {
                 self.drop_paths(neighbor, family, path_ids).await
             }
+            RibEvent::GetPath(family) => self.get_path(family).await,
             _ => Err(Error::Rib(RibError::UnhandlableEvent)),
         }
     }
@@ -436,11 +504,50 @@ impl RibManager {
     }
 
     #[tracing::instrument(skip(self))]
-    async fn add_network(
-        &mut self,
-        networks: Vec<IpNet>,
-        attrs: Vec<Attribute>,
-    ) -> Result<(), Error> {
+    fn delete_peer(&mut self, neighbor: NeighborPair) -> Result<(), Error> {
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self, neighbor), fields(peer.asn=neighbor.asn,peer.addr=neighbor.addr.to_string(),peer.id=neighbor.id.to_string()))]
+    async fn init(&self, family: AddressFamily, neighbor: NeighborPair) -> Result<(), Error> {
+        if let Some(paths) = self.loc_rib.get_all_best(&family) {
+            // exclude best paths from target neighbor
+            let p = paths
+                .iter()
+                .filter(|&p| {
+                    !p.peer_id.eq(&neighbor.id)
+                        || if self.asn == neighbor.asn {
+                            // ibgp peer
+                            p.kind() != PathKind::Internal
+                        } else {
+                            false
+                        }
+                })
+                .cloned()
+                .collect::<Vec<Path>>();
+            if let Some(tx) = self.peers_tx.get(&neighbor) {
+                let prefixes = p
+                    .iter()
+                    .map(|pp| pp.prefix().to_string())
+                    .collect::<Vec<String>>();
+                tracing::info!(prefixes=?prefixes, "advertise initially installed paths");
+                tx.send(RibEvent::Advertise(p))
+                    .await
+                    .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;
+            } else {
+                return Err(Error::Rib(RibError::PeerNotFound));
+            }
+        }
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self, neighbor), fields(peer.asn=neighbor.asn,peer.addr=neighbor.addr.to_string(),peer.id=neighbor.id.to_string()))]
+    async fn flush(&self, family: AddressFamily, neighbor: NeighborPair) -> Result<(), Error> {
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self))]
+    async fn add_path(&mut self, networks: Vec<IpNet>, attrs: Vec<Attribute>) -> Result<(), Error> {
         let mut builder = PathBuilder::builder_local(self.router_id, self.asn);
         for attr in attrs.into_iter() {
             builder.attr(attr)?;
@@ -456,7 +563,7 @@ impl RibManager {
     }
 
     #[tracing::instrument(skip(self))]
-    async fn delete_network(
+    async fn delete_path(
         &mut self,
         family: AddressFamily,
         network: Vec<IpNet>,
@@ -631,17 +738,26 @@ impl RibManager {
         }
         Ok(())
     }
+
+    async fn get_path(&self, family: AddressFamily) -> Result<(), Error> {
+        if let Some(all_paths) = self.loc_rib.get_all(&family) {
+            let paths = all_paths.iter().map(|&p| proto::sart::Path::from(p)).collect();
+            self.api_tx.send(ApiResponse::Paths(paths)).await.map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;
+        }
+        Ok(())
+    }
 }
 
 fn get_comparison_funcs(multi_path: bool) -> Vec<(BestPathReason, ComparisonFunc)> {
-    let mut funcs: Vec<(BestPathReason, ComparisonFunc)> = Vec::new();
-    funcs.push((BestPathReason::Weight, compare_weight));
-    funcs.push((BestPathReason::LocalPref, compare_local_pref));
-    funcs.push((BestPathReason::LocalOriginated, compare_local_originated));
-    funcs.push((BestPathReason::ASPath, compare_as_path));
-    funcs.push((BestPathReason::Origin, compare_origin));
-    funcs.push((BestPathReason::MultiExitDisc, compare_med));
-    funcs.push((BestPathReason::External, compare_external));
+    let mut funcs: Vec<(BestPathReason, ComparisonFunc)> = vec![
+        (BestPathReason::Weight, compare_weight),
+        (BestPathReason::LocalPref, compare_local_pref),
+        (BestPathReason::LocalOriginated, compare_local_originated),
+        (BestPathReason::ASPath, compare_as_path),
+        (BestPathReason::Origin, compare_origin),
+        (BestPathReason::MultiExitDisc, compare_med),
+        (BestPathReason::External, compare_external),
+    ];
     if multi_path {
         return funcs;
     }
@@ -660,12 +776,7 @@ fn compare_weight(_a: &Path, _b: &Path) -> Ordering {
 }
 
 fn compare_local_pref(a: &Path, b: &Path) -> Ordering {
-    if a.local_pref > b.local_pref {
-        return Ordering::Less;
-    } else if a.local_pref == b.local_pref {
-        return Ordering::Equal;
-    }
-    Ordering::Greater
+    b.local_pref.cmp(&a.local_pref)
 }
 
 fn compare_local_originated(a: &Path, b: &Path) -> Ordering {
@@ -691,30 +802,15 @@ fn compare_as_path(a: &Path, b: &Path) -> Ordering {
     } else {
         b.as_sequence.len()
     };
-    if a_len < b_len {
-        return Ordering::Less;
-    } else if a_len == b_len {
-        return Ordering::Equal;
-    }
-    Ordering::Greater
+    a_len.cmp(&b_len)
 }
 
 fn compare_origin(a: &Path, b: &Path) -> Ordering {
-    if a.origin < b.origin {
-        return Ordering::Less;
-    } else if a.origin == b.origin {
-        return Ordering::Equal;
-    }
-    Ordering::Greater
+    a.origin.cmp(&b.origin)
 }
 
 fn compare_med(a: &Path, b: &Path) -> Ordering {
-    if a.med < b.med {
-        return Ordering::Less;
-    } else if a.med == b.med {
-        return Ordering::Equal;
-    }
-    Ordering::Greater
+    a.med.cmp(&b.med)
 }
 
 fn compare_external(a: &Path, b: &Path) -> Ordering {
@@ -733,35 +829,17 @@ fn compare_older_route(a: &Path, b: &Path) -> Ordering {
     let a_ebgp = a.local_asn != a.peer_asn;
     let b_ebgp = b.local_asn != b.peer_asn;
     if a_ebgp == b_ebgp {
-        return if a.timestamp < b.timestamp {
-            Ordering::Less
-        } else if a.timestamp.eq(&b.timestamp) {
-            Ordering::Equal
-        } else {
-            Ordering::Greater
-        };
+        return a.timestamp.cmp(&b.timestamp);
     }
     Ordering::Equal
 }
 
 fn compare_peer_router_id(a: &Path, b: &Path) -> Ordering {
-    return if a.peer_id < b.peer_id {
-        Ordering::Less
-    } else if a.peer_id == b.peer_id {
-        Ordering::Equal
-    } else {
-        Ordering::Greater
-    };
+    a.peer_id.cmp(&b.peer_id)
 }
 
 fn compare_peer_addr(a: &Path, b: &Path) -> Ordering {
-    return if a.peer_addr < b.peer_addr {
-        Ordering::Less
-    } else if a.peer_addr == b.peer_addr {
-        Ordering::Equal
-    } else {
-        Ordering::Greater
-    };
+    a.peer_addr.cmp(&b.peer_addr)
 }
 
 #[cfg(test)]
@@ -770,9 +848,9 @@ mod tests {
     use rstest::rstest;
     use std::collections::HashMap;
     use std::net::{IpAddr, Ipv4Addr};
-    use std::ops::Sub;
     use tokio::sync::mpsc::channel;
-    use tokio::time::{timeout, Duration, Instant};
+    use tokio::time::{timeout, Duration};
+    use std::time::SystemTime;
 
     use crate::bgp::packet::attribute::{ASSegment, Base};
     use crate::bgp::packet::message::Message;
@@ -790,12 +868,14 @@ mod tests {
 
     #[test]
     fn works_rib_manager_add_peer() {
+        let (api_tx, _api_rx) = tokio::sync::mpsc::channel(10);
         let mut manager = RibManager::new(
             100,
             Ipv4Addr::new(1, 1, 1, 1),
             "test_endpoint".to_string(),
             vec![Afi::IPv4],
             false,
+            api_tx,
         );
         let (tx, _rx) = channel::<RibEvent>(128);
         manager
@@ -905,7 +985,7 @@ mod tests {
 					id:0,
 					best: true,
 					reason: BestPathReason::OnlyPath,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -932,7 +1012,7 @@ mod tests {
 					id:1,
 					best: true,
 					reason: BestPathReason::OnlyPath,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -952,7 +1032,7 @@ mod tests {
 					id:0,
 					best: false,
 					reason: BestPathReason::OnlyPath,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -979,7 +1059,7 @@ mod tests {
 					id:1,
 					best: true,
 					reason: BestPathReason::OnlyPath,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -999,7 +1079,7 @@ mod tests {
 					id:0,
 					best: true,
 					reason: BestPathReason::OnlyPath,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -1058,7 +1138,7 @@ mod tests {
 				id:5,
 				best: false,
 				reason: BestPathReason::NotBest,
-				timestamp: Instant::now(),
+				timestamp: SystemTime::now(),
 				local_id: Ipv4Addr::new(1, 1, 1, 1),
 				local_asn: 65000,
 				peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -1086,7 +1166,7 @@ mod tests {
 					id:1,
 					best: true,
 					reason: BestPathReason::OnlyPath,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -1106,7 +1186,7 @@ mod tests {
 					id:0,
 					best: false,
 					reason: BestPathReason::NotBest,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -1127,7 +1207,7 @@ mod tests {
 				id:2,
 				best: false,
 				reason: BestPathReason::OnlyPath,
-				timestamp: Instant::now(),
+				timestamp: SystemTime::now(),
 				local_id: Ipv4Addr::new(1, 1, 1, 1),
 				local_asn: 65000,
 				peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -1155,7 +1235,7 @@ mod tests {
 					id:1,
 					best: true,
 					reason: BestPathReason::ASPath,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -1175,7 +1255,7 @@ mod tests {
 					id:0,
 					best: false,
 					reason: BestPathReason::NotBest,
-					timestamp: Instant::now().sub(Duration::from_secs(5)),
+					timestamp: std::ops::Sub::sub(SystemTime::now(), Duration::from_secs(5)),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(4, 4, 4, 4),
@@ -1196,7 +1276,7 @@ mod tests {
 				id:2,
 				best: false,
 				reason: BestPathReason::NotBest,
-				timestamp: Instant::now(),
+				timestamp: SystemTime::now(),
 				local_id: Ipv4Addr::new(1, 1, 1, 1),
 				local_asn: 65000,
 				peer_id: Ipv4Addr::new(3, 3, 3, 3),
@@ -1224,7 +1304,7 @@ mod tests {
 					id:1,
 					best: true,
 					reason: BestPathReason::OnlyPath,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -1245,7 +1325,7 @@ mod tests {
 				id:2,
 				best: false,
 				reason: BestPathReason::NotBest,
-				timestamp: Instant::now(),
+				timestamp: SystemTime::now(),
 				local_id: Ipv4Addr::new(1, 1, 1, 1),
 				local_asn: 65000,
 				peer_id: Ipv4Addr::new(3, 3, 3, 3),
@@ -1273,7 +1353,7 @@ mod tests {
 					id:1,
 					best: true,
 					reason: BestPathReason::OnlyPath,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -1293,7 +1373,7 @@ mod tests {
 					id:0,
 					best: false,
 					reason: BestPathReason::NotBest,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -1314,7 +1394,7 @@ mod tests {
 				id:2,
 				best: false,
 				reason: BestPathReason::NotBest,
-				timestamp: Instant::now(),
+				timestamp: SystemTime::now(),
 				local_id: Ipv4Addr::new(1, 1, 1, 1),
 				local_asn: 65000,
 				peer_id: Ipv4Addr::new(3, 3, 3, 3),
@@ -1342,7 +1422,7 @@ mod tests {
 					id:1,
 					best: true,
 					reason: BestPathReason::EqualCostMiltiPath,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -1362,7 +1442,7 @@ mod tests {
 					id:2,
 					best: true,
 					reason: BestPathReason::EqualCostMiltiPath,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(3, 3, 3, 3),
@@ -1382,7 +1462,7 @@ mod tests {
 					id:0,
 					best: false,
 					reason: BestPathReason::NotBest,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -1403,7 +1483,7 @@ mod tests {
 				id:5,
 				best: false,
 				reason: BestPathReason::NotBest,
-				timestamp: Instant::now(),
+				timestamp: SystemTime::now(),
 				local_id: Ipv4Addr::new(1, 1, 1, 1),
 				local_asn: 65000,
 				peer_id: Ipv4Addr::new(6, 6, 6, 6),
@@ -1431,7 +1511,7 @@ mod tests {
 					id:1,
 					best: true,
 					reason: BestPathReason::EqualCostMiltiPath,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -1451,7 +1531,7 @@ mod tests {
 					id:2,
 					best: true,
 					reason: BestPathReason::EqualCostMiltiPath,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(3, 3, 3, 3),
@@ -1471,7 +1551,7 @@ mod tests {
 					id:0,
 					best: false,
 					reason: BestPathReason::NotBest,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -1492,7 +1572,7 @@ mod tests {
 				id:6,
 				best: false,
 				reason: BestPathReason::NotBest,
-				timestamp: Instant::now(),
+				timestamp: SystemTime::now(),
 				local_id: Ipv4Addr::new(1, 1, 1, 1),
 				local_asn: 65000,
 				peer_id: Ipv4Addr::new(6, 6, 6, 6),
@@ -1561,7 +1641,7 @@ mod tests {
 					id:0,
 					best: true,
 					reason: BestPathReason::OnlyPath,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -1591,7 +1671,7 @@ mod tests {
 					id:1,
 					best: true,
 					reason: BestPathReason::ASPath,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -1611,7 +1691,7 @@ mod tests {
 					id:0,
 					best: false,
 					reason: BestPathReason::NotBest,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -1641,7 +1721,7 @@ mod tests {
 					id:1,
 					best: true,
 					reason: BestPathReason::ASPath,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -1661,7 +1741,7 @@ mod tests {
 					id:0,
 					best: false,
 					reason: BestPathReason::NotBest,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -1691,7 +1771,7 @@ mod tests {
 					id:1,
 					best: true,
 					reason: BestPathReason::EqualCostMiltiPath,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -1711,7 +1791,7 @@ mod tests {
 					id:2,
 					best: true,
 					reason: BestPathReason::EqualCostMiltiPath,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(3, 3, 3, 3),
@@ -1731,7 +1811,7 @@ mod tests {
 					id:0,
 					best: false,
 					reason: BestPathReason::NotBest,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -1761,7 +1841,7 @@ mod tests {
 					id:1,
 					best: true,
 					reason: BestPathReason::EqualCostMiltiPath,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -1781,7 +1861,7 @@ mod tests {
 					id:2,
 					best: true,
 					reason: BestPathReason::EqualCostMiltiPath,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(3, 3, 3, 3),
@@ -1801,7 +1881,7 @@ mod tests {
 					id:0,
 					best: false,
 					reason: BestPathReason::NotBest,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -1831,7 +1911,7 @@ mod tests {
 					id:1,
 					best: true,
 					reason: BestPathReason::EqualCostMiltiPath,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -1851,7 +1931,7 @@ mod tests {
 					id:2,
 					best: true,
 					reason: BestPathReason::EqualCostMiltiPath,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(3, 3, 3, 3),
@@ -1871,7 +1951,7 @@ mod tests {
 					id:0,
 					best: false,
 					reason: BestPathReason::NotBest,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -1901,7 +1981,7 @@ mod tests {
 					id:0,
 					best: true,
 					reason: BestPathReason::ASPath,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -1921,7 +2001,7 @@ mod tests {
 					id:1,
 					best: false,
 					reason: BestPathReason::NotBest,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -1941,7 +2021,7 @@ mod tests {
 					id:2,
 					best: false,
 					reason: BestPathReason::NotBest,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(3, 3, 3, 3),
@@ -1961,7 +2041,7 @@ mod tests {
 					id:5,
 					best: false,
 					reason: BestPathReason::NotBest,
-					timestamp: Instant::now(),
+					timestamp: SystemTime::now(),
 					local_id: Ipv4Addr::new(1, 1, 1, 1),
 					local_asn: 65000,
 					peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -2019,12 +2099,14 @@ mod tests {
 
     #[tokio::test]
     async fn rib_manager_install_drop_paths_ebgp_multi_path_disabled() {
+        let (api_tx, _api_rx) = tokio::sync::mpsc::channel(10);
         let mut manager = RibManager::new(
             65000,
             Ipv4Addr::new(1, 1, 1, 1),
             String::from("dummy"),
             vec![AddressFamily::ipv4_unicast().afi],
             false,
+            api_tx,
         );
 
         // peer1
@@ -2050,7 +2132,7 @@ mod tests {
             id: 0,
             best: false,
             reason: BestPathReason::NotBest,
-            timestamp: Instant::now(),
+            timestamp: SystemTime::now(),
             local_id: Ipv4Addr::new(1, 1, 1, 1),
             local_asn: 65000,
             peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -2090,7 +2172,7 @@ mod tests {
                 id: 1,
                 best: false,
                 reason: BestPathReason::NotBest,
-                timestamp: Instant::now(),
+                timestamp: SystemTime::now(),
                 local_id: Ipv4Addr::new(1, 1, 1, 1),
                 local_asn: 65000,
                 peer_id: Ipv4Addr::new(3, 3, 3, 3),
@@ -2110,7 +2192,7 @@ mod tests {
                 id: 2,
                 best: false,
                 reason: BestPathReason::NotBest,
-                timestamp: Instant::now(),
+                timestamp: SystemTime::now(),
                 local_id: Ipv4Addr::new(1, 1, 1, 1),
                 local_asn: 65000,
                 peer_id: Ipv4Addr::new(3, 3, 3, 3),
@@ -2130,7 +2212,7 @@ mod tests {
                 id: 3,
                 best: false,
                 reason: BestPathReason::NotBest,
-                timestamp: Instant::now(),
+                timestamp: SystemTime::now(),
                 local_id: Ipv4Addr::new(1, 1, 1, 1),
                 local_asn: 65000,
                 peer_id: Ipv4Addr::new(3, 3, 3, 3),
@@ -2173,7 +2255,7 @@ mod tests {
             id: 4,
             best: false,
             reason: BestPathReason::NotBest,
-            timestamp: Instant::now(),
+            timestamp: SystemTime::now(),
             local_id: Ipv4Addr::new(1, 1, 1, 1),
             local_asn: 65000,
             peer_id: Ipv4Addr::new(1, 1, 1, 1),
@@ -2230,7 +2312,7 @@ mod tests {
         // drop from peer2
         let prefixes: Vec<(IpNet, u64)> = vec![("10.0.0.0/24".parse().unwrap(), 3)];
         manager
-            .drop_paths(peer2.clone(), family.clone(), prefixes)
+            .drop_paths(peer2.clone(), family, prefixes)
             .await
             .unwrap();
 
@@ -2246,7 +2328,7 @@ mod tests {
         // drop from peer1
         let prefixes: Vec<(IpNet, u64)> = vec![("10.0.0.0/24".parse().unwrap(), 0)];
         manager
-            .drop_paths(peer1.clone(), family.clone(), prefixes)
+            .drop_paths(peer1.clone(), family, prefixes)
             .await
             .unwrap();
 
@@ -2275,7 +2357,7 @@ mod tests {
                     65000,
                     Ipv4Addr::new(1, 1, 1, 1),
                 ),
-                family.clone(),
+                family,
                 prefixes,
             )
             .await
@@ -2305,12 +2387,14 @@ mod tests {
     }
     #[tokio::test]
     async fn rib_manager_install_drop_paths_ibgp_multi_path_disabled() {
+        let (api_tx, _api_rx) = tokio::sync::mpsc::channel(10);
         let mut manager = RibManager::new(
             65000,
             Ipv4Addr::new(1, 1, 1, 1),
             String::from("dummy"),
             vec![AddressFamily::ipv4_unicast().afi],
             false,
+            api_tx,
         );
 
         // peer1
@@ -2336,7 +2420,7 @@ mod tests {
             id: 0,
             best: false,
             reason: BestPathReason::NotBest,
-            timestamp: Instant::now(),
+            timestamp: SystemTime::now(),
             local_id: Ipv4Addr::new(1, 1, 1, 1),
             local_asn: 65000,
             peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -2370,7 +2454,7 @@ mod tests {
             id: 4,
             best: false,
             reason: BestPathReason::NotBest,
-            timestamp: Instant::now(),
+            timestamp: SystemTime::now(),
             local_id: Ipv4Addr::new(1, 1, 1, 1),
             local_asn: 65000,
             peer_id: Ipv4Addr::new(1, 1, 1, 1),
@@ -2427,7 +2511,7 @@ mod tests {
         // drop from peer1
         let prefixes: Vec<(IpNet, u64)> = vec![("10.0.0.0/24".parse().unwrap(), 0)];
         manager
-            .drop_paths(peer1.clone(), family.clone(), prefixes)
+            .drop_paths(peer1.clone(), family, prefixes)
             .await
             .unwrap();
 
@@ -2449,7 +2533,7 @@ mod tests {
                     65000,
                     Ipv4Addr::new(1, 1, 1, 1),
                 ),
-                family.clone(),
+                family,
                 prefixes,
             )
             .await
@@ -2479,12 +2563,14 @@ mod tests {
     }
     #[tokio::test]
     async fn rib_manager_install_drop_paths_ebgp_multi_path_enabled() {
+        let (api_tx, _api_rx) = tokio::sync::mpsc::channel(10);
         let mut manager = RibManager::new(
             65000,
             Ipv4Addr::new(1, 1, 1, 1),
             String::from("dummy"),
             vec![AddressFamily::ipv4_unicast().afi],
             true,
+            api_tx,
         );
 
         // peer1
@@ -2510,7 +2596,7 @@ mod tests {
             id: 0,
             best: false,
             reason: BestPathReason::NotBest,
-            timestamp: Instant::now(),
+            timestamp: SystemTime::now(),
             local_id: Ipv4Addr::new(1, 1, 1, 1),
             local_asn: 65000,
             peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -2550,7 +2636,7 @@ mod tests {
                 id: 1,
                 best: false,
                 reason: BestPathReason::NotBest,
-                timestamp: Instant::now(),
+                timestamp: SystemTime::now(),
                 local_id: Ipv4Addr::new(1, 1, 1, 1),
                 local_asn: 65000,
                 peer_id: Ipv4Addr::new(3, 3, 3, 3),
@@ -2570,7 +2656,7 @@ mod tests {
                 id: 2,
                 best: false,
                 reason: BestPathReason::NotBest,
-                timestamp: Instant::now(),
+                timestamp: SystemTime::now(),
                 local_id: Ipv4Addr::new(1, 1, 1, 1),
                 local_asn: 65000,
                 peer_id: Ipv4Addr::new(3, 3, 3, 3),
@@ -2612,7 +2698,7 @@ mod tests {
             id: 4,
             best: false,
             reason: BestPathReason::NotBest,
-            timestamp: Instant::now(),
+            timestamp: SystemTime::now(),
             local_id: Ipv4Addr::new(1, 1, 1, 1),
             local_asn: 65000,
             peer_id: Ipv4Addr::new(1, 1, 1, 1),
@@ -2671,7 +2757,7 @@ mod tests {
             ("10.0.10.0/24".parse().unwrap(), 2),
         ];
         manager
-            .drop_paths(peer2.clone(), family.clone(), prefixes)
+            .drop_paths(peer2.clone(), family, prefixes)
             .await
             .unwrap();
 
@@ -2700,7 +2786,7 @@ mod tests {
                     65000,
                     Ipv4Addr::new(1, 1, 1, 1),
                 ),
-                family.clone(),
+                family,
                 prefixes,
             )
             .await
@@ -2732,12 +2818,14 @@ mod tests {
     }
     #[tokio::test]
     async fn rib_manager_install_drop_paths_ebgp_ibgp_multi_path_enabled() {
+        let (api_tx, _api_rx) = tokio::sync::mpsc::channel(10);
         let mut manager = RibManager::new(
             65000,
             Ipv4Addr::new(1, 1, 1, 1),
             String::from("dummy"),
             vec![AddressFamily::ipv4_unicast().afi],
             true,
+            api_tx,
         );
 
         // peer1
@@ -2772,7 +2860,7 @@ mod tests {
             id: 0,
             best: false,
             reason: BestPathReason::NotBest,
-            timestamp: Instant::now(),
+            timestamp: SystemTime::now(),
             local_id: Ipv4Addr::new(1, 1, 1, 1),
             local_asn: 65000,
             peer_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -2816,7 +2904,7 @@ mod tests {
                 id: 1,
                 best: false,
                 reason: BestPathReason::NotBest,
-                timestamp: Instant::now(),
+                timestamp: SystemTime::now(),
                 local_id: Ipv4Addr::new(1, 1, 1, 1),
                 local_asn: 65000,
                 peer_id: Ipv4Addr::new(3, 3, 3, 3),
@@ -2836,7 +2924,7 @@ mod tests {
                 id: 2,
                 best: false,
                 reason: BestPathReason::NotBest,
-                timestamp: Instant::now(),
+                timestamp: SystemTime::now(),
                 local_id: Ipv4Addr::new(1, 1, 1, 1),
                 local_asn: 65000,
                 peer_id: Ipv4Addr::new(3, 3, 3, 3),
@@ -2881,7 +2969,7 @@ mod tests {
             id: 4,
             best: false,
             reason: BestPathReason::NotBest,
-            timestamp: Instant::now(),
+            timestamp: SystemTime::now(),
             local_id: Ipv4Addr::new(1, 1, 1, 1),
             local_asn: 65000,
             peer_id: Ipv4Addr::new(4, 4, 4, 4),
@@ -2935,7 +3023,7 @@ mod tests {
             ("10.0.10.0/24".parse().unwrap(), 2),
         ];
         manager
-            .drop_paths(peer2.clone(), family.clone(), prefixes)
+            .drop_paths(peer2.clone(), family, prefixes)
             .await
             .unwrap();
 
@@ -2970,7 +3058,7 @@ mod tests {
         // drop from peer1
         let prefixes: Vec<(IpNet, u64)> = vec![("10.0.20.0/24".parse().unwrap(), 0)];
         manager
-            .drop_paths(peer1.clone(), family.clone(), prefixes)
+            .drop_paths(peer1.clone(), family, prefixes)
             .await
             .unwrap();
 
@@ -2997,7 +3085,7 @@ mod tests {
         // drop from peer3
         let prefixes: Vec<(IpNet, u64)> = vec![("10.0.30.0/24".parse().unwrap(), 4)];
         manager
-            .drop_paths(peer3.clone(), family.clone(), prefixes)
+            .drop_paths(peer3.clone(), family, prefixes)
             .await
             .unwrap();
 
@@ -3031,12 +3119,14 @@ mod tests {
 
     #[tokio::test]
     async fn rib_manager_add_delete_network() {
+        let (api_tx, _api_rx) = tokio::sync::mpsc::channel(10);
         let mut manager = RibManager::new(
             65000,
             Ipv4Addr::new(1, 1, 1, 1),
             String::from("dummy"),
             vec![AddressFamily::ipv4_unicast().afi],
             true,
+            api_tx,
         );
 
         // peer1
@@ -3067,7 +3157,7 @@ mod tests {
         manager.add_peer(peer3.clone(), peer3_tx).unwrap();
 
         manager
-            .add_network(
+            .add_path(
                 vec![
                     "10.0.0.0/24".parse().unwrap(),
                     "10.1.0.0/24".parse().unwrap(),
@@ -3110,7 +3200,7 @@ mod tests {
         }
 
         manager
-            .add_network(
+            .add_path(
                 vec!["10.0.2.0/24".parse().unwrap()],
                 vec![
                     Attribute::new_origin(Attribute::ORIGIN_INCOMPLETE).unwrap(),
@@ -3158,7 +3248,7 @@ mod tests {
         }
 
         manager
-            .delete_network(
+            .delete_path(
                 AddressFamily::ipv4_unicast(),
                 vec!["10.0.2.0/24".parse().unwrap()],
             )

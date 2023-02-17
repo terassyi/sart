@@ -3,92 +3,208 @@ syntax = "proto3";
 package sart;
 
 import "google/protobuf/empty.proto";
+import "google/protobuf/any.proto";
+import "google/protobuf/timestamp.proto";
 
 service BgpApi {
 	rpc Health(HealthRequest) returns (google.protobuf.Empty);
 
-	// rpc Show(BgpShowRequest) returns (BgpShowResponse);
-	// rpc ShowRoute(BgpShowRouteRequest) returns (BgpShowRouteResponse);
-	// rpc GetNeighbor(GetNeighborRequest) returns (GetNeighborResponse);
+	rpc GetBgpInfo(GetBgpInfoRequest) returns (GetBgpInfoResponse);
+	rpc GetNeighbor(GetNeighborRequest) returns (GetNeighborResponse);
 	// rpc ListNeighbor(ListNeighborRequest) returns (ListNeighborResponse);
+	rpc GetPath(GetPathRequest) returns (GetPathResponse);
 
-	// rpc SetAS(SetASRequest) returns (google.protobuf.Empty);
-	// rpc RouterId(RouterIdRequest) returns (google.protobuf.Empty);
+	rpc SetAS(SetASRequest) returns (google.protobuf.Empty);
+	rpc SetRouterId(SetRouterIdRequest) returns (google.protobuf.Empty);
 
-	// rpc RemoteAS(RemoteASRequest) returns (google.protobuf.Empty);
-	// rpc Network(NetworkRequest) returns (google.protobuf.Empty);
-	// rpc DeleteNetwork(NetworkRequest) returns (google.protobuf.Empty);
-}
+	rpc AddPeer(AddPeerRequest) returns (google.protobuf.Empty);
+	rpc DeletePeer(DeletePeerRequest) returns (google.protobuf.Empty);
 
-enum ResultCode {
-	Ok = 0;
-	Error = 1;
+	rpc AddPath(AddPathRequest) returns (AddPathResponse);
+	rpc DeletePath(DeletePathRequest) returns (DeletePathResponse);
 }
 
 message HealthRequest {}
 
+message GetBgpInfoRequest {}
 
-message BgpShowRequest {}
-
-message BgpShowResponse {
-	int32 as = 1;
-	int32 port = 2;
-	string routerId = 3;
-}
-
-message BgpShowRouteRequest {}
-
-message BgpShowRouteResponse {
-	repeated BgpRoute routes = 1;
-}
-
-message BgpRoute {
-	string network = 1;
-	string nexthop = 2;
-	int32 metric = 3;
-	int32 local_pref = 4;
-	// optional int32 weight = 5;
-	repeated int32 path = 5;
-	bool best = 6;
-	string reason = 7;
-}
-
-message NeighborInfo {
-	uint32 as = 1;
-	string address = 2;
-	uint32 port = 3;
-	string routerId =4;
+message GetBgpInfoResponse {
+	BgpInfo info = 1;
 }
 
 message GetNeighborRequest {
-	uint32 as = 1; 
-	string peerAddress = 2;
-	string routerId = 3;
+	string addr = 1;
 }
 
 message GetNeighborResponse {
-	NeighborInfo neighbor = 1;
+	Peer peer = 1;
 }
 
-message ListNeighborRequest {}
+message GetPathRequest {
+	AddressFamily family = 1;
+}
 
-message ListNeighborResponse {
-	repeated NeighborInfo neighbors = 1;
+message GetPathResponse {
+	repeated Path paths = 1;
 }
 
 message SetASRequest {
-	int32 as = 1;
+	uint32 asn = 1;
 }
 
-message RemoteASRequest {
+message SetRouterIdRequest {
+	string router_id = 1;
+}
+
+message AddPeerRequest {
+	Peer peer = 1;
+}
+
+message DeletePeerRequest {
 	string addr = 1;
-	int32 as = 2;
 }
 
-message RouterIdRequest {
-	string routerId = 1;
+message AddPathRequest {
+	AddressFamily family = 1;
+	repeated string prefixes = 2;
+	repeated google.protobuf.Any attributes = 3;
 }
 
-message NetworkRequest {
-	string prefix = 1;
+message AddPathResponse {
+}
+
+message DeletePathRequest {
+	AddressFamily family = 1;
+	repeated string prefixes = 2;
+}
+
+message DeletePathResponse {}
+
+message BgpInfo {
+	uint32 asn = 1;
+	string router_id = 2;
+	uint32 port = 3;
+}
+
+message AddressFamily {
+  enum Afi {
+    AFI_UNKNOWN = 0; AFI_IP4 = 1; AFI_IP6 = 2;
+  }
+
+  enum Safi {
+    SAFI_UNKNOWN = 0; SAFI_UNICAST = 1; SAFI_MULTICAST = 2;
+  }
+
+  Afi afi = 1;
+  Safi safi = 2;
+}
+
+message Peer {
+	enum State {
+		UNKNOWN = 0; IDLE = 1; CONNECT = 2; ACTIVE = 3; OPEN_SENT = 4; OPEN_CONFIRM = 5; ESTABLISHED = 6;
+	}
+	uint32 asn = 1;
+	string address = 2;
+	string router_id = 3;
+	repeated AddressFamily families = 4;
+	uint32 hold_time = 5;
+	uint32 keepalive_time = 6;
+	google.protobuf.Timestamp uptime = 7;
+	MessageCounter send_counter = 8;
+	MessageCounter recv_counter = 9;
+	State state = 10;
+	bool passive_open = 11;
+}
+
+message Path {
+	string nlri = 1;
+	AddressFamily family = 2;
+	uint32 origin = 3;
+	repeated string next_hops = 4;
+	repeated AsSegment segments = 5;
+	uint32 local_pref = 6;
+	uint32 med = 7;
+	uint32 peer_asn = 8;
+	string peer_addr = 9;
+	bool best = 10;
+	google.protobuf.Timestamp timestamp = 11;
+
+}
+
+message OriginAttribute { uint32 value = 1; }
+
+message AsSegment {
+	enum Type {
+		UNKNOWN = 0;
+		AS_SET = 1;
+		AS_SEQUENCE = 2;
+	}
+
+	Type type = 1;
+	repeated uint32 elm = 2;
+}
+
+message AsPathAttribute {
+	repeated AsSegment segments = 1;
+}
+
+message NextHopAttribute {
+	string value = 1;
+}
+
+message MultiExitDiscAttribute {
+	uint32 value = 1;
+}
+
+message LocalPrefAttribute {
+	uint32 value = 1;
+}
+
+message AtomicAggregateAttribute {}
+
+message AggregatorAttribute {
+	uint32 asn = 1;
+	string address = 2;
+}
+
+message MessageCounter {
+	uint32 open = 1;
+	uint32 update = 2;
+	uint32 keepalive = 3;
+	uint32 notification = 4;
+	uint32 route_refresh = 5;
+}
+
+message UnknownAttribute {
+	uint32 flags = 1;
+	uint32 code = 2;
+	bytes data = 3;
+}
+
+message MultiProtocolCapability {
+	AddressFamily family = 1;
+}
+
+message RouteRefreshCapability {}
+
+message GracefulRestartCapabilityTuple {
+	AddressFamily family = 1;
+	uint32 flags = 2;
+}
+
+message GracefulRestartCapability {
+    uint32 flags = 1;
+    uint32 time = 2;
+    repeated GracefulRestartCapabilityTuple tuples = 3;
+}
+
+message FourOctedASNCapability {
+	uint32 asn = 1;
+}
+
+message EnhancedRouteRefreshCapability {}
+
+message UnknownCapability {
+	uint32 code = 1;
+	bytes value = 2;
 }

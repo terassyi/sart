@@ -1,3 +1,5 @@
+use crate::{proto, util};
+use prost::Message;
 use std::convert::TryFrom;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -34,6 +36,40 @@ impl TryFrom<u32> for AddressFamily {
         let afi = Afi::try_from((value >> 16) as u16)?;
         let safi = Safi::try_from(value as u8)?;
         Ok(Self { afi, safi })
+    }
+}
+
+impl TryFrom<prost_types::Any> for AddressFamily {
+    type Error = &'static str;
+    fn try_from(value: prost_types::Any) -> Result<Self, Self::Error> {
+        let a = match proto::sart::AddressFamily::decode(&*value.value) {
+            Ok(a) => a,
+            Err(_) => return Err("invalid argument"),
+        };
+        let afi = Afi::try_from(a.afi as u16)?;
+        let safi = Safi::try_from(a.safi as u8)?;
+        Ok(AddressFamily { afi, safi })
+    }
+}
+
+impl From<&AddressFamily> for prost_types::Any {
+    fn from(family: &AddressFamily) -> Self {
+        util::to_any(
+            proto::sart::AddressFamily {
+                afi: family.afi as i32,
+                safi: family.safi as i32,
+            },
+            "AddressFamily",
+        )
+    }
+}
+
+impl From<&AddressFamily> for proto::sart::AddressFamily {
+    fn from(family: &AddressFamily) -> Self {
+        proto::sart::AddressFamily {
+            afi: family.afi as i32,
+            safi: family.safi as i32,
+        } 
     }
 }
 

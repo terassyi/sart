@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use futures::stream::FuturesUnordered;
 use futures::{FutureExt, SinkExt, StreamExt};
@@ -15,15 +15,16 @@ use tokio::sync::mpsc::{
 use tokio::sync::Notify;
 use tokio::time::{interval_at, sleep, timeout, Instant, Interval, Sleep};
 use tokio_util::codec::Framed;
-use tracing_futures::Instrument;
 
+use crate::bgp::api_server::ApiResponse;
 use crate::bgp::capability::{Capability, CapabilitySet};
 use crate::bgp::config::NeighborConfig;
 use crate::bgp::error::{
-    Error, MessageHeaderError, OpenMessageError, PeerError, RibError, UpdateMessageError,
+    ControlError, Error, MessageHeaderError, OpenMessageError, PeerError, RibError,
+    UpdateMessageError,
 };
 use crate::bgp::event::{
-    AdministrativeEvent, BgpMessageEvent, Event, RibEvent, TcpConnectionEvent, TimerEvent,
+    AdministrativeEvent, BgpMessageEvent, Event, RibEvent, TcpConnectionEvent, TimerEvent, PeerLevelApiEvent,
 };
 use crate::bgp::family::{AddressFamily, Afi};
 use crate::bgp::packet::attribute::Attribute;
@@ -36,6 +37,7 @@ use crate::bgp::packet::prefix::Prefix;
 use crate::bgp::path::{Path, PathBuilder};
 use crate::bgp::rib::AdjRib;
 use crate::bgp::server::Bgp;
+use crate::proto;
 
 use super::fsm::State;
 use super::neighbor::NeighborPair;
@@ -110,7 +112,7 @@ pub(crate) struct Peer {
     keepalive_timer: Interval,
     keepalive_time: u64,
     hold_timer: Timer,
-    uptime: Instant,
+    uptime: SystemTime,
     negotiated_hold_time: u64,
     connect_retry_counter: u32,
     drop_signal: Arc<Notify>,
@@ -121,6 +123,7 @@ pub(crate) struct Peer {
     adj_rib_out: AdjRib,
     rib_tx: Sender<RibEvent>,
     rib_rx: Receiver<RibEvent>,
+    api_tx: Sender<ApiResponse>,
 }
 
 impl Peer {
@@ -129,6 +132,7 @@ impl Peer {
         rx: UnboundedReceiver<Event>,
         rib_tx: Sender<RibEvent>,
         rib_rx: Receiver<RibEvent>,
+        api_tx: Sender<ApiResponse>,
     ) -> Self {
         let (keepalive_time, families) = {
             let info = info.lock().unwrap();
@@ -148,7 +152,7 @@ impl Peer {
                 Duration::from_secs(keepalive_time),
             ),
             keepalive_time,
-            uptime: Instant::now(),
+            uptime: SystemTime::now(),
             negotiated_hold_time: Bgp::DEFAULT_HOLD_TIME,
             connect_retry_counter: 0,
             drop_signal: Arc::new(Notify::new()),
@@ -159,6 +163,7 @@ impl Peer {
             adj_rib_out: AdjRib::new(families),
             rib_tx,
             rib_rx,
+            api_tx,
         }
     }
 
@@ -177,6 +182,7 @@ impl Peer {
         self.info.lock().unwrap().state = state;
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn handle(&mut self) {
         // handle event
 
@@ -218,6 +224,14 @@ impl Peer {
                             Event::Admin(event) => match event {
                                 AdministrativeEvent::ManualStart => self.manual_start(),
                                 AdministrativeEvent::ManualStartWithPassiveTcpEstablishment => self.manual_start_with_passive_tcp_establishment(),
+                                AdministrativeEvent::ManualStop => {
+                                    match self.manual_stop().await {
+                                        Ok(_) => {},
+                                        Err(e) => tracing::error!(state=?current_state,error=?e),
+                                    };
+                                    tracing::warn!("peer event handler is stopped");
+                                    return;
+                                },
                                 _ => unimplemented!(),
                             },
                             Event::Connection(event) => match event {
@@ -230,6 +244,9 @@ impl Peer {
                                 TimerEvent::HoldTimerExpire => Ok(()), // don't handle here
                                 TimerEvent::KeepaliveTimerExpire => Ok(()), // don't handle here
                                 _ => unimplemented!(),
+                            },
+                            Event::Api(event) => match event {
+                                PeerLevelApiEvent::GetPeer => self.get_info().await,
                             },
                             _ => Err(Error::InvalidEvent{val: (&event).into()}),
                         };
@@ -345,11 +362,7 @@ impl Peer {
         let local_addr = stream.local_addr().unwrap().ip();
         self.info.lock().unwrap().addr = local_addr;
 
-        let passive = if local_port == Bgp::BGP_PORT {
-            true
-        } else {
-            false
-        };
+        let passive = local_port == Bgp::BGP_PORT;
 
         let codec = Framed::new(stream, Codec::new(true, false));
         let (msg_tx, mut msg_rx) = unbounded_channel::<Message>();
@@ -366,10 +379,6 @@ impl Peer {
         }
 
         let drop_signal = self.drop_signal.clone();
-        let (peer_addr, peer_as) = {
-            let c = self.info.lock().unwrap();
-            (c.neighbor.get_addr().to_string(), c.neighbor.get_asn())
-        };
 
         let send_counter = self.send_counter.clone();
         let recv_counter = self.recv_counter.clone();
@@ -473,8 +482,8 @@ impl Peer {
         Ok(passive)
     }
 
-    #[tracing::instrument(skip(self, wait_nofification))]
-    async fn release(&mut self, wait_nofification: bool) -> Result<(), Error> {
+    #[tracing::instrument(skip(self, wait_notification))]
+    async fn release(&mut self, wait_notification: bool) -> Result<(), Error> {
         if self.initialized.load(Ordering::Relaxed) {
             return Ok(());
         }
@@ -485,13 +494,44 @@ impl Peer {
         );
         self.hold_timer.stop();
         self.negotiated_hold_time = Bgp::DEFAULT_HOLD_TIME;
-        if wait_nofification {
+        if wait_notification {
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
         self.connections.lock().unwrap().clear();
         self.send_counter.lock().unwrap().reset();
         self.recv_counter.lock().unwrap().reset();
+
+        if self.state() == State::Established {
+            let (peer_asn, peer_addr, peer_id, families) = {
+                let info = self.info.lock().unwrap();
+                (
+                    info.neighbor.get_asn(),
+                    info.neighbor.get_addr(),
+                    info.neighbor.get_router_id(),
+                    info.families.clone(),
+                )
+            };
+            for family in families.iter() {
+                if let Some(paths) = self.adj_rib_in.get_all(family) {
+                    let ids = paths.iter().map(|p| (p.prefix(), p.id)).collect();
+                    self.rib_tx
+                        .send(RibEvent::DropPaths(
+                            NeighborPair::new(peer_addr, peer_asn, peer_id),
+                            *family,
+                            ids,
+                        ))
+                        .await
+                        .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;
+                    tracing::info!("drop all paths received from");
+                }
+            }
+        }
+
+        self.adj_rib_in.clear();
+        self.adj_rib_out.clear();
+
         tracing::warn!(state=?self.state(),"release session");
+        self.initialized.store(true, Ordering::Relaxed);
         Ok(())
     }
 
@@ -543,7 +583,12 @@ impl Peer {
     }
 
     // Event 2
-    fn manual_stop(&mut self) -> Result<(), Error> {
+    async fn manual_stop(&mut self) -> Result<(), Error> {
+        let mut builder = MessageBuilder::builder(MessageType::Notification);
+        let msg = builder.code(NotificationCode::Cease)?.build()?;
+        self.send(msg)?;
+        self.release(true).await?;
+        self.connect_retry_counter += 1;
         self.move_state(Event::ADMIN_MANUAL_STOP);
         Ok(())
     }
@@ -834,6 +879,26 @@ impl Peer {
                 self.send(msg)?;
                 tracing::info!(state=?self.state(),"establish bgp session");
                 let _negotiated_hold_time = self.negotiate_hold_time(hold_time as u64)?;
+
+                // when new session is established, it needs to advertise all paths.
+                let (peer_asn, peer_id, peer_addr, families) = {
+                    let info = self.info.lock().unwrap();
+                    (
+                        info.neighbor.get_asn(),
+                        info.neighbor.get_router_id(),
+                        info.neighbor.get_addr(),
+                        info.families.clone(),
+                    )
+                };
+                for family in families.iter() {
+                    self.rib_tx
+                        .send(RibEvent::Init(
+                            *family,
+                            NeighborPair::new(peer_addr, peer_asn, peer_id),
+                        ))
+                        .await
+                        .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;
+                }
             }
             State::OpenSent => {
                 // Collision detection mechanisms (Section 6.8) need to be applied
@@ -846,6 +911,26 @@ impl Peer {
                 tracing::info!(state=?self.state(),"establish bgp session");
                 let _negotiated_hold_time = self.negotiate_hold_time(hold_time as u64)?;
                 self.send(msg)?;
+
+                // when new session is established, it needs to advertise all paths.
+                let (peer_asn, peer_id, peer_addr, families) = {
+                    let info = self.info.lock().unwrap();
+                    (
+                        info.neighbor.get_asn(),
+                        info.neighbor.get_router_id(),
+                        info.neighbor.get_addr(),
+                        info.families.clone(),
+                    )
+                };
+                for family in families.iter() {
+                    self.rib_tx
+                        .send(RibEvent::Init(
+                            *family,
+                            NeighborPair::new(peer_addr, peer_asn, peer_id),
+                        ))
+                        .await
+                        .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;
+                }
             }
             State::OpenConfirm => {
                 // If the local system receives a valid OPEN message (BGPOpen (Event
@@ -857,11 +942,7 @@ impl Peer {
                 //   - releases all BGP resources,
                 //   - drops the TCP connection (send TCP FIN),
                 //   - increments the ConnectRetryCounter by 1,
-                let passive = if local_port == Bgp::BGP_PORT {
-                    true
-                } else {
-                    false
-                };
+                let passive = local_port == Bgp::BGP_PORT;
                 let mut builder = MessageBuilder::builder(MessageType::Notification);
                 let msg = builder.code(NotificationCode::Cease)?.build()?;
                 self.send_to_dup_conn(msg, passive)?;
@@ -1285,10 +1366,11 @@ impl Peer {
             .asn(conf.asn)?
             .hold_time(conf.hold_time as u16)?
             .identifier(conf.router_id)?;
+        tracing::info!(local.asn=conf.asn,local.id=?conf.router_id,"build open message");
         let mut caps: Vec<(&u8, &Capability)> = conf.local_capabilities.iter().collect();
-        caps.sort_by(|a, b| a.0.cmp(&b.0));
+        caps.sort_by(|a, b| a.0.cmp(b.0));
         for cap in caps.iter() {
-            builder.capability(&cap.1)?;
+            builder.capability(cap.1)?;
         }
         builder.build()
     }
@@ -1365,7 +1447,7 @@ impl Peer {
             }
             self.adj_rib_in
                 .insert(&path.family(), path.prefix(), path.clone())
-                .map_err(|e| Error::Rib(e))?;
+                .map_err(Error::Rib)?;
             // TODO: apply import policy
             propagate_paths.push(path);
         }
@@ -1518,6 +1600,46 @@ impl Peer {
         let msg = builder.withdrawn_routes(prefixes)?.build()?;
         self.send(msg)
     }
+
+    async fn get_info(&self) -> Result<(), Error> {
+        let peer = {
+            let send_counter = self.send_counter.lock().unwrap();
+            let sc = proto::sart::MessageCounter{ 
+                open: send_counter.open as u32, 
+                update: send_counter.update as u32, 
+                keepalive: send_counter.keepalive as u32, 
+                notification: send_counter.notification as u32, 
+                route_refresh: send_counter.route_refresh as u32
+            };
+            drop(send_counter);
+            let recv_counter = self.recv_counter.lock().unwrap();
+            let rc = proto::sart::MessageCounter{ 
+                open: recv_counter.open as u32, 
+                update: recv_counter.update as u32, 
+                keepalive: recv_counter.keepalive as u32, 
+                notification: recv_counter.notification as u32, 
+                route_refresh: recv_counter.route_refresh as u32
+            };
+            drop(recv_counter);
+
+            let info = self.info.lock().unwrap();
+            proto::sart::Peer{ 
+                asn: info.neighbor.get_asn(), 
+                address: info.neighbor.get_addr().to_string(), 
+                router_id: info.neighbor.get_router_id().to_string(), 
+                families: info.families.iter().map(|f| proto::sart::AddressFamily::from(f)).collect(), 
+                hold_time: self.negotiated_hold_time as u32, 
+                keepalive_time: self.keepalive_time as u32, 
+                uptime: Some(prost_types::Timestamp::from(self.uptime)), 
+                send_counter: Some(sc), 
+                recv_counter: Some(rc), 
+                state: info.state as i32, 
+                passive_open: false, 
+            }
+        };
+
+        self.api_tx.send(ApiResponse::Neighbor(peer)).await.map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))
+    }
 }
 
 #[derive(Debug)]
@@ -1626,6 +1748,19 @@ impl MessageCounter {
     }
 }
 
+impl From<&MessageCounter> for proto::sart::MessageCounter {
+
+    fn from(c: &MessageCounter) -> Self {
+        proto::sart::MessageCounter {
+            open: c.open as u32, 
+            update: c.update as u32, 
+            keepalive: c.keepalive as u32, 
+            notification: c.notification as u32, 
+            route_refresh: c.route_refresh as u32,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::net::{IpAddr, Ipv4Addr};
@@ -1675,7 +1810,8 @@ mod tests {
         )));
         let (_, rx) = tokio::sync::mpsc::unbounded_channel();
         let (rib_tx, rib_rx) = tokio::sync::mpsc::channel(128);
-        let mut peer = Peer::new(info, rx, rib_tx, rib_rx);
+        let (api_tx, api_rx) = tokio::sync::mpsc::channel(128);
+        let mut peer = Peer::new(info, rx, rib_tx, rib_rx, api_tx);
         for e in event.into_iter() {
             peer.move_state(e);
         }
@@ -1707,7 +1843,8 @@ mod tests {
         )));
         let (_, rx) = tokio::sync::mpsc::unbounded_channel();
         let (rib_tx, rib_rx) = tokio::sync::mpsc::channel(128);
-        let peer = Peer::new(info, rx, rib_tx, rib_rx);
+        let (api_tx, api_rx) = tokio::sync::mpsc::channel(128);
+        let peer = Peer::new(info, rx, rib_tx, rib_rx, api_tx);
         let msg = peer.build_open_msg().unwrap();
         assert_eq!(
             Message::Open {

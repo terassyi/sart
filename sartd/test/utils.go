@@ -27,11 +27,10 @@ func execInNetns(ns string, args ...string) ([]byte, []byte, *os.Process, error)
 
 func checkGobgpConfig(node string, asn uint32) error {
 	nodeJson := make([]map[string]any, 0, 1)
-	out, serr, _, err := execInNetns(node, "gobgp", "neighbor", "-j")
+	out, _, _, err := execInNetns(node, "gobgp", "neighbor", "-j")
 	if err != nil {
 		return err
 	}
-	fmt.Println(string(serr))
 	err = json.Unmarshal(out, &nodeJson)
 	if err != nil {
 		return err
@@ -64,6 +63,27 @@ func checkEstablished(node string) error {
 	statej := state.(map[string]any)
 	if statej["session_state"] != float64(6) {
 		return fmt.Errorf("%s is not established. state is %d", node, statej["session_state"])
+	}
+	return nil
+}
+
+func checkDesiredState(node string, s int) error {
+	nodeJson := make([]map[string]any, 0, 1)
+	out, _, _, err := execInNetns(node, "gobgp", "neighbor", "-j")
+	if err != nil {
+		return err
+	}
+	err = json.Unmarshal(out, &nodeJson)
+	if err != nil {
+		return err
+	}
+	state, ok := nodeJson[0]["state"]
+	if !ok {
+		return fmt.Errorf("failed to get gobgp peer status")
+	}
+	statej := state.(map[string]any)
+	if statej["session_state"] != float64(s) {
+		return fmt.Errorf("%s is not desired state. state is %d", node, statej["session_state"])
 	}
 	return nil
 }

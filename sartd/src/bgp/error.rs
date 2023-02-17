@@ -145,8 +145,14 @@ impl Into<u8> for UpdateMessageError {
 
 #[derive(Debug, Error)]
 pub(crate) enum ConfigError {
+    #[error("already configured")]
+    AlreadyConfigured,
     #[error("failed to load")]
     FailedToLoad,
+    #[error("invalid argument")]
+    InvalidArgument,
+    #[error("invalid data")]
+    InvalidData,
 }
 
 #[derive(Debug, Error)]
@@ -179,6 +185,8 @@ pub(crate) enum RibError {
     AddressFamilyNotSet,
     #[error("peer is already registered")]
     PeerAlreadyRegistered,
+    #[error("peer not found")]
+    PeerNotFound,
     #[error("loc-rib manager down")]
     ManagerDown,
     #[error("protocol is already registered in Loc-RIB")]
