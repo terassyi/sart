@@ -1,0 +1,166 @@
+use std::net::IpAddr;
+
+use clap::{Parser, Subcommand};
+
+use crate::{
+    cmd::Format,
+    error::Error,
+    proto::sart::{AddPathRequest, AddPeerRequest, DeletePeerRequest, GetNeighborRequest, Peer},
+    rpc::connect_bgp,
+};
+
+#[derive(Debug, Clone, Parser)]
+pub(crate) struct NeighborCmd {
+    #[structopt(subcommand)]
+    pub action: Action,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub(crate) enum Action {
+    Get {
+        addr: String,
+    },
+    List,
+    Add {
+        addr: String,
+        #[arg()]
+        r#as: u32,
+        #[arg(long, help = "Set passive open flag")]
+        passive: bool,
+    },
+    Del {
+        addr: String,
+    },
+    Rib,
+    Policy,
+}
+
+pub(crate) async fn get(endpoint: &str, format: Format, addr: &str) -> Result<(), Error> {
+    let mut client = connect_bgp(endpoint).await;
+
+    let _: IpAddr = addr.parse().unwrap();
+    let res = client
+        .get_neighbor(GetNeighborRequest {
+            addr: addr.to_string(),
+        })
+        .await
+        .map_err(Error::FailedToGetResponse)?;
+
+    match format {
+        Format::Json => {}
+        Format::Plain => {
+            let peer = match &res.get_ref().peer {
+                Some(peer) => peer,
+                None => return Err(Error::InvalidRPCResponse),
+            };
+            let uptime = match &peer.uptime {
+                Some(uptime) => uptime,
+                None => return Err(Error::InvalidRPCResponse),
+            };
+            println!("BGP Neighbor {}, ", peer.address);
+            println!("  Remote AS {}", peer.asn);
+            println!("  Version: 4");
+            println!("  Router Id: {}", peer.router_id);
+            println!("  State: {}", state(peer.state as u8));
+            println!("  Uptime: {}", uptime);
+            println!("  Hold Time: {} seconds", peer.hold_time);
+            println!("  Keep Alive Time: {} seconds", peer.keepalive_time);
+            println!();
+
+            println!("  Capabilities");
+            println!("    Acceptable Address Family:");
+            for family in peer.families.iter() {
+                println!("      {:?}", family);
+            }
+
+            match &peer.send_counter {
+                Some(send_counter) => {
+                    let recv_counter = match &peer.recv_counter {
+                        Some(recv_counter) => recv_counter,
+                        None => {
+                            return Err(Error::MissingArgument {
+                                msg: "receive counter".to_string(),
+                            })
+                        }
+                    };
+                    println!("  Message Statistics:");
+                    println!("                 {0: >8} {1: >8}", "Send", "Recv");
+                    println!(
+                        "    {0: <12} {1: >8} {2: >8}",
+                        "Open", send_counter.open, recv_counter.open
+                    );
+                    println!(
+                        "    {0: <12} {1: >8} {2: >8}",
+                        "Update", send_counter.update, recv_counter.update
+                    );
+                    println!(
+                        "    {0: <12} {1: >8} {2: >8}",
+                        "Keepalive", send_counter.keepalive, recv_counter.keepalive
+                    );
+                    println!(
+                        "    {0: <12} {1: >8} {2: >8}",
+                        "Notification", send_counter.notification, recv_counter.notification
+                    );
+                    println!(
+                        "    {0: <12} {1: >8} {2: >8}",
+                        "RouteRefresh", send_counter.route_refresh, recv_counter.route_refresh
+                    );
+                }
+                None => {}
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(crate) async fn add(endpoint: &str, addr: &str, asn: u32, passive: bool) -> Result<(), Error> {
+    let mut client = connect_bgp(endpoint).await;
+
+    let address: IpAddr = addr.parse().unwrap();
+
+    let _res = client
+        .add_peer(AddPeerRequest {
+            peer: Some(Peer {
+                asn,
+                address: address.to_string(),
+                router_id: "0.0.0.0".to_string(),
+                families: Vec::new(),
+                hold_time: 0,
+                keepalive_time: 0,
+                uptime: None,
+                send_counter: None,
+                recv_counter: None,
+                state: 1,
+                passive_open: passive,
+            }),
+        })
+        .await
+        .map_err(Error::FailedToGetResponse)?;
+    Ok(())
+}
+
+pub(crate) async fn delete(endpoint: &str, addr: &str) -> Result<(), Error> {
+    let mut client = connect_bgp(endpoint).await;
+
+    let _: IpAddr = addr.parse().unwrap();
+
+    let _res = client
+        .delete_peer(DeletePeerRequest {
+            addr: addr.to_string(),
+        })
+        .await
+        .map_err(Error::FailedToGetResponse)?;
+    Ok(())
+}
+
+fn state(n: u8) -> &'static str {
+    match n {
+        1 => "IDLE",
+        2 => "CONNECT",
+        3 => "ACTIVE",
+        4 => "OPEN_SENT",
+        5 => "OPEN_CONFIRM",
+        6 => "ESTABLISHED",
+        _ => "UNKNOWN",
+    }
+}

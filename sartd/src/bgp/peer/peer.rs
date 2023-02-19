@@ -24,7 +24,8 @@ use crate::bgp::error::{
     UpdateMessageError,
 };
 use crate::bgp::event::{
-    AdministrativeEvent, BgpMessageEvent, Event, RibEvent, TcpConnectionEvent, TimerEvent, PeerLevelApiEvent,
+    AdministrativeEvent, BgpMessageEvent, Event, PeerLevelApiEvent, RibEvent, TcpConnectionEvent,
+    TimerEvent,
 };
 use crate::bgp::family::{AddressFamily, Afi};
 use crate::bgp::packet::attribute::Attribute;
@@ -857,7 +858,7 @@ impl Peer {
         peer_port: u16,
         recv: Message,
     ) -> Result<(), Error> {
-        let (_version, _asn, hold_time, _router_id, _caps) = recv.to_open()?;
+        let (_version, _asn, hold_time, router_id, _caps) = recv.to_open()?;
         tracing::debug!(state=?self.state());
         match self.state() {
             State::Active => {
@@ -882,7 +883,8 @@ impl Peer {
 
                 // when new session is established, it needs to advertise all paths.
                 let (peer_asn, peer_id, peer_addr, families) = {
-                    let info = self.info.lock().unwrap();
+                    let mut info = self.info.lock().unwrap();
+                    info.neighbor.router_id(router_id);
                     (
                         info.neighbor.get_asn(),
                         info.neighbor.get_router_id(),
@@ -914,7 +916,8 @@ impl Peer {
 
                 // when new session is established, it needs to advertise all paths.
                 let (peer_asn, peer_id, peer_addr, families) = {
-                    let info = self.info.lock().unwrap();
+                    let mut info = self.info.lock().unwrap();
+                    info.neighbor.router_id(router_id);
                     (
                         info.neighbor.get_asn(),
                         info.neighbor.get_router_id(),
@@ -1604,41 +1607,48 @@ impl Peer {
     async fn get_info(&self) -> Result<(), Error> {
         let peer = {
             let send_counter = self.send_counter.lock().unwrap();
-            let sc = proto::sart::MessageCounter{ 
-                open: send_counter.open as u32, 
-                update: send_counter.update as u32, 
-                keepalive: send_counter.keepalive as u32, 
-                notification: send_counter.notification as u32, 
-                route_refresh: send_counter.route_refresh as u32
+            let sc = proto::sart::MessageCounter {
+                open: send_counter.open as u32,
+                update: send_counter.update as u32,
+                keepalive: send_counter.keepalive as u32,
+                notification: send_counter.notification as u32,
+                route_refresh: send_counter.route_refresh as u32,
             };
             drop(send_counter);
             let recv_counter = self.recv_counter.lock().unwrap();
-            let rc = proto::sart::MessageCounter{ 
-                open: recv_counter.open as u32, 
-                update: recv_counter.update as u32, 
-                keepalive: recv_counter.keepalive as u32, 
-                notification: recv_counter.notification as u32, 
-                route_refresh: recv_counter.route_refresh as u32
+            let rc = proto::sart::MessageCounter {
+                open: recv_counter.open as u32,
+                update: recv_counter.update as u32,
+                keepalive: recv_counter.keepalive as u32,
+                notification: recv_counter.notification as u32,
+                route_refresh: recv_counter.route_refresh as u32,
             };
             drop(recv_counter);
 
             let info = self.info.lock().unwrap();
-            proto::sart::Peer{ 
-                asn: info.neighbor.get_asn(), 
-                address: info.neighbor.get_addr().to_string(), 
-                router_id: info.neighbor.get_router_id().to_string(), 
-                families: info.families.iter().map(|f| proto::sart::AddressFamily::from(f)).collect(), 
-                hold_time: self.negotiated_hold_time as u32, 
-                keepalive_time: self.keepalive_time as u32, 
-                uptime: Some(prost_types::Timestamp::from(self.uptime)), 
-                send_counter: Some(sc), 
-                recv_counter: Some(rc), 
-                state: info.state as i32, 
-                passive_open: false, 
+            proto::sart::Peer {
+                asn: info.neighbor.get_asn(),
+                address: info.neighbor.get_addr().to_string(),
+                router_id: info.neighbor.get_router_id().to_string(),
+                families: info
+                    .families
+                    .iter()
+                    .map(|f| proto::sart::AddressFamily::from(f))
+                    .collect(),
+                hold_time: self.negotiated_hold_time as u32,
+                keepalive_time: self.keepalive_time as u32,
+                uptime: Some(prost_types::Timestamp::from(self.uptime)),
+                send_counter: Some(sc),
+                recv_counter: Some(rc),
+                state: info.state as i32,
+                passive_open: false,
             }
         };
 
-        self.api_tx.send(ApiResponse::Neighbor(peer)).await.map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))
+        self.api_tx
+            .send(ApiResponse::Neighbor(peer))
+            .await
+            .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))
     }
 }
 
@@ -1749,13 +1759,12 @@ impl MessageCounter {
 }
 
 impl From<&MessageCounter> for proto::sart::MessageCounter {
-
     fn from(c: &MessageCounter) -> Self {
         proto::sart::MessageCounter {
-            open: c.open as u32, 
-            update: c.update as u32, 
-            keepalive: c.keepalive as u32, 
-            notification: c.notification as u32, 
+            open: c.open as u32,
+            update: c.update as u32,
+            keepalive: c.keepalive as u32,
+            notification: c.notification as u32,
             route_refresh: c.route_refresh as u32,
         }
     }

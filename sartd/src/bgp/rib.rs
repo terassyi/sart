@@ -2,7 +2,7 @@ use ipnet::IpNet;
 use std::{
     cmp::Ordering,
     collections::HashMap,
-    net::{IpAddr, Ipv4Addr}
+    net::{IpAddr, Ipv4Addr},
 };
 use tokio::sync::mpsc::Sender;
 
@@ -10,12 +10,13 @@ use crate::bgp::path::PathKind;
 use crate::proto;
 
 use super::{
+    api_server::ApiResponse,
     error::{ControlError, Error, RibError},
     event::RibEvent,
     family::{AddressFamily, Afi},
     packet::attribute::Attribute,
     path::{BestPathReason, Path, PathBuilder},
-    peer::neighbor::NeighborPair, api_server::ApiResponse,
+    peer::neighbor::NeighborPair,
 };
 
 #[derive(Debug)]
@@ -233,7 +234,7 @@ impl LocRib {
                     }
                 }
                 Some(all)
-            },
+            }
             None => None,
         }
     }
@@ -510,6 +511,7 @@ impl RibManager {
 
     #[tracing::instrument(skip(self, neighbor), fields(peer.asn=neighbor.asn,peer.addr=neighbor.addr.to_string(),peer.id=neighbor.id.to_string()))]
     async fn init(&self, family: AddressFamily, neighbor: NeighborPair) -> Result<(), Error> {
+        tracing::debug!("initialize path");
         if let Some(paths) = self.loc_rib.get_all_best(&family) {
             // exclude best paths from target neighbor
             let p = paths
@@ -741,8 +743,14 @@ impl RibManager {
 
     async fn get_path(&self, family: AddressFamily) -> Result<(), Error> {
         if let Some(all_paths) = self.loc_rib.get_all(&family) {
-            let paths = all_paths.iter().map(|&p| proto::sart::Path::from(p)).collect();
-            self.api_tx.send(ApiResponse::Paths(paths)).await.map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;
+            let paths = all_paths
+                .iter()
+                .map(|&p| proto::sart::Path::from(p))
+                .collect();
+            self.api_tx
+                .send(ApiResponse::Paths(paths))
+                .await
+                .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;
         }
         Ok(())
     }
@@ -848,9 +856,9 @@ mod tests {
     use rstest::rstest;
     use std::collections::HashMap;
     use std::net::{IpAddr, Ipv4Addr};
+    use std::time::SystemTime;
     use tokio::sync::mpsc::channel;
     use tokio::time::{timeout, Duration};
-    use std::time::SystemTime;
 
     use crate::bgp::packet::attribute::{ASSegment, Base};
     use crate::bgp::packet::message::Message;
