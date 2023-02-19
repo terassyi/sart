@@ -1205,3 +1205,420 @@ pub mod bgp_api_server {
         const NAME: &'static str = "sart.BgpApi";
     }
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetRoutesRequest {}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetRoutesResponse {}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Route {
+    #[prost(uint32, tag = "1")]
+    pub table_id: u32,
+    #[prost(string, tag = "2")]
+    pub destination: ::prost::alloc::string::String,
+    #[prost(enumeration = "Protocol", tag = "3")]
+    pub protocol: i32,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum AdministrativeDistance {
+    AdConnected = 0,
+    AdStatic = 1,
+    Adebgp = 20,
+    Adospf = 110,
+    Adrip = 120,
+    Adibgp = 200,
+}
+impl AdministrativeDistance {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            AdministrativeDistance::AdConnected => "ADConnected",
+            AdministrativeDistance::AdStatic => "ADStatic",
+            AdministrativeDistance::Adebgp => "ADEBGP",
+            AdministrativeDistance::Adospf => "ADOSPF",
+            AdministrativeDistance::Adrip => "ADRIP",
+            AdministrativeDistance::Adibgp => "ADIBGP",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "ADConnected" => Some(Self::AdConnected),
+            "ADStatic" => Some(Self::AdStatic),
+            "ADEBGP" => Some(Self::Adebgp),
+            "ADOSPF" => Some(Self::Adospf),
+            "ADRIP" => Some(Self::Adrip),
+            "ADIBGP" => Some(Self::Adibgp),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum Protocol {
+    Unspec = 0,
+    Redirect = 1,
+    Kernel = 2,
+    Boot = 3,
+    Static = 4,
+    Bgp = 186,
+    IsIs = 187,
+    Ospf = 188,
+    Rip = 189,
+}
+impl Protocol {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Protocol::Unspec => "Unspec",
+            Protocol::Redirect => "Redirect",
+            Protocol::Kernel => "Kernel",
+            Protocol::Boot => "Boot",
+            Protocol::Static => "Static",
+            Protocol::Bgp => "Bgp",
+            Protocol::IsIs => "IsIs",
+            Protocol::Ospf => "Ospf",
+            Protocol::Rip => "Rip",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "Unspec" => Some(Self::Unspec),
+            "Redirect" => Some(Self::Redirect),
+            "Kernel" => Some(Self::Kernel),
+            "Boot" => Some(Self::Boot),
+            "Static" => Some(Self::Static),
+            "Bgp" => Some(Self::Bgp),
+            "IsIs" => Some(Self::IsIs),
+            "Ospf" => Some(Self::Ospf),
+            "Rip" => Some(Self::Rip),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum Type {
+    UnspecType = 0,
+    Unicast = 1,
+    Local = 2,
+    Broadcast = 3,
+    Anycast = 4,
+    Multicast = 5,
+    Blackhole = 6,
+    Unreachable = 7,
+    Prohibit = 8,
+    Throw = 9,
+    Nat = 10,
+}
+impl Type {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Type::UnspecType => "UnspecType",
+            Type::Unicast => "Unicast",
+            Type::Local => "Local",
+            Type::Broadcast => "Broadcast",
+            Type::Anycast => "Anycast",
+            Type::Multicast => "Multicast",
+            Type::Blackhole => "Blackhole",
+            Type::Unreachable => "Unreachable",
+            Type::Prohibit => "Prohibit",
+            Type::Throw => "Throw",
+            Type::Nat => "Nat",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "UnspecType" => Some(Self::UnspecType),
+            "Unicast" => Some(Self::Unicast),
+            "Local" => Some(Self::Local),
+            "Broadcast" => Some(Self::Broadcast),
+            "Anycast" => Some(Self::Anycast),
+            "Multicast" => Some(Self::Multicast),
+            "Blackhole" => Some(Self::Blackhole),
+            "Unreachable" => Some(Self::Unreachable),
+            "Prohibit" => Some(Self::Prohibit),
+            "Throw" => Some(Self::Throw),
+            "Nat" => Some(Self::Nat),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum Scope {
+    Universe = 0,
+    /// Link = 253;
+    /// Host = 254;
+    /// Nowhere = 255;
+    Site = 200,
+}
+impl Scope {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Scope::Universe => "Universe",
+            Scope::Site => "Site",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "Universe" => Some(Self::Universe),
+            "Site" => Some(Self::Site),
+            _ => None,
+        }
+    }
+}
+/// Generated client implementations.
+pub mod fib_api_client {
+    #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
+    use tonic::codegen::*;
+    use tonic::codegen::http::Uri;
+    #[derive(Debug, Clone)]
+    pub struct FibApiClient<T> {
+        inner: tonic::client::Grpc<T>,
+    }
+    impl FibApiClient<tonic::transport::Channel> {
+        /// Attempt to create a new client by connecting to a given endpoint.
+        pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
+        where
+            D: std::convert::TryInto<tonic::transport::Endpoint>,
+            D::Error: Into<StdError>,
+        {
+            let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
+            Ok(Self::new(conn))
+        }
+    }
+    impl<T> FibApiClient<T>
+    where
+        T: tonic::client::GrpcService<tonic::body::BoxBody>,
+        T::Error: Into<StdError>,
+        T::ResponseBody: Body<Data = Bytes> + Send + 'static,
+        <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    {
+        pub fn new(inner: T) -> Self {
+            let inner = tonic::client::Grpc::new(inner);
+            Self { inner }
+        }
+        pub fn with_origin(inner: T, origin: Uri) -> Self {
+            let inner = tonic::client::Grpc::with_origin(inner, origin);
+            Self { inner }
+        }
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> FibApiClient<InterceptedService<T, F>>
+        where
+            F: tonic::service::Interceptor,
+            T::ResponseBody: Default,
+            T: tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+                Response = http::Response<
+                    <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
+                >,
+            >,
+            <T as tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+            >>::Error: Into<StdError> + Send + Sync,
+        {
+            FibApiClient::new(InterceptedService::new(inner, interceptor))
+        }
+        /// Compress requests with the given encoding.
+        ///
+        /// This requires the server to support it otherwise it might respond with an
+        /// error.
+        #[must_use]
+        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.inner = self.inner.send_compressed(encoding);
+            self
+        }
+        /// Enable decompressing responses.
+        #[must_use]
+        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.inner = self.inner.accept_compressed(encoding);
+            self
+        }
+        pub async fn get_routes(
+            &mut self,
+            request: impl tonic::IntoRequest<super::GetRoutesRequest>,
+        ) -> Result<tonic::Response<super::GetRoutesResponse>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/sart.FibApi/GetRoutes");
+            self.inner.unary(request.into_request(), path, codec).await
+        }
+    }
+}
+/// Generated server implementations.
+pub mod fib_api_server {
+    #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
+    use tonic::codegen::*;
+    /// Generated trait containing gRPC methods that should be implemented for use with FibApiServer.
+    #[async_trait]
+    pub trait FibApi: Send + Sync + 'static {
+        async fn get_routes(
+            &self,
+            request: tonic::Request<super::GetRoutesRequest>,
+        ) -> Result<tonic::Response<super::GetRoutesResponse>, tonic::Status>;
+    }
+    #[derive(Debug)]
+    pub struct FibApiServer<T: FibApi> {
+        inner: _Inner<T>,
+        accept_compression_encodings: EnabledCompressionEncodings,
+        send_compression_encodings: EnabledCompressionEncodings,
+    }
+    struct _Inner<T>(Arc<T>);
+    impl<T: FibApi> FibApiServer<T> {
+        pub fn new(inner: T) -> Self {
+            Self::from_arc(Arc::new(inner))
+        }
+        pub fn from_arc(inner: Arc<T>) -> Self {
+            let inner = _Inner(inner);
+            Self {
+                inner,
+                accept_compression_encodings: Default::default(),
+                send_compression_encodings: Default::default(),
+            }
+        }
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> InterceptedService<Self, F>
+        where
+            F: tonic::service::Interceptor,
+        {
+            InterceptedService::new(Self::new(inner), interceptor)
+        }
+        /// Enable decompressing requests with the given encoding.
+        #[must_use]
+        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.accept_compression_encodings.enable(encoding);
+            self
+        }
+        /// Compress responses with the given encoding, if the client supports it.
+        #[must_use]
+        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.send_compression_encodings.enable(encoding);
+            self
+        }
+    }
+    impl<T, B> tonic::codegen::Service<http::Request<B>> for FibApiServer<T>
+    where
+        T: FibApi,
+        B: Body + Send + 'static,
+        B::Error: Into<StdError> + Send + 'static,
+    {
+        type Response = http::Response<tonic::body::BoxBody>;
+        type Error = std::convert::Infallible;
+        type Future = BoxFuture<Self::Response, Self::Error>;
+        fn poll_ready(
+            &mut self,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+        fn call(&mut self, req: http::Request<B>) -> Self::Future {
+            let inner = self.inner.clone();
+            match req.uri().path() {
+                "/sart.FibApi/GetRoutes" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetRoutesSvc<T: FibApi>(pub Arc<T>);
+                    impl<T: FibApi> tonic::server::UnaryService<super::GetRoutesRequest>
+                    for GetRoutesSvc<T> {
+                        type Response = super::GetRoutesResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::GetRoutesRequest>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move { (*inner).get_routes(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = GetRoutesSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                _ => {
+                    Box::pin(async move {
+                        Ok(
+                            http::Response::builder()
+                                .status(200)
+                                .header("grpc-status", "12")
+                                .header("content-type", "application/grpc")
+                                .body(empty_body())
+                                .unwrap(),
+                        )
+                    })
+                }
+            }
+        }
+    }
+    impl<T: FibApi> Clone for FibApiServer<T> {
+        fn clone(&self) -> Self {
+            let inner = self.inner.clone();
+            Self {
+                inner,
+                accept_compression_encodings: self.accept_compression_encodings,
+                send_compression_encodings: self.send_compression_encodings,
+            }
+        }
+    }
+    impl<T: FibApi> Clone for _Inner<T> {
+        fn clone(&self) -> Self {
+            Self(self.0.clone())
+        }
+    }
+    impl<T: std::fmt::Debug> std::fmt::Debug for _Inner<T> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{:?}", self.0)
+        }
+    }
+    impl<T: FibApi> tonic::server::NamedService for FibApiServer<T> {
+        const NAME: &'static str = "sart.FibApi";
+    }
+}

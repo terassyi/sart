@@ -55,7 +55,7 @@ func testUpdate() {
 
 		By("starting sartd-bgp")
 		go func(context.Context) {
-			_, _, _, err := execInNetns("core", "../target/debug/sartd", "-f", "simple/config.yaml")
+			_, _, _, err := execInNetns("core", "../target/debug/sartd", "bgp", "-f", "simple/config.yaml")
 			Expect(err).NotTo(HaveOccurred())
 		}(ctx)
 
@@ -162,7 +162,7 @@ func testUpdate() {
 
 		By("starting sartd-bgp")
 		go func(context.Context) {
-			_, _, _, err := execInNetns("core", "../target/debug/sartd", "-f", "simple_rib_ibgp/config.yaml")
+			_, _, _, err := execInNetns("core", "../target/debug/sartd", "bgp", "-f", "simple_rib_ibgp/config.yaml")
 			Expect(err).NotTo(HaveOccurred())
 		}(ctx)
 
@@ -259,7 +259,7 @@ func testUpdate() {
 
 		By("starting sartd-bgp")
 		go func(context.Context) {
-			_, _, _, err := execInNetns("node1", "../target/debug/sartd", "-f", "multi_path_ebgp/config.yaml")
+			_, _, _, err := execInNetns("node1", "../target/debug/sartd", "bgp", "-f", "multi_path_ebgp/config.yaml")
 			Expect(err).NotTo(HaveOccurred())
 		}(ctx)
 
@@ -379,7 +379,7 @@ func testUpdate() {
 
 		By("starting sartd-bgp")
 		go func(context.Context) {
-			_, _, _, err := execInNetns("node1", "../target/debug/sartd", "-f", "multi_path_i_ebgp/config.yaml")
+			_, _, _, err := execInNetns("node1", "../target/debug/sartd", "bgp", "-f", "multi_path_i_ebgp/config.yaml")
 			Expect(err).NotTo(HaveOccurred())
 		}(ctx)
 
@@ -500,7 +500,7 @@ func testUpdate() {
 
 		By("starting sartd-bgp")
 		go func(context.Context) {
-			_, _, _, err := execInNetns("core", "../target/debug/sartd", "-f", "simple_rib/config_init_path.yaml")
+			_, _, _, err := execInNetns("core", "../target/debug/sartd", "bgp", "-f", "simple_rib/config_init_path.yaml")
 			Expect(err).NotTo(HaveOccurred())
 		}(ctx)
 
@@ -585,7 +585,7 @@ func testUpdate() {
 
 		By("starting sartd-bgp")
 		go func(context.Context) {
-			_, _, _, err := execInNetns("core", "../target/debug/sartd", "-f", "simple_rib/config_init_path.yaml")
+			_, _, _, err := execInNetns("core", "../target/debug/sartd", "bgp", "-f", "simple_rib/config_init_path.yaml")
 			Expect(err).NotTo(HaveOccurred())
 		}(ctx)
 

@@ -56,7 +56,7 @@ func testApi() {
 
 		By("starting sartd-bgp")
 		go func(context.Context) {
-			_, _, _, err := execInNetns("core", "../target/debug/sartd")
+			_, _, _, err := execInNetns("core", "../target/debug/sartd", "bgp")
 			Expect(err).NotTo(HaveOccurred())
 		}(ctx)
 
