@@ -4,11 +4,12 @@ pub(crate) mod error;
 pub(crate) mod fib;
 pub(crate) mod proto;
 pub(crate) mod rpc;
+pub(crate) mod util;
 
 use std::net::Ipv4Addr;
 
-use bgp::cmd::{BgpCmd, Scope};
-use clap::{Parser, Subcommand};
+use bgp::cmd::Scope;
+use clap::Parser;
 use cmd::{Cmd, SubCmd};
 
 #[tokio::main]
@@ -29,11 +30,12 @@ async fn main() {
                     bgp::global::set(&endpoint, asn, router_id).await.unwrap();
                 }
                 bgp::global::Action::Rib(r) => match r.action {
-                    bgp::rib::Action::Add { prefix } => {
-                        bgp::rib::add(&endpoint, r.afi, r.safi, &prefix)
-                            .await
-                            .unwrap()
-                    }
+                    bgp::rib::Action::Add {
+                        prefixes,
+                        attributes,
+                    } => bgp::rib::add(&endpoint, r.afi, r.safi, prefixes, attributes)
+                        .await
+                        .unwrap(),
                     bgp::rib::Action::Get => bgp::rib::get(&endpoint, format, r.afi, r.safi)
                         .await
                         .unwrap(),

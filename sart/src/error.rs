@@ -9,4 +9,8 @@ pub(crate) enum Error {
     InvalidRPCResponse,
     #[error("failed to get Response")]
     FailedToGetResponse(#[from] Status),
+    #[error("unacceptable attribute")]
+    UnacceptableAttribute,
+    #[error("invalid origin value: acceptable")]
+    InvalidOriginValue,
 }

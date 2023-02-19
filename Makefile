@@ -25,8 +25,16 @@ setup-dev:
 	sudo tar -zxvf /tmp/grpcurl_${GRPCURL_VERSION}_linux_x86_64.tar.gz -C /usr/bin/
 
 .PHONY: build
-build:
+build: build-daemon build-cli
+
+.PHONY: build-daemon
+build-daemon:
 	cd sartd; $(CARGO) build --verbose
+
+.PHONY: build-cli
+build-cli:
+	cd sart; $(CARGO) build --verbose
+
 
 .PHONY: fmt
 fmt:

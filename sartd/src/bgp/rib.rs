@@ -509,7 +509,7 @@ impl RibManager {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self, neighbor), fields(peer.asn=neighbor.asn,peer.addr=neighbor.addr.to_string(),peer.id=neighbor.id.to_string()))]
+    #[tracing::instrument(skip(self, neighbor), fields(peer.asn=neighbor.asn,peer.addr=neighbor.addr.to_string()))]
     async fn init(&self, family: AddressFamily, neighbor: NeighborPair) -> Result<(), Error> {
         tracing::debug!("initialize path");
         if let Some(paths) = self.loc_rib.get_all_best(&family) {
@@ -517,7 +517,7 @@ impl RibManager {
             let p = paths
                 .iter()
                 .filter(|&p| {
-                    !p.peer_id.eq(&neighbor.id)
+                    !p.peer_addr.eq(&neighbor.addr)
                         || if self.asn == neighbor.asn {
                             // ibgp peer
                             p.kind() != PathKind::Internal
@@ -543,7 +543,7 @@ impl RibManager {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self, neighbor), fields(peer.asn=neighbor.asn,peer.addr=neighbor.addr.to_string(),peer.id=neighbor.id.to_string()))]
+    #[tracing::instrument(skip(self, neighbor), fields(peer.asn=neighbor.asn,peer.addr=neighbor.addr.to_string()))]
     async fn flush(&self, family: AddressFamily, neighbor: NeighborPair) -> Result<(), Error> {
         Ok(())
     }
@@ -593,7 +593,7 @@ impl RibManager {
         .await
     }
 
-    #[tracing::instrument(skip(self, neighbor, paths), fields(peer.asn=neighbor.asn,peer.addr=neighbor.addr.to_string(),peer.id=neighbor.id.to_string()))]
+    #[tracing::instrument(skip(self, neighbor), fields(peer.asn=neighbor.asn,peer.addr=neighbor.addr.to_string()))]
     async fn install_paths(
         &mut self,
         neighbor: NeighborPair,
@@ -654,7 +654,7 @@ impl RibManager {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self, neighbor), fields(peer.asn=neighbor.asn,peer.addr=neighbor.addr.to_string(),peer.id=neighbor.id.to_string()))]
+    #[tracing::instrument(skip(self, neighbor), fields(peer.asn=neighbor.asn,peer.addr=neighbor.addr.to_string()))]
     async fn drop_paths(
         &mut self,
         neighbor: NeighborPair,
