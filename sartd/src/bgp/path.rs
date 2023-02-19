@@ -4,7 +4,6 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::time::SystemTime;
 
 use ipnet::IpNet;
-use tokio::time::Instant;
 
 use crate::bgp::error::Error;
 use crate::bgp::packet::attribute::ASSegment;
@@ -235,28 +234,28 @@ impl From<&Path> for proto::sart::Path {
     fn from(path: &Path) -> Self {
         let mut segs = Vec::new();
         if !path.as_sequence.is_empty() {
-            segs.push(proto::sart::AsSegment{
+            segs.push(proto::sart::AsSegment {
                 r#type: Attribute::AS_SEQUENCE as i32,
-                elm: path.as_sequence.clone()
+                elm: path.as_sequence.clone(),
             });
         }
         if !path.as_set.is_empty() {
-            segs.push(proto::sart::AsSegment{
+            segs.push(proto::sart::AsSegment {
                 r#type: Attribute::AS_SET as i32,
                 elm: path.as_set.clone(),
             });
         }
-        proto::sart::Path { 
-            nlri: path.prefix.to_string(), 
-            family: Some(proto::sart::AddressFamily::from(&path.family)), 
-            origin: path.origin as u32, 
-            next_hops: path.next_hops.iter().map(|n| n.to_string()).collect(), 
-            segments: segs, 
-            local_pref: path.local_pref, 
-            med: path.med, 
-            peer_asn: path.peer_asn, 
-            peer_addr: path.peer_addr.to_string(), 
-            best: path.best, 
+        proto::sart::Path {
+            nlri: path.prefix.to_string(),
+            family: Some(proto::sart::AddressFamily::from(&path.family)),
+            origin: path.origin as u32,
+            next_hops: path.next_hops.iter().map(|n| n.to_string()).collect(),
+            segments: segs,
+            local_pref: path.local_pref,
+            med: path.med,
+            peer_asn: path.peer_asn,
+            peer_addr: path.peer_addr.to_string(),
+            best: path.best,
             timestamp: Some(prost_types::Timestamp::from(path.timestamp)),
         }
     }
@@ -355,12 +354,10 @@ impl PathBuilder {
             } else {
                 self.as4_set.append(&mut segment.segments);
             }
+        } else if segment.segment_type == Attribute::AS_SEQUENCE {
+            self.as_sequence.append(&mut segment.segments);
         } else {
-            if segment.segment_type == Attribute::AS_SEQUENCE {
-                self.as_sequence.append(&mut segment.segments);
-            } else {
-                self.as_set.append(&mut segment.segments);
-            }
+            self.as_set.append(&mut segment.segments);
         }
         self
     }

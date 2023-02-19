@@ -2163,7 +2163,7 @@ mod tests {
         }
         // not recv
         match timeout(Duration::from_millis(10), peer1_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer1 should not receive event"),
         }
         // install paths from peer2
@@ -2246,7 +2246,7 @@ mod tests {
         }
         // not recv
         match timeout(Duration::from_millis(10), peer2_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer2 should not receive event"),
         }
 
@@ -2314,11 +2314,11 @@ mod tests {
 
         // not recv
         match timeout(Duration::from_millis(10), peer1_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer1 should not receive event"),
         }
         match timeout(Duration::from_millis(10), peer2_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer2 should not receive event"),
         }
         // drop from peer1
@@ -2341,7 +2341,7 @@ mod tests {
         }
         // not recv
         match timeout(Duration::from_millis(10), peer1_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer1 should not receive event"),
         }
         // drop from local
@@ -2424,12 +2424,12 @@ mod tests {
 
         // not recv
         match timeout(Duration::from_millis(10), peer1_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer1 should not receive event"),
         }
         // not recv
         match timeout(Duration::from_millis(10), peer2_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer2 should not receive event"),
         }
 
@@ -2497,11 +2497,11 @@ mod tests {
 
         // not recv
         match timeout(Duration::from_millis(10), peer1_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer1 should not receive event"),
         }
         match timeout(Duration::from_millis(10), peer2_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer2 should not receive event"),
         }
         // drop from local
@@ -2595,7 +2595,7 @@ mod tests {
         }
         // not recv
         match timeout(Duration::from_millis(10), peer1_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer1 should not receive event"),
         }
         // install paths from peer2
@@ -2657,7 +2657,7 @@ mod tests {
         }
         // not recv
         match timeout(Duration::from_millis(10), peer2_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer2 should not receive event"),
         }
 
@@ -2738,7 +2738,7 @@ mod tests {
         }
         // not recv
         match timeout(Duration::from_millis(10), peer2_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer2 should not receive event"),
         }
         // drop from local
@@ -2839,11 +2839,11 @@ mod tests {
         }
         // not recv
         match timeout(Duration::from_millis(10), peer1_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer1 should not receive event"),
         }
         match timeout(Duration::from_millis(10), peer2_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer2 should not receive event"),
         }
         // install paths from peer2
@@ -2904,11 +2904,11 @@ mod tests {
         }
         // not recv
         match timeout(Duration::from_millis(10), peer1_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer1 should not receive event"),
         }
         match timeout(Duration::from_millis(10), peer2_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer2 should not receive event"),
         }
 
@@ -2960,7 +2960,7 @@ mod tests {
         }
         // not recv
         match timeout(Duration::from_millis(10), peer3_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer3 should not receive event"),
         }
         // drop paths
@@ -2996,11 +2996,11 @@ mod tests {
         }
         // not recv
         match timeout(Duration::from_millis(10), peer1_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer1 should not receive event"),
         }
         match timeout(Duration::from_millis(10), peer2_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer2 should not receive event"),
         }
         // drop from peer1
@@ -3023,11 +3023,11 @@ mod tests {
         }
         // not recv
         match timeout(Duration::from_millis(10), peer1_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer1 should not receive event"),
         }
         match timeout(Duration::from_millis(10), peer2_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer2 should not receive event"),
         }
         // drop from peer3
@@ -3060,7 +3060,7 @@ mod tests {
         }
         // not recv
         match timeout(Duration::from_millis(10), peer3_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer3 should not receive event"),
         }
     }

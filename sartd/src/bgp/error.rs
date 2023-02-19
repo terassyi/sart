@@ -53,12 +53,12 @@ pub(crate) enum MessageHeaderError {
     BadMessageType { val: u8 },
 }
 
-impl Into<u8> for MessageHeaderError {
-    fn into(self) -> u8 {
-        match self {
-            Self::ConnectionNotSynchronized => 1,
-            Self::BadMessageLength { length: _ } => 2,
-            Self::BadMessageType { val: _ } => 3,
+impl From<MessageHeaderError> for u8 {
+    fn from(val: MessageHeaderError) -> u8 {
+        match val {
+            MessageHeaderError::ConnectionNotSynchronized => 1,
+            MessageHeaderError::BadMessageLength { length: _ } => 2,
+            MessageHeaderError::BadMessageType { val: _ } => 3,
         }
     }
 }
@@ -80,15 +80,15 @@ pub(crate) enum OpenMessageError {
     Unspecific,
 }
 
-impl Into<u8> for OpenMessageError {
-    fn into(self) -> u8 {
-        match self {
-            Self::UnsupportedVersionNumber => 1,
-            Self::BadPeerAS => 2,
-            Self::BadBGPIdentifier => 3,
-            Self::UnsupportedOptionalParameter => 4,
-            Self::UnacceptableHoldTime => 6,
-            Self::Unspecific => 0,
+impl From<OpenMessageError> for u8 {
+    fn from(val: OpenMessageError) -> Self {
+        match val {
+            OpenMessageError::UnsupportedVersionNumber => 1,
+            OpenMessageError::BadPeerAS => 2,
+            OpenMessageError::BadBGPIdentifier => 3,
+            OpenMessageError::UnsupportedOptionalParameter => 4,
+            OpenMessageError::UnacceptableHoldTime => 6,
+            OpenMessageError::Unspecific => 0,
         }
     }
 }
@@ -118,27 +118,27 @@ pub(crate) enum UpdateMessageError {
     MalformedASPath,
 }
 
-impl Into<u8> for UpdateMessageError {
-    fn into(self) -> u8 {
-        match self {
-            Self::MalformedAttributeList => 1,
-            Self::UnrecognizedWellknownAttribute(_) => 2,
-            Self::MissingWellKnownAttribute(_) => 3,
-            Self::AttributeFlagsError {
+impl From<UpdateMessageError> for u8 {
+    fn from(val: UpdateMessageError) -> Self {
+        match val {
+            UpdateMessageError::MalformedAttributeList => 1,
+            UpdateMessageError::UnrecognizedWellknownAttribute(_) => 2,
+            UpdateMessageError::MissingWellKnownAttribute(_) => 3,
+            UpdateMessageError::AttributeFlagsError {
                 code: _,
                 length: _,
                 value: _,
             } => 4,
-            Self::AttributeLengthError {
+            UpdateMessageError::AttributeLengthError {
                 code: _,
                 length: _,
                 value: _,
             } => 5,
-            Self::InvalidOriginAttribute(u8) => 6,
-            Self::InvalidNextHopAttribute => 8,
-            Self::OptionalAttributeError => 9,
-            Self::InvalidNetworkField => 10,
-            Self::MalformedASPath => 11,
+            UpdateMessageError::InvalidOriginAttribute(u8) => 6,
+            UpdateMessageError::InvalidNextHopAttribute => 8,
+            UpdateMessageError::OptionalAttributeError => 9,
+            UpdateMessageError::InvalidNetworkField => 10,
+            UpdateMessageError::MalformedASPath => 11,
         }
     }
 }

@@ -121,9 +121,9 @@ impl Message {
     }
 }
 
-impl<'a> Into<MessageType> for &'a Message {
-    fn into(self) -> MessageType {
-        match self {
+impl<'a> From<&'a Message> for MessageType {
+    fn from(val: &'a Message) -> Self {
+        match val {
             Message::Open { .. } => MessageType::Open,
             Message::Update { .. } => MessageType::Update,
             Message::Keepalive => MessageType::Keepalive,
@@ -133,9 +133,9 @@ impl<'a> Into<MessageType> for &'a Message {
     }
 }
 
-impl Into<MessageType> for Message {
-    fn into(self) -> MessageType {
-        match self {
+impl From<Message> for MessageType {
+    fn from(val: Message) -> Self {
+        match val {
             Message::Open { .. } => MessageType::Open,
             Message::Update { .. } => MessageType::Update,
             Message::Keepalive => MessageType::Keepalive,
@@ -218,15 +218,15 @@ impl TryFrom<u8> for NotificationCode {
     }
 }
 
-impl Into<u8> for NotificationCode {
-    fn into(self) -> u8 {
-        match self {
-            Self::MessageHeader => 1,
-            Self::OpenMessage => 2,
-            Self::UpdateMessage => 3,
-            Self::HoldTimerExpired => 4,
-            Self::FiniteStateMachine => 5,
-            Self::Cease => 6,
+impl From<NotificationCode> for u8 {
+    fn from(val: NotificationCode) -> Self {
+        match val {
+            NotificationCode::MessageHeader => 1,
+            NotificationCode::OpenMessage => 2,
+            NotificationCode::UpdateMessage => 3,
+            NotificationCode::HoldTimerExpired => 4,
+            NotificationCode::FiniteStateMachine => 5,
+            NotificationCode::Cease => 6,
         }
     }
 }
@@ -339,20 +339,15 @@ impl MessageBuilder {
                 let asn = if self
                     .capabilities
                     .iter()
-                    .filter(|cap| match cap {
-                        Capability::FourOctetASNumber(_) => true,
-                        _ => false,
-                    })
+                    .filter(|cap| matches!(cap, Capability::FourOctetASNumber(_)))
                     .count()
                     == 0
                 {
                     self.asn
+                } else if self.asn > 65535 {
+                    Message::AS_TRANS
                 } else {
-                    if self.asn > 65535 {
-                        Message::AS_TRANS
-                    } else {
-                        self.asn
-                    }
+                    self.asn
                 };
                 Ok(Message::Open {
                     version: self.version,
@@ -529,7 +524,7 @@ mod tests {
 	)]
     fn failed_message_type_try_from_test(input: u8, expected: MessageHeaderError) {
         match MessageType::try_from(input) {
-            Ok(_) => assert!(false),
+            Ok(_) => panic!("failed"),
             Err(e) => assert_eq!(expected, e),
         }
     }

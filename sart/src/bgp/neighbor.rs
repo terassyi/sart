@@ -5,7 +5,7 @@ use clap::{Parser, Subcommand};
 use crate::{
     cmd::Format,
     error::Error,
-    proto::sart::{AddPathRequest, AddPeerRequest, DeletePeerRequest, GetNeighborRequest, Peer},
+    proto::sart::{AddPeerRequest, DeletePeerRequest, GetNeighborRequest, Peer},
     rpc::connect_bgp,
 };
 

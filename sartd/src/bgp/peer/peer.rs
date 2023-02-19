@@ -280,7 +280,7 @@ impl Peer {
                             BgpMessageEvent::KeepAliveMsg => self.keepalive_msg().await,
                             BgpMessageEvent::UpdateMsg(msg) => self.update_msg(msg).await,
                             BgpMessageEvent::UpdateMsgErr(e) => self.update_msg_error(e).await,
-                            BgpMessageEvent::RouteRefreshMsg(msg) => self.route_refresh_msg(),
+                            BgpMessageEvent::RouteRefreshMsg(_msg) => self.route_refresh_msg(),
                             BgpMessageEvent::RouteRefreshMsgErr => self.route_refresh_msg_error(),
                             _ => unimplemented!(),
                         };
@@ -1518,19 +1518,13 @@ impl Peer {
 
             let family = p.family;
             let old_path = self.adj_rib_out.insert(&family, p.prefix, p.clone())?;
-            let replace = match old_path {
-                Some(_) => true,
-                None => false,
-            };
+            let replace = old_path.is_some();
             tracing::info!(level="peer",local.addr=local_addr.to_string(),local.asn=local_asn,local.id=local_id.to_string(),peer.addr=peer_addr.to_string(),peer.id=peer_id.to_string(),peer.asn=peer_asn,prefix=?p.prefix(),replace=replace,"update adj-rib-out");
 
-            let as4_enabled = match info
+            let as4_enabled = info
                 .local_capabilities
                 .get(&capability::Capability::FOUR_OCTET_AS_NUMBER)
-            {
-                Some(_) => true,
-                None => false,
-            };
+                .is_some();
 
             let attr = p.attributes(as4_enabled)?;
             match attr_group.get_mut(&attr) {
@@ -1590,7 +1584,7 @@ impl Peer {
             .ok_or(Error::Rib(RibError::InvalidAddressFamily))?;
             let old_path = self
                 .adj_rib_out
-                .remove(&family, p)
+                .remove(family, p)
                 .ok_or(Error::Rib(RibError::PathNotFound))?;
             tracing::info!(level="peer",local.addr=local_addr.to_string(),local.asn=local_asn,local.id=local_id.to_string(),peer.addr=peer_addr.to_string(),peer.id=peer_id.to_string(),peer.asn=peer_asn,prefix=?old_path.prefix(),"withdraw from adj-rib-out");
         }
@@ -1816,7 +1810,7 @@ mod tests {
         )));
         let (_, rx) = tokio::sync::mpsc::unbounded_channel();
         let (rib_tx, rib_rx) = tokio::sync::mpsc::channel(128);
-        let (api_tx, api_rx) = tokio::sync::mpsc::channel(128);
+        let (api_tx, _api_rx) = tokio::sync::mpsc::channel(128);
         let mut peer = Peer::new(info, rx, rib_tx, rib_rx, api_tx);
         for e in event.into_iter() {
             peer.move_state(e);
@@ -1849,7 +1843,7 @@ mod tests {
         )));
         let (_, rx) = tokio::sync::mpsc::unbounded_channel();
         let (rib_tx, rib_rx) = tokio::sync::mpsc::channel(128);
-        let (api_tx, api_rx) = tokio::sync::mpsc::channel(128);
+        let (api_tx, _api_rx) = tokio::sync::mpsc::channel(128);
         let peer = Peer::new(info, rx, rib_tx, rib_rx, api_tx);
         let msg = peer.build_open_msg().unwrap();
         assert_eq!(

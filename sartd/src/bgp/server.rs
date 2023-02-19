@@ -85,7 +85,7 @@ impl Bgp {
         let rib_endpoint_conf = conf.rib_endpoint.clone();
         let (rib_event_tx, mut rib_event_rx) = channel::<RibEvent>(128);
 
-        let (api_tx, mut api_rx) = channel::<ApiResponse>(128);
+        let (api_tx, api_rx) = channel::<ApiResponse>(128);
 
         let asn = conf.asn;
         let router_id = conf.router_id;
@@ -483,19 +483,17 @@ fn prepare_tracing(conf: TraceConfig) {
                 .with(tracing_subscriber::filter::LevelFilter::from_str(&conf.level).unwrap())
                 .init();
         }
+    } else if let Some(path) = conf.file {
+        let file = std::fs::File::create(path).unwrap();
+        tracing_subscriber::Registry::default()
+            .with(tracing_subscriber::fmt::Layer::new().with_writer(file))
+            .with(tracing_subscriber::fmt::Layer::new().with_ansi(true))
+            .with(tracing_subscriber::filter::LevelFilter::from_str(&conf.level).unwrap())
+            .init();
     } else {
-        if let Some(path) = conf.file {
-            let file = std::fs::File::create(path).unwrap();
-            tracing_subscriber::Registry::default()
-                .with(tracing_subscriber::fmt::Layer::new().with_writer(file))
-                .with(tracing_subscriber::fmt::Layer::new().with_ansi(true))
-                .with(tracing_subscriber::filter::LevelFilter::from_str(&conf.level).unwrap())
-                .init();
-        } else {
-            tracing_subscriber::Registry::default()
-                .with(tracing_subscriber::fmt::Layer::new().with_ansi(true))
-                .with(tracing_subscriber::filter::LevelFilter::from_str(&conf.level).unwrap())
-                .init();
-        }
+        tracing_subscriber::Registry::default()
+            .with(tracing_subscriber::fmt::Layer::new().with_ansi(true))
+            .with(tracing_subscriber::filter::LevelFilter::from_str(&conf.level).unwrap())
+            .init();
     }
 }

@@ -16,7 +16,7 @@ impl MockTcpStream {
 }
 
 impl Read for MockTcpStream {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+    fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
         todo!()
     }
 }

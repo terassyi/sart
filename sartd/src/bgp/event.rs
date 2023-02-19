@@ -57,9 +57,9 @@ impl Event {
     pub const MESSAGE_UPDATE_MSG_ERROR: u8 = 28;
 }
 
-impl Into<u8> for &Event {
-    fn into(self) -> u8 {
-        match *self {
+impl From<&Event> for u8 {
+    fn from(val: &Event) -> Self {
+        match *val {
 			Event::Admin(AdministrativeEvent::ManualStart) => 1,
 			Event::Admin(AdministrativeEvent::ManualStop) => 2,
 			Event::Admin(AdministrativeEvent::AutomaticStart) => 3,
@@ -148,9 +148,9 @@ impl std::fmt::Display for AdministrativeEvent {
     }
 }
 
-impl Into<u8> for AdministrativeEvent {
-    fn into(self) -> u8 {
-        match self {
+impl From<AdministrativeEvent> for u8 {
+    fn from(val: AdministrativeEvent) -> Self {
+        match val {
 			AdministrativeEvent::ManualStart => 1,
 			AdministrativeEvent::ManualStop => 2,
 			AdministrativeEvent::AutomaticStart => 3,
@@ -186,9 +186,9 @@ impl std::fmt::Display for TimerEvent {
     }
 }
 
-impl Into<u8> for TimerEvent {
-    fn into(self) -> u8 {
-        match self {
+impl From<TimerEvent> for u8 {
+    fn from(val: TimerEvent) -> Self {
+        match val {
             TimerEvent::ConnectRetryTimerExpire => 9,
             TimerEvent::HoldTimerExpire => 10,
             TimerEvent::KeepaliveTimerExpire => 11,
@@ -223,9 +223,9 @@ impl std::fmt::Display for TcpConnectionEvent {
     }
 }
 
-impl Into<u8> for TcpConnectionEvent {
-    fn into(self) -> u8 {
-        match self {
+impl From<TcpConnectionEvent> for u8 {
+    fn from(val: TcpConnectionEvent) -> Self {
+        match val {
             TcpConnectionEvent::TcpConnectionValid => 14,
             TcpConnectionEvent::TcpCRInvalid => 15,
             TcpConnectionEvent::TcpCRAcked => 16,
@@ -282,9 +282,9 @@ impl std::fmt::Display for BgpMessageEvent {
     }
 }
 
-impl Into<u8> for BgpMessageEvent {
-    fn into(self) -> u8 {
-        match self {
+impl From<BgpMessageEvent> for u8 {
+    fn from(val: BgpMessageEvent) -> Self {
+        match val {
             BgpMessageEvent::BgpOpen {
                 local_port: _,
                 peer_port: _,

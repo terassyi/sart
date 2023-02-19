@@ -125,9 +125,9 @@ impl From<packet::capability::Capability> for Capability {
     }
 }
 
-impl Into<packet::capability::Capability> for &Capability {
-    fn into(self) -> packet::capability::Capability {
-        match self {
+impl From<&Capability> for packet::capability::Capability {
+    fn from(val: &Capability) -> Self {
+        match val {
             Capability::MultiProtocol(m) => {
                 packet::capability::Capability::MultiProtocol(m.family.clone())
             }

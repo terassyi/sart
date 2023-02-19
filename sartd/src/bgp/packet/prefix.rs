@@ -63,9 +63,8 @@ impl Prefix {
     }
 
     pub fn encode(&self, dst: &mut BytesMut) -> io::Result<()> {
-        match self.path_id {
-            Some(id) => dst.put_u32(id),
-            None => {}
+        if let Some(id) = self.path_id {
+            dst.put_u32(id)
         }
         dst.put_u8(self.inner.prefix_len());
         match self.inner {
@@ -112,15 +111,15 @@ impl From<IpNet> for Prefix {
     }
 }
 
-impl Into<IpNet> for Prefix {
-    fn into(self) -> IpNet {
-        self.inner
+impl From<Prefix> for IpNet {
+    fn from(val: Prefix) -> Self {
+        val.inner
     }
 }
 
-impl Into<IpNet> for &Prefix {
-    fn into(self) -> IpNet {
-        self.inner
+impl From<&Prefix> for IpNet {
+    fn from(val: &Prefix) -> Self {
+        val.inner
     }
 }
 
@@ -152,7 +151,7 @@ mod tests {
         let mut buf = BytesMut::from(input.as_slice());
         match Prefix::decode(&family, add_path_enabled, &mut buf) {
             Ok(pref) => assert_eq!(expected, pref),
-            Err(_) => assert!(false),
+            Err(_) => panic!("failed"),
         }
     }
     // #[rstest(
@@ -165,13 +164,13 @@ mod tests {
     // fn failed_prefix_decode(family: AddressFamily, add_path_enabled: bool, input: Vec<u8>, expected: UpdateMessageError) {
     //        let mut buf = BytesMut::from(input.as_slice());
     // 	match Prefix::decode(family, add_path_enabled, &mut buf) {
-    // 		Ok(_) => assert!(false),
+    // 		Ok(_) => panic!("failed"),
     // 		Err(e) => match e {
     // 			Error::UpdateMessage(ee) => match ee {
     // 				UpdateMessageError::InvalidNetworkField => assert_eq!(expected, ee),
-    // 				_ => assert!(false),
+    // 				_ => panic!("failed"),
     // 			},
-    // 			_ => assert!(false),
+    // 			_ => panic!("failed"),
     // 		}
     // 	}
     // }
