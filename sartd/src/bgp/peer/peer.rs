@@ -503,12 +503,11 @@ impl Peer {
         self.recv_counter.lock().unwrap().reset();
 
         if self.state() == State::Established {
-            let (peer_asn, peer_addr, peer_id, families) = {
+            let (peer_asn, peer_addr, families) = {
                 let info = self.info.lock().unwrap();
                 (
                     info.neighbor.get_asn(),
                     info.neighbor.get_addr(),
-                    info.neighbor.get_router_id(),
                     info.families.clone(),
                 )
             };
@@ -517,7 +516,7 @@ impl Peer {
                     let ids = paths.iter().map(|p| (p.prefix(), p.id)).collect();
                     self.rib_tx
                         .send(RibEvent::DropPaths(
-                            NeighborPair::new(peer_addr, peer_asn, peer_id),
+                            NeighborPair::new(peer_addr, peer_asn),
                             *family,
                             ids,
                         ))
@@ -882,12 +881,11 @@ impl Peer {
                 let _negotiated_hold_time = self.negotiate_hold_time(hold_time as u64)?;
 
                 // when new session is established, it needs to advertise all paths.
-                let (peer_asn, peer_id, peer_addr, families) = {
+                let (peer_asn, peer_addr, families) = {
                     let mut info = self.info.lock().unwrap();
                     info.neighbor.router_id(router_id);
                     (
                         info.neighbor.get_asn(),
-                        info.neighbor.get_router_id(),
                         info.neighbor.get_addr(),
                         info.families.clone(),
                     )
@@ -896,7 +894,7 @@ impl Peer {
                     self.rib_tx
                         .send(RibEvent::Init(
                             *family,
-                            NeighborPair::new(peer_addr, peer_asn, peer_id),
+                            NeighborPair::new(peer_addr, peer_asn),
                         ))
                         .await
                         .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;
@@ -915,12 +913,11 @@ impl Peer {
                 self.send(msg)?;
 
                 // when new session is established, it needs to advertise all paths.
-                let (peer_asn, peer_id, peer_addr, families) = {
+                let (peer_asn, peer_addr, families) = {
                     let mut info = self.info.lock().unwrap();
                     info.neighbor.router_id(router_id);
                     (
                         info.neighbor.get_asn(),
-                        info.neighbor.get_router_id(),
                         info.neighbor.get_addr(),
                         info.families.clone(),
                     )
@@ -929,7 +926,7 @@ impl Peer {
                     self.rib_tx
                         .send(RibEvent::Init(
                             *family,
-                            NeighborPair::new(peer_addr, peer_asn, peer_id),
+                            NeighborPair::new(peer_addr, peer_asn),
                         ))
                         .await
                         .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;

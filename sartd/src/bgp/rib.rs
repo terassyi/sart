@@ -54,7 +54,7 @@ impl Table {
     }
 
     fn get_all(&self) -> Vec<&Path> {
-        self.inner.iter().map(|(_prefix, path)| path).collect()
+        self.inner.values().collect()
     }
 
     fn clear(&mut self) {
@@ -506,7 +506,11 @@ impl RibManager {
 
     #[tracing::instrument(skip(self))]
     fn delete_peer(&mut self, neighbor: NeighborPair) -> Result<(), Error> {
-        Ok(())
+        tracing::warn!("delete peer from rib manager");
+        match self.peers_tx.remove(&neighbor) {
+            Some(neighbor) => Ok(()),
+            None => Err(Error::Rib(RibError::PeerNotFound)),
+        }
     }
 
     #[tracing::instrument(skip(self, neighbor), fields(peer.asn=neighbor.asn,peer.addr=neighbor.addr.to_string()))]
@@ -558,7 +562,7 @@ impl RibManager {
             .nlri(networks.iter().map(|&n| n.into()).collect())
             .build()?;
         self.install_paths(
-            NeighborPair::new(IpAddr::V4(self.router_id), self.asn, self.router_id),
+            NeighborPair::new(IpAddr::V4(self.router_id), self.asn),
             paths,
         )
         .await
@@ -586,7 +590,7 @@ impl RibManager {
             .map(|p| (p.prefix(), p.id))
             .collect();
         self.drop_paths(
-            NeighborPair::new(IpAddr::V4(self.router_id), self.asn, self.router_id),
+            NeighborPair::new(IpAddr::V4(self.router_id), self.asn),
             family,
             path_ids,
         )
@@ -888,11 +892,7 @@ mod tests {
         let (tx, _rx) = channel::<RibEvent>(128);
         manager
             .add_peer(
-                NeighborPair::new(
-                    IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-                    100,
-                    Ipv4Addr::new(0, 0, 0, 0),
-                ),
+                NeighborPair::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 100),
                 tx,
             )
             .unwrap();
@@ -2118,20 +2118,12 @@ mod tests {
         );
 
         // peer1
-        let peer1 = NeighborPair::new(
-            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
-            65010,
-            Ipv4Addr::new(2, 2, 2, 2),
-        );
+        let peer1 = NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)), 65010);
         let (peer1_tx, mut peer1_rx) = channel::<RibEvent>(10);
         manager.add_peer(peer1.clone(), peer1_tx).unwrap();
 
         // peer2
-        let peer2 = NeighborPair::new(
-            IpAddr::V4(Ipv4Addr::new(10, 0, 1, 2)),
-            65020,
-            Ipv4Addr::new(3, 3, 3, 3),
-        );
+        let peer2 = NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 1, 2)), 65020);
         let (peer2_tx, mut peer2_rx) = channel::<RibEvent>(10);
         manager.add_peer(peer2.clone(), peer2_tx).unwrap();
 
@@ -2281,11 +2273,7 @@ mod tests {
         }];
         manager
             .install_paths(
-                NeighborPair::new(
-                    IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
-                    65000,
-                    Ipv4Addr::new(1, 1, 1, 1),
-                ),
+                NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), 65000),
                 paths,
             )
             .await
@@ -2360,11 +2348,7 @@ mod tests {
         let prefixes: Vec<(IpNet, u64)> = vec![("10.0.100.0/24".parse().unwrap(), 4)];
         manager
             .drop_paths(
-                NeighborPair::new(
-                    IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
-                    65000,
-                    Ipv4Addr::new(1, 1, 1, 1),
-                ),
+                NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), 65000),
                 family,
                 prefixes,
             )
@@ -2406,20 +2390,12 @@ mod tests {
         );
 
         // peer1
-        let peer1 = NeighborPair::new(
-            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
-            65000,
-            Ipv4Addr::new(2, 2, 2, 2),
-        );
+        let peer1 = NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)), 65000);
         let (peer1_tx, mut peer1_rx) = channel::<RibEvent>(10);
         manager.add_peer(peer1.clone(), peer1_tx).unwrap();
 
         // peer2
-        let peer2 = NeighborPair::new(
-            IpAddr::V4(Ipv4Addr::new(10, 0, 1, 2)),
-            65000,
-            Ipv4Addr::new(3, 3, 3, 3),
-        );
+        let peer2 = NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 1, 2)), 65000);
         let (peer2_tx, mut peer2_rx) = channel::<RibEvent>(10);
         manager.add_peer(peer2.clone(), peer2_tx).unwrap();
 
@@ -2480,11 +2456,7 @@ mod tests {
         }];
         manager
             .install_paths(
-                NeighborPair::new(
-                    IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
-                    65000,
-                    Ipv4Addr::new(1, 1, 1, 1),
-                ),
+                NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), 65000),
                 paths,
             )
             .await
@@ -2536,11 +2508,7 @@ mod tests {
         let prefixes: Vec<(IpNet, u64)> = vec![("10.0.100.0/24".parse().unwrap(), 4)];
         manager
             .drop_paths(
-                NeighborPair::new(
-                    IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
-                    65000,
-                    Ipv4Addr::new(1, 1, 1, 1),
-                ),
+                NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), 65000),
                 family,
                 prefixes,
             )
@@ -2582,20 +2550,12 @@ mod tests {
         );
 
         // peer1
-        let peer1 = NeighborPair::new(
-            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
-            65010,
-            Ipv4Addr::new(2, 2, 2, 2),
-        );
+        let peer1 = NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)), 65010);
         let (peer1_tx, mut peer1_rx) = channel::<RibEvent>(10);
         manager.add_peer(peer1.clone(), peer1_tx).unwrap();
 
         // peer2
-        let peer2 = NeighborPair::new(
-            IpAddr::V4(Ipv4Addr::new(10, 0, 1, 2)),
-            65020,
-            Ipv4Addr::new(3, 3, 3, 3),
-        );
+        let peer2 = NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 1, 2)), 65020);
         let (peer2_tx, mut peer2_rx) = channel::<RibEvent>(10);
         manager.add_peer(peer2.clone(), peer2_tx).unwrap();
 
@@ -2724,11 +2684,7 @@ mod tests {
         }];
         manager
             .install_paths(
-                NeighborPair::new(
-                    IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
-                    65000,
-                    Ipv4Addr::new(1, 1, 1, 1),
-                ),
+                NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), 65000),
                 paths,
             )
             .await
@@ -2789,11 +2745,7 @@ mod tests {
         let prefixes: Vec<(IpNet, u64)> = vec![("10.0.20.0/24".parse().unwrap(), 4)];
         manager
             .drop_paths(
-                NeighborPair::new(
-                    IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
-                    65000,
-                    Ipv4Addr::new(1, 1, 1, 1),
-                ),
+                NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), 65000),
                 family,
                 prefixes,
             )
@@ -2837,29 +2789,17 @@ mod tests {
         );
 
         // peer1
-        let peer1 = NeighborPair::new(
-            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
-            65000,
-            Ipv4Addr::new(2, 2, 2, 2),
-        );
+        let peer1 = NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)), 65000);
         let (peer1_tx, mut peer1_rx) = channel::<RibEvent>(10);
         manager.add_peer(peer1.clone(), peer1_tx).unwrap();
 
         // peer2
-        let peer2 = NeighborPair::new(
-            IpAddr::V4(Ipv4Addr::new(10, 0, 1, 2)),
-            65000,
-            Ipv4Addr::new(3, 3, 3, 3),
-        );
+        let peer2 = NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 1, 2)), 65000);
         let (peer2_tx, mut peer2_rx) = channel::<RibEvent>(10);
         manager.add_peer(peer2.clone(), peer2_tx).unwrap();
 
         // peer3
-        let peer3 = NeighborPair::new(
-            IpAddr::V4(Ipv4Addr::new(10, 0, 2, 2)),
-            65010,
-            Ipv4Addr::new(4, 4, 4, 4),
-        );
+        let peer3 = NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 2, 2)), 65010);
         let (peer3_tx, mut peer3_rx) = channel::<RibEvent>(10);
         manager.add_peer(peer3.clone(), peer3_tx).unwrap();
 
@@ -3138,29 +3078,17 @@ mod tests {
         );
 
         // peer1
-        let peer1 = NeighborPair::new(
-            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
-            65000,
-            Ipv4Addr::new(2, 2, 2, 2),
-        );
+        let peer1 = NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)), 65000);
         let (peer1_tx, mut peer1_rx) = channel::<RibEvent>(10);
         manager.add_peer(peer1.clone(), peer1_tx).unwrap();
 
         // peer2
-        let peer2 = NeighborPair::new(
-            IpAddr::V4(Ipv4Addr::new(10, 0, 1, 2)),
-            65000,
-            Ipv4Addr::new(3, 3, 3, 3),
-        );
+        let peer2 = NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 1, 2)), 65000);
         let (peer2_tx, mut peer2_rx) = channel::<RibEvent>(10);
         manager.add_peer(peer2.clone(), peer2_tx).unwrap();
 
         // peer3
-        let peer3 = NeighborPair::new(
-            IpAddr::V4(Ipv4Addr::new(10, 0, 2, 2)),
-            65010,
-            Ipv4Addr::new(4, 4, 4, 4),
-        );
+        let peer3 = NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 2, 2)), 65010);
         let (peer3_tx, mut peer3_rx) = channel::<RibEvent>(10);
         manager.add_peer(peer3.clone(), peer3_tx).unwrap();
 

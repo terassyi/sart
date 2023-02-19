@@ -9,7 +9,7 @@ pub(crate) struct NeighborPair {
 }
 
 impl NeighborPair {
-    pub fn new(addr: IpAddr, asn: u32, id: Ipv4Addr) -> Self {
+    pub fn new(addr: IpAddr, asn: u32) -> Self {
         Self { addr, asn }
     }
 }

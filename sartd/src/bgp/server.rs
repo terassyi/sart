@@ -34,7 +34,7 @@ use super::capability::Capability;
 use super::capability::CapabilitySet;
 use super::config::{NeighborConfig, TraceConfig};
 use super::error::{ConfigError, ControlError, PeerError, RibError};
-use super::event::{AdministrativeEvent, ControlEvent, Event, RibEvent, PeerLevelApiEvent};
+use super::event::{AdministrativeEvent, ControlEvent, Event, PeerLevelApiEvent, RibEvent};
 use super::family::AddressFamily;
 use super::packet;
 use super::packet::attribute::Attribute;
@@ -97,7 +97,6 @@ impl Bgp {
             false,
             api_tx.clone(),
         ); // TODO: enable to disable ipv6 or ipv4 by config or event
-
 
         let mut server = Self::new(conf, rib_event_tx, api_tx);
 
@@ -248,14 +247,20 @@ impl Bgp {
     #[tracing::instrument(skip(self))]
     async fn get_peer(&self, addr: IpAddr) -> Result<(), Error> {
         if let Some(manager) = self.peer_managers.get(&addr) {
-            manager.event_tx.send(Event::Api(PeerLevelApiEvent::GetPeer)).map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;
+            manager
+                .event_tx
+                .send(Event::Api(PeerLevelApiEvent::GetPeer))
+                .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;
         }
         Ok(())
     }
 
     #[tracing::instrument(skip(self))]
     async fn get_path(&self, family: AddressFamily) -> Result<(), Error> {
-        self.rib_event_tx.send(RibEvent::GetPath(family)).await.map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))
+        self.rib_event_tx
+            .send(RibEvent::GetPath(family))
+            .await
+            .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))
     }
 
     #[tracing::instrument(skip(self))]
@@ -381,10 +386,11 @@ impl Bgp {
             peer.event_tx
                 .send(Event::Admin(AdministrativeEvent::ManualStop))
                 .map_err(|_| Error::Peer(PeerError::Down))?;
-            let (peer_asn, peer_id) = {
+            let peer_asn = {
                 let info = peer.info.lock().unwrap();
-                (info.neighbor.get_asn(), info.neighbor.get_router_id())
+                info.neighbor.get_asn()
             };
+            // confirm that peer resources is released and the state is idle.
             for _ in 0..10 {
                 let state = {
                     let info = peer.info.lock().unwrap();
@@ -397,9 +403,7 @@ impl Bgp {
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
             self.rib_event_tx
-                .send(RibEvent::DeletePeer(NeighborPair::new(
-                    addr, peer_asn, peer_id,
-                )))
+                .send(RibEvent::DeletePeer(NeighborPair::new(addr, peer_asn)))
                 .await
                 .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;
         }
