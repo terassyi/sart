@@ -75,10 +75,7 @@ impl Attribute {
     }
 
     pub fn is_recognized(&self) -> bool {
-        match self {
-            Self::Unsupported(_, _) => false,
-            _ => true,
-        }
+        !matches!(self, Self::Unsupported(_, _))
     }
 
     pub fn set_partial(&mut self) {
@@ -394,7 +391,7 @@ impl Attribute {
                         UpdateMessageError::UnrecognizedWellknownAttribute(b.code),
                     ));
                 }
-                let mut taken = data.take(length as usize);
+                let mut taken = data.take(length);
                 let mut d = vec![];
                 d.put(&mut taken);
                 Ok(Self::Unsupported(b, d))
@@ -612,23 +609,23 @@ impl Attribute {
     }
 }
 
-impl Into<u8> for Attribute {
-    fn into(self) -> u8 {
-        match self {
-            Self::Origin(_, _) => Self::ORIGIN,
-            Self::ASPath(_, _) => Self::AS_PATH,
-            Self::NextHop(_, _) => Self::NEXT_HOP,
-            Self::MultiExitDisc(_, _) => Self::MULTI_EXIT_DISC,
-            Self::LocalPref(_, _) => Self::LOCAL_PREF,
-            Self::AtomicAggregate(_) => Self::ATOMIC_AGGREGATE,
-            Self::Aggregator(_, _, _) => Self::AGGREGATOR,
-            Self::Communities(_, _) => Self::COMMUNITIES,
-            Self::ExtendedCommunities(_, _, _) => Self::EXTENDED_COMMUNITIES,
-            Self::MPReachNLRI(_, _, _, _) => Self::MP_REACH_NLRI,
-            Self::MPUnReachNLRI(_, _, _) => Self::MP_UNREACH_NLRI,
-            Self::AS4Path(_, _) => Self::AS4_PATH,
-            Self::AS4Aggregator(_, _, _) => Self::AS4_AGGREGATOR,
-            Self::Unsupported(b, _) => b.code,
+impl From<Attribute> for u8 {
+    fn from(val: Attribute) -> Self {
+        match val {
+            Attribute::Origin(_, _) => Attribute::ORIGIN,
+            Attribute::ASPath(_, _) => Attribute::AS_PATH,
+            Attribute::NextHop(_, _) => Attribute::NEXT_HOP,
+            Attribute::MultiExitDisc(_, _) => Attribute::MULTI_EXIT_DISC,
+            Attribute::LocalPref(_, _) => Attribute::LOCAL_PREF,
+            Attribute::AtomicAggregate(_) => Attribute::ATOMIC_AGGREGATE,
+            Attribute::Aggregator(_, _, _) => Attribute::AGGREGATOR,
+            Attribute::Communities(_, _) => Attribute::COMMUNITIES,
+            Attribute::ExtendedCommunities(_, _, _) => Attribute::EXTENDED_COMMUNITIES,
+            Attribute::MPReachNLRI(_, _, _, _) => Attribute::MP_REACH_NLRI,
+            Attribute::MPUnReachNLRI(_, _, _) => Attribute::MP_UNREACH_NLRI,
+            Attribute::AS4Path(_, _) => Attribute::AS4_PATH,
+            Attribute::AS4Aggregator(_, _, _) => Attribute::AS4_AGGREGATOR,
+            Attribute::Unsupported(b, _) => b.code,
         }
     }
 }
@@ -709,10 +706,7 @@ impl From<&Attribute> for prost_types::Any {
             ),
             Attribute::ASPath(_, segments) => util::to_any(
                 proto::sart::AsPathAttribute {
-                    segments: segments
-                        .iter()
-                        .map(|s| proto::sart::AsSegment::from(s))
-                        .collect(),
+                    segments: segments.iter().map(proto::sart::AsSegment::from).collect(),
                 },
                 "AsPathAttribute",
             ),
@@ -817,9 +811,9 @@ impl Base {
     }
 }
 
-impl<'a> Into<u16> for &'a Base {
-    fn into(self) -> u16 {
-        ((self.flag as u16) << 8) + (self.code as u16)
+impl<'a> From<&'a Base> for u16 {
+    fn from(val: &'a Base) -> Self {
+        ((val.flag as u16) << 8) + (val.code as u16)
     }
 }
 
@@ -905,7 +899,7 @@ mod tests {
         let mut buf = BytesMut::from(input.as_slice());
         match Attribute::decode(&mut buf, as4_enabled, add_path_enabled) {
             Ok(origin) => assert_eq!(expected, origin),
-            Err(_) => assert!(false),
+            Err(_) => panic!("failed"),
         }
     }
 
@@ -931,7 +925,7 @@ mod tests {
         let mut buf = BytesMut::from(input.as_slice());
         match Attribute::decode(&mut buf, as4_enabled, false) {
             Ok(as_path) => assert_eq!(expected, as_path),
-            Err(_) => assert!(false),
+            Err(_) => panic!("failed"),
         }
     }
 
@@ -947,7 +941,7 @@ mod tests {
         let mut buf = BytesMut::from(input.as_slice());
         match Attribute::decode(&mut buf, as4_enabled, false) {
             Ok(as_path) => assert_eq!(expected, as_path),
-            Err(_) => assert!(false),
+            Err(_) => panic!("failed"),
         }
     }
 
@@ -975,7 +969,7 @@ mod tests {
         let mut buf = BytesMut::from(input.as_slice());
         match Attribute::decode(&mut buf, false, false) {
             Ok(as_path) => assert_eq!(expected, as_path),
-            Err(_) => assert!(false),
+            Err(_) => panic!("failed"),
         }
     }
 

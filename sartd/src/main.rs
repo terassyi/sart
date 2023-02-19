@@ -68,7 +68,7 @@ fn main() -> Result<(), std::io::Error> {
                 .takes_value(true)
                 .required(false)
                 .default_value("")
-                .help("log output file")
+                .help("log output file"),
         )
         .get_matches();
     let conf = if let Some(file) = app.value_of("config") {
@@ -94,7 +94,7 @@ fn main() -> Result<(), std::io::Error> {
     let level = app.value_of("log_level").unwrap();
     let format = app.value_of("format").unwrap();
     let log_file = app.value_of("log_file").unwrap();
-    let log_file = if log_file == "" {
+    let log_file = if log_file.is_empty() {
         None
     } else {
         Some(log_file.to_string())

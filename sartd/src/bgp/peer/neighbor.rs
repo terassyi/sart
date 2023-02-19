@@ -5,12 +5,12 @@ use std::net::{IpAddr, Ipv4Addr};
 pub(crate) struct NeighborPair {
     pub addr: IpAddr,
     pub asn: u32,
-    pub id: Ipv4Addr,
+    // pub id: Ipv4Addr,
 }
 
 impl NeighborPair {
-    pub fn new(addr: IpAddr, asn: u32, id: Ipv4Addr) -> Self {
-        Self { addr, asn, id }
+    pub fn new(addr: IpAddr, asn: u32) -> Self {
+        Self { addr, asn }
     }
 }
 
@@ -19,7 +19,6 @@ impl From<&NeighborConfig> for NeighborPair {
         Self {
             addr: c.address,
             asn: c.asn,
-            id: c.router_id,
         }
     }
 }
@@ -29,7 +28,6 @@ impl From<&Neighbor> for NeighborPair {
         Self {
             addr: n.get_addr(),
             asn: n.get_asn(),
-            id: n.get_router_id(),
         }
     }
 }

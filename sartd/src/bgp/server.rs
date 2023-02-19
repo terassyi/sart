@@ -34,7 +34,7 @@ use super::capability::Capability;
 use super::capability::CapabilitySet;
 use super::config::{NeighborConfig, TraceConfig};
 use super::error::{ConfigError, ControlError, PeerError, RibError};
-use super::event::{AdministrativeEvent, ControlEvent, Event, RibEvent, PeerLevelApiEvent};
+use super::event::{AdministrativeEvent, ControlEvent, Event, PeerLevelApiEvent, RibEvent};
 use super::family::AddressFamily;
 use super::packet;
 use super::packet::attribute::Attribute;
@@ -85,7 +85,7 @@ impl Bgp {
         let rib_endpoint_conf = conf.rib_endpoint.clone();
         let (rib_event_tx, mut rib_event_rx) = channel::<RibEvent>(128);
 
-        let (api_tx, mut api_rx) = channel::<ApiResponse>(128);
+        let (api_tx, api_rx) = channel::<ApiResponse>(128);
 
         let asn = conf.asn;
         let router_id = conf.router_id;
@@ -97,7 +97,6 @@ impl Bgp {
             false,
             api_tx.clone(),
         ); // TODO: enable to disable ipv6 or ipv4 by config or event
-
 
         let mut server = Self::new(conf, rib_event_tx, api_tx);
 
@@ -248,14 +247,20 @@ impl Bgp {
     #[tracing::instrument(skip(self))]
     async fn get_peer(&self, addr: IpAddr) -> Result<(), Error> {
         if let Some(manager) = self.peer_managers.get(&addr) {
-            manager.event_tx.send(Event::Api(PeerLevelApiEvent::GetPeer)).map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;
+            manager
+                .event_tx
+                .send(Event::Api(PeerLevelApiEvent::GetPeer))
+                .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;
         }
         Ok(())
     }
 
     #[tracing::instrument(skip(self))]
     async fn get_path(&self, family: AddressFamily) -> Result<(), Error> {
-        self.rib_event_tx.send(RibEvent::GetPath(family)).await.map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))
+        self.rib_event_tx
+            .send(RibEvent::GetPath(family))
+            .await
+            .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))
     }
 
     #[tracing::instrument(skip(self))]
@@ -381,10 +386,11 @@ impl Bgp {
             peer.event_tx
                 .send(Event::Admin(AdministrativeEvent::ManualStop))
                 .map_err(|_| Error::Peer(PeerError::Down))?;
-            let (peer_asn, peer_id) = {
+            let peer_asn = {
                 let info = peer.info.lock().unwrap();
-                (info.neighbor.get_asn(), info.neighbor.get_router_id())
+                info.neighbor.get_asn()
             };
+            // confirm that peer resources is released and the state is idle.
             for _ in 0..10 {
                 let state = {
                     let info = peer.info.lock().unwrap();
@@ -397,9 +403,7 @@ impl Bgp {
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
             self.rib_event_tx
-                .send(RibEvent::DeletePeer(NeighborPair::new(
-                    addr, peer_asn, peer_id,
-                )))
+                .send(RibEvent::DeletePeer(NeighborPair::new(addr, peer_asn)))
                 .await
                 .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;
         }
@@ -479,19 +483,17 @@ fn prepare_tracing(conf: TraceConfig) {
                 .with(tracing_subscriber::filter::LevelFilter::from_str(&conf.level).unwrap())
                 .init();
         }
+    } else if let Some(path) = conf.file {
+        let file = std::fs::File::create(path).unwrap();
+        tracing_subscriber::Registry::default()
+            .with(tracing_subscriber::fmt::Layer::new().with_writer(file))
+            .with(tracing_subscriber::fmt::Layer::new().with_ansi(true))
+            .with(tracing_subscriber::filter::LevelFilter::from_str(&conf.level).unwrap())
+            .init();
     } else {
-        if let Some(path) = conf.file {
-            let file = std::fs::File::create(path).unwrap();
-            tracing_subscriber::Registry::default()
-                .with(tracing_subscriber::fmt::Layer::new().with_writer(file))
-                .with(tracing_subscriber::fmt::Layer::new().with_ansi(true))
-                .with(tracing_subscriber::filter::LevelFilter::from_str(&conf.level).unwrap())
-                .init();
-        } else {
-            tracing_subscriber::Registry::default()
-                .with(tracing_subscriber::fmt::Layer::new().with_ansi(true))
-                .with(tracing_subscriber::filter::LevelFilter::from_str(&conf.level).unwrap())
-                .init();
-        }
+        tracing_subscriber::Registry::default()
+            .with(tracing_subscriber::fmt::Layer::new().with_ansi(true))
+            .with(tracing_subscriber::filter::LevelFilter::from_str(&conf.level).unwrap())
+            .init();
     }
 }

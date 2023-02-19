@@ -289,7 +289,7 @@ impl Encoder<Message> for Codec {
                 } else {
                     dst.put_u8(0);
                 }
-                if data.len() > 0 {
+                if !data.is_empty() {
                     dst.put_slice(&data);
                 }
             }
@@ -316,7 +316,6 @@ mod tests {
     use bytes::BytesMut;
     use ipnet::{IpNet, Ipv4Net};
     use rstest::rstest;
-    use std::env;
     use std::io::Read;
     use std::net::{IpAddr, Ipv4Addr};
     use tokio_stream::StreamExt;
@@ -325,13 +324,12 @@ mod tests {
 
     #[tokio::test]
     async fn works_framedread_decode() {
-        let path = env::current_dir().unwrap();
         let testdata = vec![("testdata/messages/keepalive", Message::Keepalive)];
         for (path, expected) in testdata {
             let mut file = std::fs::File::open(path).unwrap();
             let mut buf = vec![];
             let _ = file.read_to_end(&mut buf).unwrap();
-            let mut mock_stream = MockTcpStream::new(buf);
+            let mock_stream = MockTcpStream::new(buf);
             let codec = Codec::default();
             let mut reader = FramedRead::new(mock_stream, codec);
             let msg = reader.next().await.unwrap().unwrap();
@@ -729,7 +727,7 @@ mod tests {
         let mut expected_data = Vec::new();
         file.read_to_end(&mut expected_data).unwrap();
         let mut codec = Codec::new(as4_enabled, path_id_enabled);
-        let mut b: Vec<u8> = Vec::new();
+        let b: Vec<u8> = Vec::new();
         let mut buf = BytesMut::from(b.as_slice());
         codec.encode(msg, &mut buf).unwrap();
         assert_eq!(expected_data, buf.to_vec());

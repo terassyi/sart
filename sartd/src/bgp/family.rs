@@ -69,19 +69,19 @@ impl From<&AddressFamily> for proto::sart::AddressFamily {
         proto::sart::AddressFamily {
             afi: family.afi as i32,
             safi: family.safi as i32,
-        } 
+        }
     }
 }
 
-impl Into<u32> for AddressFamily {
-    fn into(self) -> u32 {
-        (((self.afi as u16) as u32) << 16) + ((self.safi as u8) as u32)
+impl From<AddressFamily> for u32 {
+    fn from(val: AddressFamily) -> Self {
+        (((val.afi as u16) as u32) << 16) + ((val.safi as u8) as u32)
     }
 }
 
-impl<'a> Into<u32> for &'a AddressFamily {
-    fn into(self) -> u32 {
-        (((self.afi as u16) as u32) << 16) + ((self.safi as u8) as u32)
+impl<'a> From<&'a AddressFamily> for u32 {
+    fn from(val: &'a AddressFamily) -> Self {
+        (((val.afi as u16) as u32) << 16) + ((val.safi as u8) as u32)
     }
 }
 
@@ -102,11 +102,11 @@ impl TryFrom<u16> for Afi {
     }
 }
 
-impl Into<u16> for Afi {
-    fn into(self) -> u16 {
-        match self {
-            Self::IPv4 => 1,
-            Self::IPv6 => 2,
+impl From<Afi> for u16 {
+    fn from(val: Afi) -> Self {
+        match val {
+            Afi::IPv4 => 1,
+            Afi::IPv6 => 2,
         }
     }
 }
@@ -128,11 +128,11 @@ impl TryFrom<u8> for Safi {
     }
 }
 
-impl Into<u8> for Safi {
-    fn into(self) -> u8 {
-        match self {
-            Self::Unicast => 1,
-            Self::Multicast => 2,
+impl From<Safi> for u8 {
+    fn from(val: Safi) -> Self {
+        match val {
+            Safi::Unicast => 1,
+            Safi::Multicast => 2,
         }
     }
 }
@@ -161,7 +161,7 @@ mod tests {
     )]
     fn failed_address_family_try_from(input: u32, expected: &'static str) {
         match AddressFamily::try_from(input) {
-            Ok(_) => assert!(false),
+            Ok(_) => panic!("failed"),
             Err(e) => assert_eq!(e, expected),
         }
     }

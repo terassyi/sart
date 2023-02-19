@@ -57,14 +57,15 @@ impl BgpApi for ApiServer {
         let mut rx = self.response_rx.lock().await;
         match timeout(Duration::from_secs(self.timeout), rx.recv()).await {
             Ok(res) => match res {
-                Some(info) => match info {
-                    ApiResponse::BgpInfo(info) => {
+                Some(info) => {
+                    if let ApiResponse::BgpInfo(info) = info {
                         Ok(Response::new(proto::sart::GetBgpInfoResponse {
                             info: Some(info),
                         }))
+                    } else {
+                        Err(Status::internal("failed to get bgp information"))
                     }
-                    _ => Err(Status::internal("failed to get bgp information")),
-                },
+                }
                 None => Err(Status::internal("failed to get bgp information")),
             },
             Err(_e) => Err(Status::deadline_exceeded("timeout")),
@@ -84,14 +85,15 @@ impl BgpApi for ApiServer {
         let mut rx = self.response_rx.lock().await;
         match timeout(Duration::from_secs(self.timeout), rx.recv()).await {
             Ok(res) => match res {
-                Some(info) => match info {
-                    ApiResponse::Neighbor(peer) => {
+                Some(res) => {
+                    if let ApiResponse::Neighbor(peer) = res {
                         Ok(Response::new(proto::sart::GetNeighborResponse {
                             peer: Some(peer),
                         }))
+                    } else {
+                        Err(Status::internal("failed to get neighbor information"))
                     }
-                    _ => Err(Status::internal("failed to get neighbor information")),
-                },
+                }
                 None => Err(Status::internal("failed to get neighbor information")),
             },
             Err(_e) => Err(Status::deadline_exceeded("timeout")),
@@ -115,12 +117,13 @@ impl BgpApi for ApiServer {
         let mut rx = self.response_rx.lock().await;
         match timeout(Duration::from_secs(self.timeout), rx.recv()).await {
             Ok(res) => match res {
-                Some(info) => match info {
-                    ApiResponse::Paths(paths) => {
+                Some(res) => {
+                    if let ApiResponse::Paths(paths) = res {
                         Ok(Response::new(proto::sart::GetPathResponse { paths }))
+                    } else {
+                        Err(Status::internal("failed to get path information"))
                     }
-                    _ => Err(Status::internal("failed to get path information")),
-                },
+                }
                 None => Err(Status::internal("failed to get path information")),
             },
             Err(_e) => Err(Status::deadline_exceeded("timeout")),

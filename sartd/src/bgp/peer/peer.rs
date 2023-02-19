@@ -24,7 +24,8 @@ use crate::bgp::error::{
     UpdateMessageError,
 };
 use crate::bgp::event::{
-    AdministrativeEvent, BgpMessageEvent, Event, RibEvent, TcpConnectionEvent, TimerEvent, PeerLevelApiEvent,
+    AdministrativeEvent, BgpMessageEvent, Event, PeerLevelApiEvent, RibEvent, TcpConnectionEvent,
+    TimerEvent,
 };
 use crate::bgp::family::{AddressFamily, Afi};
 use crate::bgp::packet::attribute::Attribute;
@@ -279,7 +280,7 @@ impl Peer {
                             BgpMessageEvent::KeepAliveMsg => self.keepalive_msg().await,
                             BgpMessageEvent::UpdateMsg(msg) => self.update_msg(msg).await,
                             BgpMessageEvent::UpdateMsgErr(e) => self.update_msg_error(e).await,
-                            BgpMessageEvent::RouteRefreshMsg(msg) => self.route_refresh_msg(),
+                            BgpMessageEvent::RouteRefreshMsg(_msg) => self.route_refresh_msg(),
                             BgpMessageEvent::RouteRefreshMsgErr => self.route_refresh_msg_error(),
                             _ => unimplemented!(),
                         };
@@ -502,12 +503,11 @@ impl Peer {
         self.recv_counter.lock().unwrap().reset();
 
         if self.state() == State::Established {
-            let (peer_asn, peer_addr, peer_id, families) = {
+            let (peer_asn, peer_addr, families) = {
                 let info = self.info.lock().unwrap();
                 (
                     info.neighbor.get_asn(),
                     info.neighbor.get_addr(),
-                    info.neighbor.get_router_id(),
                     info.families.clone(),
                 )
             };
@@ -516,7 +516,7 @@ impl Peer {
                     let ids = paths.iter().map(|p| (p.prefix(), p.id)).collect();
                     self.rib_tx
                         .send(RibEvent::DropPaths(
-                            NeighborPair::new(peer_addr, peer_asn, peer_id),
+                            NeighborPair::new(peer_addr, peer_asn),
                             *family,
                             ids,
                         ))
@@ -857,7 +857,7 @@ impl Peer {
         peer_port: u16,
         recv: Message,
     ) -> Result<(), Error> {
-        let (_version, _asn, hold_time, _router_id, _caps) = recv.to_open()?;
+        let (_version, _asn, hold_time, router_id, _caps) = recv.to_open()?;
         tracing::debug!(state=?self.state());
         match self.state() {
             State::Active => {
@@ -881,11 +881,11 @@ impl Peer {
                 let _negotiated_hold_time = self.negotiate_hold_time(hold_time as u64)?;
 
                 // when new session is established, it needs to advertise all paths.
-                let (peer_asn, peer_id, peer_addr, families) = {
-                    let info = self.info.lock().unwrap();
+                let (peer_asn, peer_addr, families) = {
+                    let mut info = self.info.lock().unwrap();
+                    info.neighbor.router_id(router_id);
                     (
                         info.neighbor.get_asn(),
-                        info.neighbor.get_router_id(),
                         info.neighbor.get_addr(),
                         info.families.clone(),
                     )
@@ -894,7 +894,7 @@ impl Peer {
                     self.rib_tx
                         .send(RibEvent::Init(
                             *family,
-                            NeighborPair::new(peer_addr, peer_asn, peer_id),
+                            NeighborPair::new(peer_addr, peer_asn),
                         ))
                         .await
                         .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;
@@ -913,11 +913,11 @@ impl Peer {
                 self.send(msg)?;
 
                 // when new session is established, it needs to advertise all paths.
-                let (peer_asn, peer_id, peer_addr, families) = {
-                    let info = self.info.lock().unwrap();
+                let (peer_asn, peer_addr, families) = {
+                    let mut info = self.info.lock().unwrap();
+                    info.neighbor.router_id(router_id);
                     (
                         info.neighbor.get_asn(),
-                        info.neighbor.get_router_id(),
                         info.neighbor.get_addr(),
                         info.families.clone(),
                     )
@@ -926,7 +926,7 @@ impl Peer {
                     self.rib_tx
                         .send(RibEvent::Init(
                             *family,
-                            NeighborPair::new(peer_addr, peer_asn, peer_id),
+                            NeighborPair::new(peer_addr, peer_asn),
                         ))
                         .await
                         .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;
@@ -1518,19 +1518,13 @@ impl Peer {
 
             let family = p.family;
             let old_path = self.adj_rib_out.insert(&family, p.prefix, p.clone())?;
-            let replace = match old_path {
-                Some(_) => true,
-                None => false,
-            };
+            let replace = old_path.is_some();
             tracing::info!(level="peer",local.addr=local_addr.to_string(),local.asn=local_asn,local.id=local_id.to_string(),peer.addr=peer_addr.to_string(),peer.id=peer_id.to_string(),peer.asn=peer_asn,prefix=?p.prefix(),replace=replace,"update adj-rib-out");
 
-            let as4_enabled = match info
+            let as4_enabled = info
                 .local_capabilities
                 .get(&capability::Capability::FOUR_OCTET_AS_NUMBER)
-            {
-                Some(_) => true,
-                None => false,
-            };
+                .is_some();
 
             let attr = p.attributes(as4_enabled)?;
             match attr_group.get_mut(&attr) {
@@ -1590,7 +1584,7 @@ impl Peer {
             .ok_or(Error::Rib(RibError::InvalidAddressFamily))?;
             let old_path = self
                 .adj_rib_out
-                .remove(&family, p)
+                .remove(family, p)
                 .ok_or(Error::Rib(RibError::PathNotFound))?;
             tracing::info!(level="peer",local.addr=local_addr.to_string(),local.asn=local_asn,local.id=local_id.to_string(),peer.addr=peer_addr.to_string(),peer.id=peer_id.to_string(),peer.asn=peer_asn,prefix=?old_path.prefix(),"withdraw from adj-rib-out");
         }
@@ -1604,41 +1598,48 @@ impl Peer {
     async fn get_info(&self) -> Result<(), Error> {
         let peer = {
             let send_counter = self.send_counter.lock().unwrap();
-            let sc = proto::sart::MessageCounter{ 
-                open: send_counter.open as u32, 
-                update: send_counter.update as u32, 
-                keepalive: send_counter.keepalive as u32, 
-                notification: send_counter.notification as u32, 
-                route_refresh: send_counter.route_refresh as u32
+            let sc = proto::sart::MessageCounter {
+                open: send_counter.open as u32,
+                update: send_counter.update as u32,
+                keepalive: send_counter.keepalive as u32,
+                notification: send_counter.notification as u32,
+                route_refresh: send_counter.route_refresh as u32,
             };
             drop(send_counter);
             let recv_counter = self.recv_counter.lock().unwrap();
-            let rc = proto::sart::MessageCounter{ 
-                open: recv_counter.open as u32, 
-                update: recv_counter.update as u32, 
-                keepalive: recv_counter.keepalive as u32, 
-                notification: recv_counter.notification as u32, 
-                route_refresh: recv_counter.route_refresh as u32
+            let rc = proto::sart::MessageCounter {
+                open: recv_counter.open as u32,
+                update: recv_counter.update as u32,
+                keepalive: recv_counter.keepalive as u32,
+                notification: recv_counter.notification as u32,
+                route_refresh: recv_counter.route_refresh as u32,
             };
             drop(recv_counter);
 
             let info = self.info.lock().unwrap();
-            proto::sart::Peer{ 
-                asn: info.neighbor.get_asn(), 
-                address: info.neighbor.get_addr().to_string(), 
-                router_id: info.neighbor.get_router_id().to_string(), 
-                families: info.families.iter().map(|f| proto::sart::AddressFamily::from(f)).collect(), 
-                hold_time: self.negotiated_hold_time as u32, 
-                keepalive_time: self.keepalive_time as u32, 
-                uptime: Some(prost_types::Timestamp::from(self.uptime)), 
-                send_counter: Some(sc), 
-                recv_counter: Some(rc), 
-                state: info.state as i32, 
-                passive_open: false, 
+            proto::sart::Peer {
+                asn: info.neighbor.get_asn(),
+                address: info.neighbor.get_addr().to_string(),
+                router_id: info.neighbor.get_router_id().to_string(),
+                families: info
+                    .families
+                    .iter()
+                    .map(|f| proto::sart::AddressFamily::from(f))
+                    .collect(),
+                hold_time: self.negotiated_hold_time as u32,
+                keepalive_time: self.keepalive_time as u32,
+                uptime: Some(prost_types::Timestamp::from(self.uptime)),
+                send_counter: Some(sc),
+                recv_counter: Some(rc),
+                state: info.state as i32,
+                passive_open: false,
             }
         };
 
-        self.api_tx.send(ApiResponse::Neighbor(peer)).await.map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))
+        self.api_tx
+            .send(ApiResponse::Neighbor(peer))
+            .await
+            .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))
     }
 }
 
@@ -1749,13 +1750,12 @@ impl MessageCounter {
 }
 
 impl From<&MessageCounter> for proto::sart::MessageCounter {
-
     fn from(c: &MessageCounter) -> Self {
         proto::sart::MessageCounter {
-            open: c.open as u32, 
-            update: c.update as u32, 
-            keepalive: c.keepalive as u32, 
-            notification: c.notification as u32, 
+            open: c.open as u32,
+            update: c.update as u32,
+            keepalive: c.keepalive as u32,
+            notification: c.notification as u32,
             route_refresh: c.route_refresh as u32,
         }
     }
@@ -1810,7 +1810,7 @@ mod tests {
         )));
         let (_, rx) = tokio::sync::mpsc::unbounded_channel();
         let (rib_tx, rib_rx) = tokio::sync::mpsc::channel(128);
-        let (api_tx, api_rx) = tokio::sync::mpsc::channel(128);
+        let (api_tx, _api_rx) = tokio::sync::mpsc::channel(128);
         let mut peer = Peer::new(info, rx, rib_tx, rib_rx, api_tx);
         for e in event.into_iter() {
             peer.move_state(e);
@@ -1843,7 +1843,7 @@ mod tests {
         )));
         let (_, rx) = tokio::sync::mpsc::unbounded_channel();
         let (rib_tx, rib_rx) = tokio::sync::mpsc::channel(128);
-        let (api_tx, api_rx) = tokio::sync::mpsc::channel(128);
+        let (api_tx, _api_rx) = tokio::sync::mpsc::channel(128);
         let peer = Peer::new(info, rx, rib_tx, rib_rx, api_tx);
         let msg = peer.build_open_msg().unwrap();
         assert_eq!(

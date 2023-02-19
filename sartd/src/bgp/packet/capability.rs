@@ -164,18 +164,18 @@ impl Capability {
     }
 }
 
-impl Into<u8> for Capability {
-    fn into(self) -> u8 {
-        match self {
-            Self::MultiProtocol(_) => Self::MULTI_PROTOCOL,
-            Self::RouteRefresh => Self::ROUTE_REFRESH,
-            Self::ExtendedNextHop(_) => Self::EXTENDED_NEXT_HOP,
-            Self::BGPExtendedMessage => Self::BGP_EXTENDED_MESSAGE,
-            Self::GracefulRestart(_, _, _) => Self::GRACEFUL_RESTART,
-            Self::FourOctetASNumber(_) => Self::FOUR_OCTET_AS_NUMBER,
-            Self::AddPath(_, _) => Self::ADD_PATH,
-            Self::EnhancedRouteRefresh => Self::ENHANCED_ROUTE_REFRESH,
-            Self::Unsupported(code, _) => code,
+impl From<Capability> for u8 {
+    fn from(val: Capability) -> Self {
+        match val {
+            Capability::MultiProtocol(_) => Capability::MULTI_PROTOCOL,
+            Capability::RouteRefresh => Capability::ROUTE_REFRESH,
+            Capability::ExtendedNextHop(_) => Capability::EXTENDED_NEXT_HOP,
+            Capability::BGPExtendedMessage => Capability::BGP_EXTENDED_MESSAGE,
+            Capability::GracefulRestart(_, _, _) => Capability::GRACEFUL_RESTART,
+            Capability::FourOctetASNumber(_) => Capability::FOUR_OCTET_AS_NUMBER,
+            Capability::AddPath(_, _) => Capability::ADD_PATH,
+            Capability::EnhancedRouteRefresh => Capability::ENHANCED_ROUTE_REFRESH,
+            Capability::Unsupported(code, _) => code,
         }
     }
 }
@@ -214,7 +214,7 @@ mod tests {
             Ok(cap) => {
                 assert_eq!(expected, cap);
             }
-            Err(_) => assert!(false),
+            Err(_) => panic!("failed"),
         }
     }
     #[rstest(
@@ -227,10 +227,10 @@ mod tests {
     fn failed_capability_decode(code: u8, length: u8, data: Vec<u8>, expected: OpenMessageError) {
         let mut buf = BytesMut::from(data.as_slice());
         match Capability::decode(code, length, &mut buf) {
-            Ok(_) => assert!(false),
+            Ok(_) => panic!("failed"),
             Err(e) => match e {
                 Error::OpenMessage(ee) => assert_eq!(expected, ee),
-                _ => assert!(false),
+                _ => panic!("failed"),
             },
         }
     }

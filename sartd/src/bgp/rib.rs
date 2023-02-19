@@ -2,7 +2,7 @@ use ipnet::IpNet;
 use std::{
     cmp::Ordering,
     collections::HashMap,
-    net::{IpAddr, Ipv4Addr}
+    net::{IpAddr, Ipv4Addr},
 };
 use tokio::sync::mpsc::Sender;
 
@@ -10,12 +10,13 @@ use crate::bgp::path::PathKind;
 use crate::proto;
 
 use super::{
+    api_server::ApiResponse,
     error::{ControlError, Error, RibError},
     event::RibEvent,
     family::{AddressFamily, Afi},
     packet::attribute::Attribute,
     path::{BestPathReason, Path, PathBuilder},
-    peer::neighbor::NeighborPair, api_server::ApiResponse,
+    peer::neighbor::NeighborPair,
 };
 
 #[derive(Debug)]
@@ -53,7 +54,7 @@ impl Table {
     }
 
     fn get_all(&self) -> Vec<&Path> {
-        self.inner.iter().map(|(_prefix, path)| path).collect()
+        self.inner.values().collect()
     }
 
     fn clear(&mut self) {
@@ -233,7 +234,7 @@ impl LocRib {
                     }
                 }
                 Some(all)
-            },
+            }
             None => None,
         }
     }
@@ -505,17 +506,22 @@ impl RibManager {
 
     #[tracing::instrument(skip(self))]
     fn delete_peer(&mut self, neighbor: NeighborPair) -> Result<(), Error> {
-        Ok(())
+        tracing::warn!("delete peer from rib manager");
+        match self.peers_tx.remove(&neighbor) {
+            Some(neighbor) => Ok(()),
+            None => Err(Error::Rib(RibError::PeerNotFound)),
+        }
     }
 
-    #[tracing::instrument(skip(self, neighbor), fields(peer.asn=neighbor.asn,peer.addr=neighbor.addr.to_string(),peer.id=neighbor.id.to_string()))]
+    #[tracing::instrument(skip(self, neighbor), fields(peer.asn=neighbor.asn,peer.addr=neighbor.addr.to_string()))]
     async fn init(&self, family: AddressFamily, neighbor: NeighborPair) -> Result<(), Error> {
+        tracing::debug!("initialize path");
         if let Some(paths) = self.loc_rib.get_all_best(&family) {
             // exclude best paths from target neighbor
             let p = paths
                 .iter()
                 .filter(|&p| {
-                    !p.peer_id.eq(&neighbor.id)
+                    !p.peer_addr.eq(&neighbor.addr)
                         || if self.asn == neighbor.asn {
                             // ibgp peer
                             p.kind() != PathKind::Internal
@@ -541,7 +547,7 @@ impl RibManager {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self, neighbor), fields(peer.asn=neighbor.asn,peer.addr=neighbor.addr.to_string(),peer.id=neighbor.id.to_string()))]
+    #[tracing::instrument(skip(self, neighbor), fields(peer.asn=neighbor.asn,peer.addr=neighbor.addr.to_string()))]
     async fn flush(&self, family: AddressFamily, neighbor: NeighborPair) -> Result<(), Error> {
         Ok(())
     }
@@ -556,7 +562,7 @@ impl RibManager {
             .nlri(networks.iter().map(|&n| n.into()).collect())
             .build()?;
         self.install_paths(
-            NeighborPair::new(IpAddr::V4(self.router_id), self.asn, self.router_id),
+            NeighborPair::new(IpAddr::V4(self.router_id), self.asn),
             paths,
         )
         .await
@@ -584,14 +590,14 @@ impl RibManager {
             .map(|p| (p.prefix(), p.id))
             .collect();
         self.drop_paths(
-            NeighborPair::new(IpAddr::V4(self.router_id), self.asn, self.router_id),
+            NeighborPair::new(IpAddr::V4(self.router_id), self.asn),
             family,
             path_ids,
         )
         .await
     }
 
-    #[tracing::instrument(skip(self, neighbor, paths), fields(peer.asn=neighbor.asn,peer.addr=neighbor.addr.to_string(),peer.id=neighbor.id.to_string()))]
+    #[tracing::instrument(skip(self, neighbor), fields(peer.asn=neighbor.asn,peer.addr=neighbor.addr.to_string()))]
     async fn install_paths(
         &mut self,
         neighbor: NeighborPair,
@@ -652,7 +658,7 @@ impl RibManager {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self, neighbor), fields(peer.asn=neighbor.asn,peer.addr=neighbor.addr.to_string(),peer.id=neighbor.id.to_string()))]
+    #[tracing::instrument(skip(self, neighbor), fields(peer.asn=neighbor.asn,peer.addr=neighbor.addr.to_string()))]
     async fn drop_paths(
         &mut self,
         neighbor: NeighborPair,
@@ -741,8 +747,14 @@ impl RibManager {
 
     async fn get_path(&self, family: AddressFamily) -> Result<(), Error> {
         if let Some(all_paths) = self.loc_rib.get_all(&family) {
-            let paths = all_paths.iter().map(|&p| proto::sart::Path::from(p)).collect();
-            self.api_tx.send(ApiResponse::Paths(paths)).await.map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;
+            let paths = all_paths
+                .iter()
+                .map(|&p| proto::sart::Path::from(p))
+                .collect();
+            self.api_tx
+                .send(ApiResponse::Paths(paths))
+                .await
+                .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;
         }
         Ok(())
     }
@@ -848,9 +860,9 @@ mod tests {
     use rstest::rstest;
     use std::collections::HashMap;
     use std::net::{IpAddr, Ipv4Addr};
+    use std::time::SystemTime;
     use tokio::sync::mpsc::channel;
     use tokio::time::{timeout, Duration};
-    use std::time::SystemTime;
 
     use crate::bgp::packet::attribute::{ASSegment, Base};
     use crate::bgp::packet::message::Message;
@@ -880,11 +892,7 @@ mod tests {
         let (tx, _rx) = channel::<RibEvent>(128);
         manager
             .add_peer(
-                NeighborPair::new(
-                    IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-                    100,
-                    Ipv4Addr::new(0, 0, 0, 0),
-                ),
+                NeighborPair::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 100),
                 tx,
             )
             .unwrap();
@@ -2110,20 +2118,12 @@ mod tests {
         );
 
         // peer1
-        let peer1 = NeighborPair::new(
-            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
-            65010,
-            Ipv4Addr::new(2, 2, 2, 2),
-        );
+        let peer1 = NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)), 65010);
         let (peer1_tx, mut peer1_rx) = channel::<RibEvent>(10);
         manager.add_peer(peer1.clone(), peer1_tx).unwrap();
 
         // peer2
-        let peer2 = NeighborPair::new(
-            IpAddr::V4(Ipv4Addr::new(10, 0, 1, 2)),
-            65020,
-            Ipv4Addr::new(3, 3, 3, 3),
-        );
+        let peer2 = NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 1, 2)), 65020);
         let (peer2_tx, mut peer2_rx) = channel::<RibEvent>(10);
         manager.add_peer(peer2.clone(), peer2_tx).unwrap();
 
@@ -2163,7 +2163,7 @@ mod tests {
         }
         // not recv
         match timeout(Duration::from_millis(10), peer1_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer1 should not receive event"),
         }
         // install paths from peer2
@@ -2246,7 +2246,7 @@ mod tests {
         }
         // not recv
         match timeout(Duration::from_millis(10), peer2_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer2 should not receive event"),
         }
 
@@ -2273,11 +2273,7 @@ mod tests {
         }];
         manager
             .install_paths(
-                NeighborPair::new(
-                    IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
-                    65000,
-                    Ipv4Addr::new(1, 1, 1, 1),
-                ),
+                NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), 65000),
                 paths,
             )
             .await
@@ -2318,11 +2314,11 @@ mod tests {
 
         // not recv
         match timeout(Duration::from_millis(10), peer1_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer1 should not receive event"),
         }
         match timeout(Duration::from_millis(10), peer2_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer2 should not receive event"),
         }
         // drop from peer1
@@ -2345,18 +2341,14 @@ mod tests {
         }
         // not recv
         match timeout(Duration::from_millis(10), peer1_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer1 should not receive event"),
         }
         // drop from local
         let prefixes: Vec<(IpNet, u64)> = vec![("10.0.100.0/24".parse().unwrap(), 4)];
         manager
             .drop_paths(
-                NeighborPair::new(
-                    IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
-                    65000,
-                    Ipv4Addr::new(1, 1, 1, 1),
-                ),
+                NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), 65000),
                 family,
                 prefixes,
             )
@@ -2398,20 +2390,12 @@ mod tests {
         );
 
         // peer1
-        let peer1 = NeighborPair::new(
-            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
-            65000,
-            Ipv4Addr::new(2, 2, 2, 2),
-        );
+        let peer1 = NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)), 65000);
         let (peer1_tx, mut peer1_rx) = channel::<RibEvent>(10);
         manager.add_peer(peer1.clone(), peer1_tx).unwrap();
 
         // peer2
-        let peer2 = NeighborPair::new(
-            IpAddr::V4(Ipv4Addr::new(10, 0, 1, 2)),
-            65000,
-            Ipv4Addr::new(3, 3, 3, 3),
-        );
+        let peer2 = NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 1, 2)), 65000);
         let (peer2_tx, mut peer2_rx) = channel::<RibEvent>(10);
         manager.add_peer(peer2.clone(), peer2_tx).unwrap();
 
@@ -2440,12 +2424,12 @@ mod tests {
 
         // not recv
         match timeout(Duration::from_millis(10), peer1_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer1 should not receive event"),
         }
         // not recv
         match timeout(Duration::from_millis(10), peer2_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer2 should not receive event"),
         }
 
@@ -2472,11 +2456,7 @@ mod tests {
         }];
         manager
             .install_paths(
-                NeighborPair::new(
-                    IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
-                    65000,
-                    Ipv4Addr::new(1, 1, 1, 1),
-                ),
+                NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), 65000),
                 paths,
             )
             .await
@@ -2517,22 +2497,18 @@ mod tests {
 
         // not recv
         match timeout(Duration::from_millis(10), peer1_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer1 should not receive event"),
         }
         match timeout(Duration::from_millis(10), peer2_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer2 should not receive event"),
         }
         // drop from local
         let prefixes: Vec<(IpNet, u64)> = vec![("10.0.100.0/24".parse().unwrap(), 4)];
         manager
             .drop_paths(
-                NeighborPair::new(
-                    IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
-                    65000,
-                    Ipv4Addr::new(1, 1, 1, 1),
-                ),
+                NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), 65000),
                 family,
                 prefixes,
             )
@@ -2574,20 +2550,12 @@ mod tests {
         );
 
         // peer1
-        let peer1 = NeighborPair::new(
-            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
-            65010,
-            Ipv4Addr::new(2, 2, 2, 2),
-        );
+        let peer1 = NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)), 65010);
         let (peer1_tx, mut peer1_rx) = channel::<RibEvent>(10);
         manager.add_peer(peer1.clone(), peer1_tx).unwrap();
 
         // peer2
-        let peer2 = NeighborPair::new(
-            IpAddr::V4(Ipv4Addr::new(10, 0, 1, 2)),
-            65020,
-            Ipv4Addr::new(3, 3, 3, 3),
-        );
+        let peer2 = NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 1, 2)), 65020);
         let (peer2_tx, mut peer2_rx) = channel::<RibEvent>(10);
         manager.add_peer(peer2.clone(), peer2_tx).unwrap();
 
@@ -2627,7 +2595,7 @@ mod tests {
         }
         // not recv
         match timeout(Duration::from_millis(10), peer1_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer1 should not receive event"),
         }
         // install paths from peer2
@@ -2689,7 +2657,7 @@ mod tests {
         }
         // not recv
         match timeout(Duration::from_millis(10), peer2_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer2 should not receive event"),
         }
 
@@ -2716,11 +2684,7 @@ mod tests {
         }];
         manager
             .install_paths(
-                NeighborPair::new(
-                    IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
-                    65000,
-                    Ipv4Addr::new(1, 1, 1, 1),
-                ),
+                NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), 65000),
                 paths,
             )
             .await
@@ -2774,18 +2738,14 @@ mod tests {
         }
         // not recv
         match timeout(Duration::from_millis(10), peer2_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer2 should not receive event"),
         }
         // drop from local
         let prefixes: Vec<(IpNet, u64)> = vec![("10.0.20.0/24".parse().unwrap(), 4)];
         manager
             .drop_paths(
-                NeighborPair::new(
-                    IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
-                    65000,
-                    Ipv4Addr::new(1, 1, 1, 1),
-                ),
+                NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), 65000),
                 family,
                 prefixes,
             )
@@ -2829,29 +2789,17 @@ mod tests {
         );
 
         // peer1
-        let peer1 = NeighborPair::new(
-            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
-            65000,
-            Ipv4Addr::new(2, 2, 2, 2),
-        );
+        let peer1 = NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)), 65000);
         let (peer1_tx, mut peer1_rx) = channel::<RibEvent>(10);
         manager.add_peer(peer1.clone(), peer1_tx).unwrap();
 
         // peer2
-        let peer2 = NeighborPair::new(
-            IpAddr::V4(Ipv4Addr::new(10, 0, 1, 2)),
-            65000,
-            Ipv4Addr::new(3, 3, 3, 3),
-        );
+        let peer2 = NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 1, 2)), 65000);
         let (peer2_tx, mut peer2_rx) = channel::<RibEvent>(10);
         manager.add_peer(peer2.clone(), peer2_tx).unwrap();
 
         // peer3
-        let peer3 = NeighborPair::new(
-            IpAddr::V4(Ipv4Addr::new(10, 0, 2, 2)),
-            65010,
-            Ipv4Addr::new(4, 4, 4, 4),
-        );
+        let peer3 = NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 2, 2)), 65010);
         let (peer3_tx, mut peer3_rx) = channel::<RibEvent>(10);
         manager.add_peer(peer3.clone(), peer3_tx).unwrap();
 
@@ -2891,11 +2839,11 @@ mod tests {
         }
         // not recv
         match timeout(Duration::from_millis(10), peer1_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer1 should not receive event"),
         }
         match timeout(Duration::from_millis(10), peer2_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer2 should not receive event"),
         }
         // install paths from peer2
@@ -2956,11 +2904,11 @@ mod tests {
         }
         // not recv
         match timeout(Duration::from_millis(10), peer1_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer1 should not receive event"),
         }
         match timeout(Duration::from_millis(10), peer2_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer2 should not receive event"),
         }
 
@@ -3012,7 +2960,7 @@ mod tests {
         }
         // not recv
         match timeout(Duration::from_millis(10), peer3_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer3 should not receive event"),
         }
         // drop paths
@@ -3048,11 +2996,11 @@ mod tests {
         }
         // not recv
         match timeout(Duration::from_millis(10), peer1_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer1 should not receive event"),
         }
         match timeout(Duration::from_millis(10), peer2_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer2 should not receive event"),
         }
         // drop from peer1
@@ -3075,11 +3023,11 @@ mod tests {
         }
         // not recv
         match timeout(Duration::from_millis(10), peer1_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer1 should not receive event"),
         }
         match timeout(Duration::from_millis(10), peer2_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer2 should not receive event"),
         }
         // drop from peer3
@@ -3112,7 +3060,7 @@ mod tests {
         }
         // not recv
         match timeout(Duration::from_millis(10), peer3_rx.recv()).await {
-            Err(_) => assert!(true),
+            Err(_) => {}
             Ok(_) => panic!("peer3 should not receive event"),
         }
     }
@@ -3130,29 +3078,17 @@ mod tests {
         );
 
         // peer1
-        let peer1 = NeighborPair::new(
-            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
-            65000,
-            Ipv4Addr::new(2, 2, 2, 2),
-        );
+        let peer1 = NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)), 65000);
         let (peer1_tx, mut peer1_rx) = channel::<RibEvent>(10);
         manager.add_peer(peer1.clone(), peer1_tx).unwrap();
 
         // peer2
-        let peer2 = NeighborPair::new(
-            IpAddr::V4(Ipv4Addr::new(10, 0, 1, 2)),
-            65000,
-            Ipv4Addr::new(3, 3, 3, 3),
-        );
+        let peer2 = NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 1, 2)), 65000);
         let (peer2_tx, mut peer2_rx) = channel::<RibEvent>(10);
         manager.add_peer(peer2.clone(), peer2_tx).unwrap();
 
         // peer3
-        let peer3 = NeighborPair::new(
-            IpAddr::V4(Ipv4Addr::new(10, 0, 2, 2)),
-            65010,
-            Ipv4Addr::new(4, 4, 4, 4),
-        );
+        let peer3 = NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 2, 2)), 65010);
         let (peer3_tx, mut peer3_rx) = channel::<RibEvent>(10);
         manager.add_peer(peer3.clone(), peer3_tx).unwrap();
 
