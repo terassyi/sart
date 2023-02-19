@@ -3,9 +3,9 @@ pub(crate) mod fib;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
-use crate::bgp::{
-    config::{Config, TraceConfig},
-    server,
+use crate::{
+    bgp::{config::Config, server},
+    trace::TraceConfig,
 };
 
 use self::{bgp::BgpCmd, fib::FibCmd};
@@ -13,6 +13,16 @@ use self::{bgp::BgpCmd, fib::FibCmd};
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub(crate) struct Cmd {
+    #[arg(
+        short,
+        long,
+        global = true,
+        required = false,
+        default_value = "info",
+        help = "Log level(trace, debug, info, warn, error)"
+    )]
+    pub level: String,
+
     #[arg(
         value_enum,
         short = 'd',
@@ -23,6 +33,9 @@ pub(crate) struct Cmd {
         help = "Log display format"
     )]
     pub format: Format,
+
+    #[arg(short = 'o', long = "log-file", help = "Log output file path")]
+    pub log_file: Option<String>,
 
     #[clap(subcommand)]
     pub sub: SubCmd,
@@ -54,6 +67,8 @@ pub(crate) fn main() {
     let command = Cmd::parse();
 
     let format = command.format;
+    let level = command.level;
+    let log_file = command.log_file;
 
     match command.sub {
         SubCmd::Version => println!("dev"),
@@ -69,14 +84,23 @@ pub(crate) fn main() {
                 conf.router_id = router_id.parse().unwrap();
             }
             let trace_conf = TraceConfig {
-                level: b.level,
+                level,
                 format: format.to_string(),
-                file: b.log_file,
+                file: log_file,
                 metrics_endpoint: None,
             };
 
             server::start(conf, trace_conf);
         }
-        SubCmd::Fib(f) => {}
+        SubCmd::Fib(f) => {
+            let trace_conf = TraceConfig {
+                level,
+                format: format.to_string(),
+                file: log_file,
+                metrics_endpoint: None,
+            };
+
+            crate::fib::server::start(f.endpoint, trace_conf);
+        }
     }
 }

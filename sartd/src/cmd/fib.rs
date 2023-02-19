@@ -5,7 +5,7 @@ pub(crate) struct FibCmd {
     #[arg(
         short,
         long,
-        default_value = "localhost:5001",
+        default_value = "127.0.0.1:5001",
         help = "Fib manager running endpoint url"
     )]
     pub endpoint: String,

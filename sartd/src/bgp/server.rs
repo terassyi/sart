@@ -5,7 +5,6 @@ use socket2::{Domain, Socket, TcpKeepalive, Type};
 use std::collections::HashMap;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::net::TcpListener;
@@ -17,8 +16,6 @@ use tokio_stream::wrappers::TcpListenerStream;
 use tonic::transport::Server;
 use tonic_reflection::server::Builder;
 use tracing_futures::Instrument;
-use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
 
 use crate::bgp::api_server::ApiServer;
 use crate::bgp::api_server::{api, ApiResponse};
@@ -29,10 +26,11 @@ use crate::bgp::family::Afi;
 use crate::bgp::peer::fsm::State;
 use crate::proto;
 use crate::proto::sart::bgp_api_server::BgpApiServer;
+use crate::trace::{prepare_tracing, TraceConfig};
 
 use super::capability::Capability;
 use super::capability::CapabilitySet;
-use super::config::{NeighborConfig, TraceConfig};
+use super::config::NeighborConfig;
 use super::error::{ConfigError, ControlError, PeerError, RibError};
 use super::event::{AdministrativeEvent, ControlEvent, Event, PeerLevelApiEvent, RibEvent};
 use super::family::AddressFamily;
@@ -465,35 +463,4 @@ pub(crate) fn start(conf: Config, trace: TraceConfig) {
         .build()
         .unwrap()
         .block_on(Bgp::serve(conf, trace));
-}
-
-fn prepare_tracing(conf: TraceConfig) {
-    // Configure otel exporter.
-    if conf.format == "json" {
-        if let Some(path) = conf.file {
-            let file = std::fs::File::create(path).unwrap();
-            tracing_subscriber::Registry::default()
-                .with(tracing_subscriber::fmt::Layer::new().with_writer(file))
-                .with(tracing_subscriber::fmt::Layer::new().with_ansi(true).json())
-                .with(tracing_subscriber::filter::LevelFilter::from_str(&conf.level).unwrap())
-                .init();
-        } else {
-            tracing_subscriber::Registry::default()
-                .with(tracing_subscriber::fmt::Layer::new().with_ansi(true).json())
-                .with(tracing_subscriber::filter::LevelFilter::from_str(&conf.level).unwrap())
-                .init();
-        }
-    } else if let Some(path) = conf.file {
-        let file = std::fs::File::create(path).unwrap();
-        tracing_subscriber::Registry::default()
-            .with(tracing_subscriber::fmt::Layer::new().with_writer(file))
-            .with(tracing_subscriber::fmt::Layer::new().with_ansi(true))
-            .with(tracing_subscriber::filter::LevelFilter::from_str(&conf.level).unwrap())
-            .init();
-    } else {
-        tracing_subscriber::Registry::default()
-            .with(tracing_subscriber::fmt::Layer::new().with_ansi(true))
-            .with(tracing_subscriber::filter::LevelFilter::from_str(&conf.level).unwrap())
-            .init();
-    }
 }

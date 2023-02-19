@@ -21,7 +21,4 @@ pub(crate) struct BgpCmd {
         help = "Log level(trace, debug, info, warn, error)"
     )]
     pub level: String,
-
-    #[arg(short = 'o', long = "log-file", help = "Log output file path")]
-    pub log_file: Option<String>,
 }
