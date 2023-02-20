@@ -1167,7 +1167,10 @@ pub mod bgp_api_server {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GetRoutesRequest {}
+pub struct GetRoutesRequest {
+    #[prost(uint32, tag = "1")]
+    pub table: u32,
+}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetRoutesResponse {}
@@ -1176,10 +1179,79 @@ pub struct GetRoutesResponse {}
 pub struct Route {
     #[prost(uint32, tag = "1")]
     pub table_id: u32,
-    #[prost(string, tag = "2")]
+    #[prost(uint32, tag = "2")]
+    pub afi: u32,
+    #[prost(string, tag = "3")]
     pub destination: ::prost::alloc::string::String,
-    #[prost(enumeration = "Protocol", tag = "3")]
+    #[prost(enumeration = "Protocol", tag = "4")]
     pub protocol: i32,
+    #[prost(enumeration = "Scope", tag = "5")]
+    pub scope: i32,
+    #[prost(enumeration = "Type", tag = "6")]
+    pub r#type: i32,
+    #[prost(message, repeated, tag = "7")]
+    pub next_hops: ::prost::alloc::vec::Vec<NextHop>,
+    #[prost(string, tag = "8")]
+    pub source: ::prost::alloc::string::String,
+    #[prost(enumeration = "AdministrativeDistance", tag = "9")]
+    pub ad: i32,
+    #[prost(uint32, tag = "10")]
+    pub priority: u32,
+    #[prost(bool, tag = "11")]
+    pub ibgp: bool,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct NextHop {
+    #[prost(string, tag = "1")]
+    pub gateway: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "2")]
+    pub weight: u32,
+    #[prost(enumeration = "next_hop::NextHopFlags", tag = "3")]
+    pub flags: i32,
+    #[prost(uint32, tag = "4")]
+    pub interface: u32,
+}
+/// Nested message and enum types in `NextHop`.
+pub mod next_hop {
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum NextHopFlags {
+        Empty = 0,
+        Dead = 1,
+        Pervasive = 2,
+        Onlink = 3,
+        Offload = 4,
+        Linkdown = 16,
+        Unresolved = 32,
+    }
+    impl NextHopFlags {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                NextHopFlags::Empty => "EMPTY",
+                NextHopFlags::Dead => "DEAD",
+                NextHopFlags::Pervasive => "PERVASIVE",
+                NextHopFlags::Onlink => "ONLINK",
+                NextHopFlags::Offload => "OFFLOAD",
+                NextHopFlags::Linkdown => "LINKDOWN",
+                NextHopFlags::Unresolved => "UNRESOLVED",
+            }
+        }
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

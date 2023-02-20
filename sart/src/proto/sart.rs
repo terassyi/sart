@@ -1207,7 +1207,10 @@ pub mod bgp_api_server {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GetRoutesRequest {}
+pub struct GetRoutesRequest {
+    #[prost(uint32, tag = "1")]
+    pub table: u32,
+}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetRoutesResponse {}

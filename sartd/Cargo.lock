@@ -1057,6 +1057,7 @@ dependencies = [
  "clap",
  "futures 0.3.24",
  "ipnet",
+ "netlink-packet-route",
  "prost",
  "prost-types",
  "rstest",
