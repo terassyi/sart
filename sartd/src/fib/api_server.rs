@@ -1,12 +1,8 @@
-use futures::TryStreamExt;
 use tonic::{Request, Response, Status};
 
-use crate::{
-    fib::error::Error,
-    proto::sart::{fib_api_server::FibApi, GetPathResponse, GetRoutesRequest, GetRoutesResponse},
-};
+use crate::proto::sart::{fib_api_server::FibApi, GetRoutesRequest, GetRoutesResponse};
 
-use super::route::RtClient;
+use super::route::{ip_version_from, RtClient};
 
 pub mod api {
     pub(crate) const FILE_DESCRIPTOR_SET: &[u8] = tonic::include_file_descriptor_set!("sartd");
@@ -27,11 +23,19 @@ impl FibServer {
 
 #[tonic::async_trait]
 impl FibApi for FibServer {
+    #[tracing::instrument(skip(self, req))]
     async fn get_routes(
         &self,
-        _req: Request<GetRoutesRequest>,
+        req: Request<GetRoutesRequest>,
     ) -> Result<Response<GetRoutesResponse>, Status> {
-        self.rt.get_routes().await.unwrap();
-        Ok(Response::new(GetRoutesResponse {}))
+        let table_id = req.get_ref().table;
+        let ver = match ip_version_from(req.get_ref().version as u32) {
+            Ok(ver) => ver,
+            Err(_) => return Err(Status::aborted("invalid ip version")),
+        };
+        match self.rt.get_routes(table_id, ver).await {
+            Ok(routes) => Ok(Response::new(GetRoutesResponse { routes })),
+            Err(e) => Err(Status::internal(format!("{}", e))),
+        }
     }
 }

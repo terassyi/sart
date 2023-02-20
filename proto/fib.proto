@@ -2,8 +2,8 @@ syntax = "proto3";
 
 package sart;
 
-import "google/protobuf/empty.proto";
-import "google/protobuf/any.proto";
+// import "google/protobuf/empty.proto";
+// import "google/protobuf/any.proto";
 
 service FibApi {
 	rpc GetRoutes(GetRoutesRequest) returns (GetRoutesResponse);
@@ -11,35 +11,43 @@ service FibApi {
 
 message GetRoutesRequest {
 	uint32 table = 1;
+	IpVersion version = 2;
 }
 
-message GetRoutesResponse {}
+message GetRoutesResponse {
+	repeated Route routes = 1;
+}
 
 message Route {
 	uint32 table_id = 1;
-	uint32 afi = 2;
+	IpVersion ip_version = 2;
 	string destination = 3;
 	Protocol protocol = 4;
 	Scope scope = 5;
 	Type type = 6;
-	repeated NextHop next_hops = 7;
+	repeated RtNextHop next_hops = 7;
 	string source = 8;
 	AdministrativeDistance ad = 9;
 	uint32 priority = 10;
 	bool ibgp = 11;
 }
 
-message NextHop {
+message RtNextHop {
 	string gateway = 1;
 	uint32 weight = 2;
 	enum NextHopFlags {
-		EMPTY = 0; DEAD = 1; PERVASIVE = 2; ONLINK = 3; OFFLOAD = 4; LINKDOWN = 16; UNRESOLVED = 32; 
+		EMPTY = 0; DEAD = 1; PERVASIVE = 2; ONLINK = 3; OFFLOAD = 4; LINKDOWN = 16; UNRESOLVED = 32;
 	}
 	NextHopFlags flags = 3;
 	uint32 interface = 4;
 }
 
 // message
+enum IpVersion {
+	Unkown = 0;
+	V4 = 2;
+	V6 = 10;
+}
 
 enum AdministrativeDistance {
 	ADConnected  = 0;

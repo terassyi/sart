@@ -1170,17 +1170,22 @@ pub mod bgp_api_server {
 pub struct GetRoutesRequest {
     #[prost(uint32, tag = "1")]
     pub table: u32,
+    #[prost(enumeration = "IpVersion", tag = "2")]
+    pub version: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GetRoutesResponse {}
+pub struct GetRoutesResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub routes: ::prost::alloc::vec::Vec<Route>,
+}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Route {
     #[prost(uint32, tag = "1")]
     pub table_id: u32,
-    #[prost(uint32, tag = "2")]
-    pub afi: u32,
+    #[prost(enumeration = "IpVersion", tag = "2")]
+    pub ip_version: i32,
     #[prost(string, tag = "3")]
     pub destination: ::prost::alloc::string::String,
     #[prost(enumeration = "Protocol", tag = "4")]
@@ -1190,7 +1195,7 @@ pub struct Route {
     #[prost(enumeration = "Type", tag = "6")]
     pub r#type: i32,
     #[prost(message, repeated, tag = "7")]
-    pub next_hops: ::prost::alloc::vec::Vec<NextHop>,
+    pub next_hops: ::prost::alloc::vec::Vec<RtNextHop>,
     #[prost(string, tag = "8")]
     pub source: ::prost::alloc::string::String,
     #[prost(enumeration = "AdministrativeDistance", tag = "9")]
@@ -1202,18 +1207,18 @@ pub struct Route {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct NextHop {
+pub struct RtNextHop {
     #[prost(string, tag = "1")]
     pub gateway: ::prost::alloc::string::String,
     #[prost(uint32, tag = "2")]
     pub weight: u32,
-    #[prost(enumeration = "next_hop::NextHopFlags", tag = "3")]
+    #[prost(enumeration = "rt_next_hop::NextHopFlags", tag = "3")]
     pub flags: i32,
     #[prost(uint32, tag = "4")]
     pub interface: u32,
 }
-/// Nested message and enum types in `NextHop`.
-pub mod next_hop {
+/// Nested message and enum types in `RtNextHop`.
+pub mod rt_next_hop {
     #[derive(
         Clone,
         Copy,
@@ -1250,6 +1255,27 @@ pub mod next_hop {
                 NextHopFlags::Linkdown => "LINKDOWN",
                 NextHopFlags::Unresolved => "UNRESOLVED",
             }
+        }
+    }
+}
+/// message
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum IpVersion {
+    Unkown = 0,
+    V4 = 2,
+    V6 = 10,
+}
+impl IpVersion {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            IpVersion::Unkown => "Unkown",
+            IpVersion::V4 => "V4",
+            IpVersion::V6 => "V6",
         }
     }
 }

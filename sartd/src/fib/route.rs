@@ -17,85 +17,117 @@ impl RtClient {
         RtClient { handler }
     }
 
-    pub async fn get_routes(&self) -> Result<Vec<proto::sart::Route>, Error> {
+    #[tracing::instrument(skip(self))]
+    pub async fn get_routes(
+        &self,
+        table: u32,
+        ip_version: rtnetlink::IpVersion,
+    ) -> Result<Vec<proto::sart::Route>, Error> {
         let routes = self.handler.route();
-        let mut res = routes.get(rtnetlink::IpVersion::V4).execute();
-		let mut proto_routes = Vec::new();
-        while let Some(route) = res.try_next().await? {
-            println!("{route:?}");
-            let prefix = route.destination_prefix().ok_or(Error::FailedToGetPrefix)?;
-            let prefix = ipnet::IpNet::new(prefix.0, prefix.1).map_err(|_| Error::FailedToGetPrefix)?;
+        let mut res = routes.get(ip_version.clone()).execute();
 
+        tracing::info!("get routes");
+
+        let mut proto_routes = Vec::new();
+        while let Some(route) = res.try_next().await? {
+            if route.header.table != table as u8
+                || route.header.address_family != ip_version_into(&ip_version)
+            {
+                continue;
+            }
+            let prefix = match route.destination_prefix() {
+                Some(prefix) => {
+                    let prefix = ipnet::IpNet::new(prefix.0, prefix.1)
+                        .map_err(|_| Error::FailedToGetPrefix)?;
+                    prefix.to_string()
+                }
+                None => String::new(),
+            };
+            tracing::info!("reach");
             let source = match route.source_prefix() {
                 Some((addr, _prefix_len)) => addr.to_string(),
-                None => String::new()
+                None => String::new(),
             };
 
-            let ad = AdministrativeDistance::from_protocol(Protocol::try_from(route.header.protocol)?, false);
+            let ad = AdministrativeDistance::from_protocol(
+                Protocol::try_from(route.header.protocol)?,
+                false,
+            );
 
-            let mut proto_route = proto::sart::Route{
-                table_id: route.header.table as u32, 
-                afi: route.header.address_family as u32,
-                destination: prefix.to_string(), 
-                protocol: route.header.protocol as i32, 
-                scope: route.header.scope as i32, 
-                r#type: route.header.kind as i32, 
-                next_hops: Vec::new(), 
-                source, 
-                ad: ad as i32, 
-                priority : 20,
-                ibgp: false, 
+            let mut proto_route = proto::sart::Route {
+                table_id: route.header.table as u32,
+                ip_version: route.header.address_family as i32,
+                destination: prefix,
+                protocol: route.header.protocol as i32,
+                scope: route.header.scope as i32,
+                r#type: route.header.kind as i32,
+                next_hops: Vec::new(),
+                source,
+                ad: ad as i32,
+                priority: 20,
+                ibgp: false,
             };
 
-            let mut oif = 0;
-            for nla in route.nlas.iter() {
-                match nla {
-                    Nla::Priority(p) => {
-                        proto_route.priority = *p;
-                    },
-                    Nla::MultiPath(m) => {},
-                    Nla::Gateway(g) => {
-                        let gateway = if g.len() == 4 {
-                            let a: [u8; 4] = g.to_vec().try_into().map_err(|_| Error::FailedToParseAddress)?;
-                            IpAddr::V4(Ipv4Addr::from(a))
-                        } else if g.len() == 16 {
-                            let a: [u8; 16] = g.to_vec().try_into().map_err(|_| Error::FailedToParseAddress)?;
-                            IpAddr::V6(Ipv6Addr::from(a))
-
-                        } else {
-                            return Err(Error::FailedToGetPrefix)
-                        };
-                        let next_hop = proto::sart::NextHop{
-                            gateway: gateway.to_string(), 
-                            weight: 1, 
-                            flags: 0, 
-                            interface: 0
-                        };
-                        proto_route.next_hops.push(next_hop);
-                    },
-                    Nla::Oif(i) => oif = *i,
-                    _ => {},
+            if route
+                .nlas
+                .iter()
+                .any(|nla| matches!(&nla, Nla::MultiPath(_)))
+            {
+                // multi path
+                for nla in route.nlas.iter() {
+                    match nla {
+                        Nla::Priority(p) => proto_route.priority = *p,
+                        Nla::MultiPath(hops) => {
+                            for h in hops.iter() {
+                                let mut next_hop = next_hop_default();
+                                for nnla in h.nlas.iter() {
+                                    match nnla {
+                                        Nla::Gateway(g) => {
+                                            next_hop.gateway = parse_ipaddr(g)?.to_string()
+                                        }
+                                        Nla::Oif(i) => next_hop.interface = *i,
+                                        _ => {}
+                                    }
+                                }
+                                proto_route.next_hops.push(next_hop);
+                            }
+                        }
+                        _ => {}
+                    }
                 }
+            } else {
+                let mut next_hop = next_hop_default();
+                for nla in route.nlas.iter() {
+                    match nla {
+                        Nla::Priority(p) => proto_route.priority = *p,
+                        Nla::Gateway(g) => next_hop.gateway = parse_ipaddr(g)?.to_string(),
+                        Nla::Oif(i) => next_hop.interface = *i,
+                        _ => {}
+                    }
+                }
+                proto_route.next_hops.push(next_hop);
             }
+            proto_routes.push(proto_route);
         }
         Ok(proto_routes)
     }
 }
 
-
 pub(crate) enum AdministrativeDistance {
-    Connected  = 0,
-    Static     = 1,
-    EBGP       = 20,
-    OSPF       = 110,
-    RIP        = 120,
-    IBGP       = 200,
+    Connected = 0,
+    Static = 1,
+    EBGP = 20,
+    OSPF = 110,
+    RIP = 120,
+    IBGP = 200,
 }
 
 impl AdministrativeDistance {
     fn from_protocol(protocol: Protocol, internal: bool) -> AdministrativeDistance {
         match protocol {
-            Protocol::Unspec | Protocol::Redirect | Protocol::Kernel | Protocol::Boot => AdministrativeDistance::Connected,
+            Protocol::Unspec | Protocol::Redirect | Protocol::Kernel | Protocol::Boot => {
+                AdministrativeDistance::Connected
+            }
             Protocol::Static => AdministrativeDistance::Static,
             Protocol::Bgp => {
                 if internal {
@@ -103,9 +135,9 @@ impl AdministrativeDistance {
                 } else {
                     AdministrativeDistance::EBGP
                 }
-            },
+            }
             Protocol::Ospf => AdministrativeDistance::OSPF,
-            Protocol::Rip => AdministrativeDistance::RIP
+            Protocol::Rip => AdministrativeDistance::RIP,
         }
     }
 }
@@ -120,7 +152,7 @@ impl TryFrom<u8> for AdministrativeDistance {
             110 => Ok(Self::OSPF),
             120 => Ok(Self::RIP),
             200 => Ok(Self::IBGP),
-            _ => Err(Error::InvalidADValue)
+            _ => Err(Error::InvalidADValue),
         }
     }
 }
@@ -148,44 +180,49 @@ impl TryFrom<u8> for Protocol {
             186 => Ok(Self::Bgp),
             188 => Ok(Self::Ospf),
             189 => Ok(Self::Rip),
-            _ => Err(Error::InvalidProtocol)
+            _ => Err(Error::InvalidProtocol),
         }
     }
 }
 
-fn nlas_to_nexthop<'a>(next_hops: &'a mut Vec<proto::sart::NextHop>, nlas: &'a Vec<Nla>) -> Result<&'a mut Vec<proto::sart::NextHop>, Error> {
-    let mut next_hop = proto::sart::NextHop{
-        gateway: String::new(), 
-        weight: 1, 
-        flags: 0, 
-        interface: 0
-    };
-    for nla in nlas.iter() {
-        match nla {
-            Nla::Gateway(g) => {
-                let gateway = if g.len() == 4 {
-                    let a: [u8; 4] = g.to_vec().try_into().map_err(|_| Error::FailedToParseAddress)?;
-                    IpAddr::V4(Ipv4Addr::from(a))
-                } else if g.len() == 16 {
-                    let a: [u8; 16] = g.to_vec().try_into().map_err(|_| Error::FailedToParseAddress)?;
-                    IpAddr::V6(Ipv6Addr::from(a))
-
-                } else {
-                    return Err(Error::FailedToGetPrefix)
-                };
-
-                next_hop.gateway = gateway.to_string();
-            },
-            Nla::Oif(i) => next_hop.interface = *i,
-            Nla::MultiPath(multi_paths) => {
-                for m in multi_paths.iter() {
-                }
-            }
-            _ => {},
-        }
+fn next_hop_default() -> proto::sart::RtNextHop {
+    proto::sart::RtNextHop {
+        gateway: String::new(),
+        weight: 1,
+        flags: 0,
+        interface: 0,
     }
+}
 
-    next_hops.push(next_hop);
+pub(crate) fn ip_version_from(val: u32) -> Result<rtnetlink::IpVersion, Error> {
+    match val {
+        2 => Ok(rtnetlink::IpVersion::V4),
+        10 => Ok(rtnetlink::IpVersion::V6),
+        _ => Err(Error::InvalidProtocol),
+    }
+}
 
-    Ok(next_hops)
+pub(crate) fn ip_version_into(ver: &rtnetlink::IpVersion) -> u8 {
+    match ver {
+        rtnetlink::IpVersion::V4 => 2,
+        rtnetlink::IpVersion::V6 => 10,
+    }
+}
+
+fn parse_ipaddr(data: &Vec<u8>) -> Result<IpAddr, Error> {
+    if data.len() == 4 {
+        let a: [u8; 4] = data
+            .to_vec()
+            .try_into()
+            .map_err(|_| Error::FailedToParseAddress)?;
+        Ok(IpAddr::V4(Ipv4Addr::from(a)))
+    } else if data.len() == 16 {
+        let a: [u8; 16] = data
+            .to_vec()
+            .try_into()
+            .map_err(|_| Error::FailedToParseAddress)?;
+        Ok(IpAddr::V6(Ipv6Addr::from(a)))
+    } else {
+        Err(Error::FailedToGetPrefix)
+    }
 }
