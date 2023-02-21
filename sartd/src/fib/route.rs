@@ -1,7 +1,8 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use futures::TryStreamExt;
-use netlink_packet_route::route::Nla;
+use ipnet::IpNet;
+use netlink_packet_route::{route::Nla, RouteMessage, RouteHeader, RouteFlags};
 
 use crate::proto;
 
@@ -18,7 +19,7 @@ impl RtClient {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn get_routes(
+    pub async fn list_routes(
         &self,
         table: u32,
         ip_version: rtnetlink::IpVersion,
@@ -41,9 +42,8 @@ impl RtClient {
                         .map_err(|_| Error::FailedToGetPrefix)?;
                     prefix.to_string()
                 }
-                None => String::new(),
+                None => "0.0.0.0".to_string(),
             };
-            tracing::info!("reach");
             let source = match route.source_prefix() {
                 Some((addr, _prefix_len)) => addr.to_string(),
                 None => String::new(),
@@ -101,6 +101,7 @@ impl RtClient {
                     match nla {
                         Nla::Priority(p) => proto_route.priority = *p,
                         Nla::Gateway(g) => next_hop.gateway = parse_ipaddr(g)?.to_string(),
+                        Nla::PrefSource(p) => next_hop.gateway = parse_ipaddr(p)?.to_string(),
                         Nla::Oif(i) => next_hop.interface = *i,
                         _ => {}
                     }
@@ -110,6 +111,46 @@ impl RtClient {
             proto_routes.push(proto_route);
         }
         Ok(proto_routes)
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn get_route(&self, 
+        table: u32,
+        ip_version: rtnetlink::IpVersion,
+        destination: &str,
+    ) -> Result<proto::sart::Route, Error> {
+        tracing::info!("get route");
+        let routes = self.list_routes(table, ip_version).await?;
+        match routes.into_iter().find(|r| r.destination.eq(destination)) {
+            Some(route) => Ok(route),
+            None => Err(Error::DestinationNotFound)
+        }
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn add_route(&self, route: proto::sart::Route) -> Result<(), Error> {
+        let rt = self.handler.route();
+        let ip_version = ip_version_from(route.ip_version as u32)?;
+
+        // look up existing routes
+        let routes = self.list_routes(route.table_id, ip_version).await?;
+
+        
+        let mut req = rt.add().table(route.table_id as u8);
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn delete_route(&self, table: u8, ip_version: rtnetlink::IpVersion, destination: IpNet) -> Result<(), Error> {
+        let rt = self.handler.route();
+
+        // build rt_netlink message
+        let mut msg = RouteMessage::default();
+        msg.header.address_family = ip_version_into(&ip_version);
+        msg.header.destination_prefix_length = destination.prefix_len();
+
+        rt.del(msg).execute().await.unwrap();
+        Ok(())
     }
 }
 

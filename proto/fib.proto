@@ -2,20 +2,46 @@ syntax = "proto3";
 
 package sart;
 
-// import "google/protobuf/empty.proto";
+import "google/protobuf/empty.proto";
 // import "google/protobuf/any.proto";
 
 service FibApi {
-	rpc GetRoutes(GetRoutesRequest) returns (GetRoutesResponse);
+	rpc GetRoute(GetRouteRequest) returns (GetRouteResponse);
+	rpc ListRoutes(ListRoutesRequest) returns (ListRoutesResponse);
+	rpc AddRoute(AddRouteRequest) returns (google.protobuf.Empty);
+	rpc DeleteRoute(DeleteRouteRequest) returns (google.protobuf.Empty);
 }
 
-message GetRoutesRequest {
+message GetRouteRequest {
+	uint32 table = 1;
+	IpVersion version = 2;
+	string destination = 3;
+}
+
+message GetRouteResponse {
+	Route route = 1;
+}
+
+message ListRoutesRequest {
 	uint32 table = 1;
 	IpVersion version = 2;
 }
 
-message GetRoutesResponse {
+message ListRoutesResponse {
 	repeated Route routes = 1;
+}
+
+message AddRouteRequest {
+	uint32 table = 1;
+	IpVersion version = 2;
+	Route route = 3;
+	bool replace = 4;
+}
+
+message DeleteRouteRequest {
+	uint32 table = 1;
+	IpVersion version = 2;
+	string destination = 3;
 }
 
 message Route {
@@ -87,7 +113,7 @@ enum Type {
 enum Scope {
 	Universe = 0;
 	Site = 200;
-	// Link = 253;
-	// Host = 254;
-	// Nowhere = 255;
+	Link = 253;
+	Host = 254;
+	Nowhere = 255;
 }

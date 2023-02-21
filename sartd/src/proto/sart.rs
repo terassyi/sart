@@ -1167,7 +1167,23 @@ pub mod bgp_api_server {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GetRoutesRequest {
+pub struct GetRouteRequest {
+    #[prost(uint32, tag = "1")]
+    pub table: u32,
+    #[prost(enumeration = "IpVersion", tag = "2")]
+    pub version: i32,
+    #[prost(string, tag = "3")]
+    pub destination: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetRouteResponse {
+    #[prost(message, optional, tag = "1")]
+    pub route: ::core::option::Option<Route>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListRoutesRequest {
     #[prost(uint32, tag = "1")]
     pub table: u32,
     #[prost(enumeration = "IpVersion", tag = "2")]
@@ -1175,9 +1191,31 @@ pub struct GetRoutesRequest {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GetRoutesResponse {
+pub struct ListRoutesResponse {
     #[prost(message, repeated, tag = "1")]
     pub routes: ::prost::alloc::vec::Vec<Route>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AddRouteRequest {
+    #[prost(uint32, tag = "1")]
+    pub table: u32,
+    #[prost(enumeration = "IpVersion", tag = "2")]
+    pub version: i32,
+    #[prost(message, optional, tag = "3")]
+    pub route: ::core::option::Option<Route>,
+    #[prost(bool, tag = "4")]
+    pub replace: bool,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DeleteRouteRequest {
+    #[prost(uint32, tag = "1")]
+    pub table: u32,
+    #[prost(enumeration = "IpVersion", tag = "2")]
+    pub version: i32,
+    #[prost(string, tag = "3")]
+    pub destination: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1377,10 +1415,10 @@ impl Type {
 #[repr(i32)]
 pub enum Scope {
     Universe = 0,
-    /// Link = 253;
-    /// Host = 254;
-    /// Nowhere = 255;
     Site = 200,
+    Link = 253,
+    Host = 254,
+    Nowhere = 255,
 }
 impl Scope {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -1391,6 +1429,9 @@ impl Scope {
         match self {
             Scope::Universe => "Universe",
             Scope::Site => "Site",
+            Scope::Link => "Link",
+            Scope::Host => "Host",
+            Scope::Nowhere => "Nowhere",
         }
     }
 }
@@ -1463,10 +1504,10 @@ pub mod fib_api_client {
             self.inner = self.inner.accept_compressed(encoding);
             self
         }
-        pub async fn get_routes(
+        pub async fn get_route(
             &mut self,
-            request: impl tonic::IntoRequest<super::GetRoutesRequest>,
-        ) -> Result<tonic::Response<super::GetRoutesResponse>, tonic::Status> {
+            request: impl tonic::IntoRequest<super::GetRouteRequest>,
+        ) -> Result<tonic::Response<super::GetRouteResponse>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -1477,7 +1518,58 @@ pub mod fib_api_client {
                     )
                 })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/sart.FibApi/GetRoutes");
+            let path = http::uri::PathAndQuery::from_static("/sart.FibApi/GetRoute");
+            self.inner.unary(request.into_request(), path, codec).await
+        }
+        pub async fn list_routes(
+            &mut self,
+            request: impl tonic::IntoRequest<super::ListRoutesRequest>,
+        ) -> Result<tonic::Response<super::ListRoutesResponse>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/sart.FibApi/ListRoutes");
+            self.inner.unary(request.into_request(), path, codec).await
+        }
+        pub async fn add_route(
+            &mut self,
+            request: impl tonic::IntoRequest<super::AddRouteRequest>,
+        ) -> Result<tonic::Response<()>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/sart.FibApi/AddRoute");
+            self.inner.unary(request.into_request(), path, codec).await
+        }
+        pub async fn delete_route(
+            &mut self,
+            request: impl tonic::IntoRequest<super::DeleteRouteRequest>,
+        ) -> Result<tonic::Response<()>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/sart.FibApi/DeleteRoute");
             self.inner.unary(request.into_request(), path, codec).await
         }
     }
@@ -1489,10 +1581,22 @@ pub mod fib_api_server {
     /// Generated trait containing gRPC methods that should be implemented for use with FibApiServer.
     #[async_trait]
     pub trait FibApi: Send + Sync + 'static {
-        async fn get_routes(
+        async fn get_route(
             &self,
-            request: tonic::Request<super::GetRoutesRequest>,
-        ) -> Result<tonic::Response<super::GetRoutesResponse>, tonic::Status>;
+            request: tonic::Request<super::GetRouteRequest>,
+        ) -> Result<tonic::Response<super::GetRouteResponse>, tonic::Status>;
+        async fn list_routes(
+            &self,
+            request: tonic::Request<super::ListRoutesRequest>,
+        ) -> Result<tonic::Response<super::ListRoutesResponse>, tonic::Status>;
+        async fn add_route(
+            &self,
+            request: tonic::Request<super::AddRouteRequest>,
+        ) -> Result<tonic::Response<()>, tonic::Status>;
+        async fn delete_route(
+            &self,
+            request: tonic::Request<super::DeleteRouteRequest>,
+        ) -> Result<tonic::Response<()>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct FibApiServer<T: FibApi> {
@@ -1553,22 +1657,22 @@ pub mod fib_api_server {
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             let inner = self.inner.clone();
             match req.uri().path() {
-                "/sart.FibApi/GetRoutes" => {
+                "/sart.FibApi/GetRoute" => {
                     #[allow(non_camel_case_types)]
-                    struct GetRoutesSvc<T: FibApi>(pub Arc<T>);
-                    impl<T: FibApi> tonic::server::UnaryService<super::GetRoutesRequest>
-                    for GetRoutesSvc<T> {
-                        type Response = super::GetRoutesResponse;
+                    struct GetRouteSvc<T: FibApi>(pub Arc<T>);
+                    impl<T: FibApi> tonic::server::UnaryService<super::GetRouteRequest>
+                    for GetRouteSvc<T> {
+                        type Response = super::GetRouteResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::GetRoutesRequest>,
+                            request: tonic::Request<super::GetRouteRequest>,
                         ) -> Self::Future {
                             let inner = self.0.clone();
-                            let fut = async move { (*inner).get_routes(request).await };
+                            let fut = async move { (*inner).get_route(request).await };
                             Box::pin(fut)
                         }
                     }
@@ -1577,7 +1681,119 @@ pub mod fib_api_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
-                        let method = GetRoutesSvc(inner);
+                        let method = GetRouteSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/sart.FibApi/ListRoutes" => {
+                    #[allow(non_camel_case_types)]
+                    struct ListRoutesSvc<T: FibApi>(pub Arc<T>);
+                    impl<T: FibApi> tonic::server::UnaryService<super::ListRoutesRequest>
+                    for ListRoutesSvc<T> {
+                        type Response = super::ListRoutesResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::ListRoutesRequest>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move { (*inner).list_routes(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = ListRoutesSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/sart.FibApi/AddRoute" => {
+                    #[allow(non_camel_case_types)]
+                    struct AddRouteSvc<T: FibApi>(pub Arc<T>);
+                    impl<T: FibApi> tonic::server::UnaryService<super::AddRouteRequest>
+                    for AddRouteSvc<T> {
+                        type Response = ();
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::AddRouteRequest>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move { (*inner).add_route(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = AddRouteSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/sart.FibApi/DeleteRoute" => {
+                    #[allow(non_camel_case_types)]
+                    struct DeleteRouteSvc<T: FibApi>(pub Arc<T>);
+                    impl<
+                        T: FibApi,
+                    > tonic::server::UnaryService<super::DeleteRouteRequest>
+                    for DeleteRouteSvc<T> {
+                        type Response = ();
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::DeleteRouteRequest>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move {
+                                (*inner).delete_route(request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = DeleteRouteSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

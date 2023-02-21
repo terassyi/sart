@@ -12,4 +12,6 @@ pub(crate) enum Error {
     InvalidProtocol,
     #[error("failed to parse address")]
     FailedToParseAddress,
+    #[error("destination not found")]
+    DestinationNotFound,
 }
