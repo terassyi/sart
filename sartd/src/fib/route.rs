@@ -1,8 +1,8 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use futures::TryStreamExt;
-use ipnet::IpNet;
-use netlink_packet_route::{route::Nla, RouteMessage, RouteHeader, RouteFlags};
+use ipnet::{IpNet, Ipv4Net, Ipv6Net};
+use netlink_packet_route::{route::Nla, RouteFlags, RouteHeader, RouteMessage};
 
 use crate::proto;
 
@@ -114,7 +114,8 @@ impl RtClient {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn get_route(&self, 
+    pub async fn get_route(
+        &self,
         table: u32,
         ip_version: rtnetlink::IpVersion,
         destination: &str,
@@ -123,37 +124,107 @@ impl RtClient {
         let routes = self.list_routes(table, ip_version).await?;
         match routes.into_iter().find(|r| r.destination.eq(destination)) {
             Some(route) => Ok(route),
-            None => Err(Error::DestinationNotFound)
+            None => Err(Error::DestinationNotFound),
         }
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn add_route(&self, route: proto::sart::Route) -> Result<(), Error> {
+    pub async fn add_route(&self, route: proto::sart::Route, replace: bool) -> Result<(), Error> {
         let rt = self.handler.route();
         let ip_version = ip_version_from(route.ip_version as u32)?;
 
         // look up existing routes
-        let routes = self.list_routes(route.table_id, ip_version).await?;
+        let destination: IpNet = route
+            .destination
+            .parse()
+            .map_err(|_| Error::FailedToParseAddress)?;
 
-        
-        let mut req = rt.add().table(route.table_id as u8);
+        let mut exist = false;
+        let mut res = rt.get(ip_version.clone()).execute();
+        while let Some(r) = res.try_next().await? {
+            if let Some((dst, prefix_len)) = r.destination_prefix() {
+                if destination.prefix_len() == prefix_len
+                    && destination.addr().eq(&dst)
+                    && r.header.table == route.table_id as u8
+                {
+                    // compare priority by ad value
+                    tracing::info!("an existing route is found");
+                    // delete the old route
+                    let existing_ad = AdministrativeDistance::from_protocol(
+                        Protocol::try_from(r.header.protocol)?,
+                        false,
+                    );
+                    let new_ad = AdministrativeDistance::try_from(route.ad as u8)?;
+                    if existing_ad >= new_ad {
+                        tracing::info!(existing_ad=?existing_ad,new_ad=?new_ad, "replace it");
+                        // rt.del(r).execute().await?;
+                        exist = true;
+                    }
+                }
+            }
+        }
+
+        if !replace && exist {
+            return Err(Error::AlreadyExists);
+        }
+        let mut req = rt
+            .add()
+            .table(route.table_id as u8)
+            .kind(route.r#type as u8)
+            .protocol(route.protocol as u8)
+            .scope(route.scope as u8);
+
+        if replace {
+            req = req.replace();
+        }
+
+        let msg = req.message_mut();
+
+        match ip_version {
+            rtnetlink::IpVersion::V4 => {
+                if let IpNet::V4(dst) = destination {
+                    let msg = req
+                        .v4()
+                        .destination_prefix(dst.addr(), dst.prefix_len())
+                        .message_mut();
+                }
+            }
+            rtnetlink::IpVersion::V6 => {
+                if let IpNet::V6(dst) = destination {
+                    req.v6().destination_prefix(dst.addr(), dst.prefix_len());
+                }
+            }
+        }
         Ok(())
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn delete_route(&self, table: u8, ip_version: rtnetlink::IpVersion, destination: IpNet) -> Result<(), Error> {
+    pub async fn delete_route(
+        &self,
+        table: u8,
+        ip_version: rtnetlink::IpVersion,
+        destination: IpNet,
+    ) -> Result<(), Error> {
+        tracing::info!("delete a route");
         let rt = self.handler.route();
 
-        // build rt_netlink message
-        let mut msg = RouteMessage::default();
-        msg.header.address_family = ip_version_into(&ip_version);
-        msg.header.destination_prefix_length = destination.prefix_len();
-
-        rt.del(msg).execute().await.unwrap();
-        Ok(())
+        let mut res = rt.get(ip_version).execute();
+        while let Some(route) = res.try_next().await? {
+            if let Some((dst, prefix_len)) = route.destination_prefix() {
+                if destination.prefix_len() == prefix_len
+                    && destination.addr().eq(&dst)
+                    && route.header.table == table
+                {
+                    rt.del(route).execute().await?;
+                    return Ok(());
+                }
+            }
+        }
+        Err(Error::DestinationNotFound)
     }
 }
 
+#[derive(Debug, PartialEq, PartialOrd, Eq, Ord)]
 pub(crate) enum AdministrativeDistance {
     Connected = 0,
     Static = 1,
@@ -161,6 +232,19 @@ pub(crate) enum AdministrativeDistance {
     OSPF = 110,
     RIP = 120,
     IBGP = 200,
+}
+
+impl std::fmt::Display for AdministrativeDistance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Connected => write!(f, "Connected"),
+            Self::Static => write!(f, "Static"),
+            Self::EBGP => write!(f, "EBGP"),
+            Self::OSPF => write!(f, "OSPF"),
+            Self::RIP => write!(f, "RIP"),
+            Self::IBGP => write!(f, "IBGP"),
+        }
+    }
 }
 
 impl AdministrativeDistance {
@@ -207,6 +291,21 @@ pub(crate) enum Protocol {
     Bgp = 186,
     Ospf = 188,
     Rip = 189,
+}
+
+impl std::fmt::Display for Protocol {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unspec => write!(f, "Unspec"),
+            Self::Redirect => write!(f, "Redirect"),
+            Self::Kernel => write!(f, "Kernel"),
+            Self::Boot => write!(f, "Boot"),
+            Self::Static => write!(f, "Static"),
+            Self::Bgp => write!(f, "Bgp"),
+            Self::Ospf => write!(f, "Ospf"),
+            Self::Rip => write!(f, "Rip"),
+        }
+    }
 }
 
 impl TryFrom<u8> for Protocol {
@@ -266,4 +365,15 @@ fn parse_ipaddr(data: &Vec<u8>) -> Result<IpAddr, Error> {
     } else {
         Err(Error::FailedToGetPrefix)
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use futures::TryStreamExt;
+    use rtnetlink::NetworkNamespace;
+
+    use super::RtClient;
+
+    #[tokio::test]
+    async fn test_rtnetlink() {}
 }
