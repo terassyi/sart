@@ -2,7 +2,10 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use futures::TryStreamExt;
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
-use netlink_packet_route::{route::{Nla, NextHop, NextHopFlags, NextHopBuffer}, RouteFlags, RouteHeader, RouteMessage};
+use netlink_packet_route::{
+    route::{NextHop, NextHopBuffer, NextHopFlags, Nla},
+    RouteFlags, RouteHeader, RouteMessage,
+};
 
 use crate::proto;
 
@@ -187,7 +190,6 @@ impl RtClient {
             .protocol(route.protocol as u8)
             .scope(route.scope as u8);
 
-
         if replace {
             req = req.replace();
         }
@@ -208,40 +210,42 @@ impl RtClient {
                 IpAddr::V6(addr) => msg.nlas.push(Nla::Source(addr.octets().to_vec())),
             }
         }
-        
+
         if route.priority != 0 {
             msg.nlas.push(Nla::Priority(route.priority));
         }
         // next hop
         if route.next_hops.len() > 1 {
             // multi_path
-            let n = route.next_hops.iter().map(|h| {
-                let mut next = NextHop::default();
-                next.flags = NextHopFlags::from_bits_truncate(h.flags as u8);
-                if h.weight > 0 {
-                    next.hops = (h.weight - 1) as u8;
-                }
-                if h.interface != 0 {
-                    next.interface_id = h.interface;
-                }
-                if let Ok(gateway) = h.gateway.parse::<IpAddr>() {
-                    match gateway {
-                        IpAddr::V4(addr) => msg.nlas.push(Nla::Gateway(addr.octets().to_vec())),
-                        IpAddr::V6(addr) => msg.nlas.push(Nla::Gateway(addr.octets().to_vec())),
+            let n = route
+                .next_hops
+                .iter()
+                .map(|h| {
+                    let mut next = NextHop::default();
+                    next.flags = NextHopFlags::from_bits_truncate(h.flags as u8);
+                    if h.weight > 0 {
+                        next.hops = (h.weight - 1) as u8;
                     }
-                }
-                next
-            }).collect();
+                    if h.interface != 0 {
+                        next.interface_id = h.interface;
+                    }
+                    if let Ok(gateway) = h.gateway.parse::<IpAddr>() {
+                        match gateway {
+                            IpAddr::V4(addr) => msg.nlas.push(Nla::Gateway(addr.octets().to_vec())),
+                            IpAddr::V6(addr) => msg.nlas.push(Nla::Gateway(addr.octets().to_vec())),
+                        }
+                    }
+                    next
+                })
+                .collect();
             msg.nlas.push(Nla::MultiPath(n));
         } else if route.next_hops.is_empty() {
             // no next_hop
-            return Err(Error::GatewayNotFound)
-        } else {
-            if let Ok(gateway) = route.next_hops[0].gateway.parse::<IpAddr>() {
-                match gateway {
-                    IpAddr::V4(addr) => msg.nlas.push(Nla::Gateway(addr.octets().to_vec())),
-                    IpAddr::V6(addr) => msg.nlas.push(Nla::Gateway(addr.octets().to_vec())),
-                }
+            return Err(Error::GatewayNotFound);
+        } else if let Ok(gateway) = route.next_hops[0].gateway.parse::<IpAddr>() {
+            match gateway {
+                IpAddr::V4(addr) => msg.nlas.push(Nla::Gateway(addr.octets().to_vec())),
+                IpAddr::V6(addr) => msg.nlas.push(Nla::Gateway(addr.octets().to_vec())),
             }
         }
 
