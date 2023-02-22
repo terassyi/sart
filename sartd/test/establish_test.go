@@ -54,7 +54,7 @@ func testEstablish() {
 
 		By("starting sartd-bgp")
 		go func(context.Context) {
-			_, _, _, err := execInNetns("core", "../target/debug/sartd", "-f", "simple/config.yaml")
+			_, _, _, err := execInNetns("core", "../target/debug/sartd", "bgp", "-f", "simple/config.yaml")
 			Expect(err).NotTo(HaveOccurred())
 		}(ctx)
 
@@ -89,7 +89,7 @@ func testEstablish() {
 
 		By("starting sartd-bgp")
 		go func(context.Context) {
-			_, _, _, err := execInNetns("core", "../target/debug/sartd", "-f", "simple/config.yaml")
+			_, _, _, err := execInNetns("core", "../target/debug/sartd", "bgp", "-f", "simple/config.yaml")
 			Expect(err).NotTo(HaveOccurred())
 		}(ctx)
 
@@ -188,7 +188,7 @@ func testEstablish() {
 
 		By("starting sartd-bgp")
 		go func(context.Context) {
-			_, _, _, err := execInNetns("core", "../target/debug/sartd", "-f", "simple_ipv6/config.yaml")
+			_, _, _, err := execInNetns("core", "../target/debug/sartd", "bgp", "-f", "simple_ipv6/config.yaml")
 			Expect(err).NotTo(HaveOccurred())
 		}(ctx)
 
@@ -252,7 +252,7 @@ func testEstablish() {
 
 		By("starting sartd-bgp")
 		go func(context.Context) {
-			_, _, _, err := execInNetns("core", "../target/debug/sartd", "-f", "simple/config.yaml")
+			_, _, _, err := execInNetns("core", "../target/debug/sartd", "bgp", "-f", "simple/config.yaml")
 			Expect(err).NotTo(HaveOccurred())
 		}(ctx)
 

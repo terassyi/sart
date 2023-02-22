@@ -14,7 +14,7 @@ use super::config::NeighborConfig;
 use super::{event::ControlEvent, family::AddressFamily, packet::attribute::Attribute};
 
 pub mod api {
-    pub(crate) const FILE_DESCRIPTOR_SET: &[u8] = tonic::include_file_descriptor_set!("bgp");
+    pub(crate) const FILE_DESCRIPTOR_SET: &[u8] = tonic::include_file_descriptor_set!("sartd");
 }
 
 #[derive(Debug)]

@@ -6,13 +6,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tonic_build::configure()
         .build_client(true)
-        .file_descriptor_set_path(out_dir.join("bgp.bin")) // Add this
+        .file_descriptor_set_path(out_dir.join("sart.bin")) // Add this
         // .type_attribute(
         //     ".",
         //     "#[derive(serde::Serialize)]",
         // )
         .out_dir("./src/proto")
-        .compile(&["../proto/bgp.proto"], &["../proto"])
+        .compile(&["../proto/bgp.proto", "../proto/fib.proto"], &["../proto"])
         .unwrap_or_else(|e| panic!("protobuf compile error: {}", e));
     Ok(())
 }

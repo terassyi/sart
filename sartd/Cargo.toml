@@ -13,9 +13,9 @@ tokio-stream = { version = "0.1.10", features = ["net"] }
 tokio-util = { version = "0.7.4", features = ["codec"] }
 tokio-io = "0.1.13"
 futures = "0.3.24"
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0.93", features = ["derive"] }
 serde_yaml = "0.9"
-clap = "3.2.22"
+clap = { version = "4.1.6", features = ["derive"] }
 bytes = "1.2"
 byteorder = "1.4"
 ipnet = "2.5.0"
@@ -27,6 +27,11 @@ tonic-reflection = "0.5.0"
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.16", features = ["json"] }
 tracing-futures = "0.2.5"
+rtnetlink = "0.12.0"
+netlink-packet-route = { version = "0.15.0", features = ["rich_nlas"] }
 
 [build-dependencies]
 tonic-build = {version = "0.8.4", features = ["prost"]}
+
+[patch.crates-io]
+netlink-packet-route = { git = "https://github.com/terassyi/netlink-packet-route", branch = "next-hop-default" }
