@@ -32,3 +32,6 @@ netlink-packet-route = { version = "0.15.0", features = ["rich_nlas"] }
 
 [build-dependencies]
 tonic-build = {version = "0.8.4", features = ["prost"]}
+
+[patch.crates-io]
+netlink-packet-route = { git = "https://github.com/terassyi/netlink-packet-route", branch = "next-hop-default" }

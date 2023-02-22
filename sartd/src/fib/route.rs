@@ -2,7 +2,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use futures::TryStreamExt;
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
-use netlink_packet_route::{route::Nla, RouteFlags, RouteHeader, RouteMessage};
+use netlink_packet_route::{route::{Nla, NextHop, NextHopFlags, NextHopBuffer}, RouteFlags, RouteHeader, RouteMessage};
 
 use crate::proto;
 
@@ -31,6 +31,7 @@ impl RtClient {
 
         let mut proto_routes = Vec::new();
         while let Some(route) = res.try_next().await? {
+            println!("{:?}", route);
             if route.header.table != table as u8
                 || route.header.address_family != ip_version_into(&ip_version)
             {
@@ -64,7 +65,7 @@ impl RtClient {
                 next_hops: Vec::new(),
                 source,
                 ad: ad as i32,
-                priority: 20,
+                priority: 0,
                 ibgp: false,
             };
 
@@ -80,6 +81,9 @@ impl RtClient {
                         Nla::MultiPath(hops) => {
                             for h in hops.iter() {
                                 let mut next_hop = next_hop_default();
+                                next_hop.weight = h.hops as u32;
+                                next_hop.interface = h.interface_id;
+                                next_hop.flags = h.flags.bits() as i32;
                                 for nnla in h.nlas.iter() {
                                     match nnla {
                                         Nla::Gateway(g) => {
@@ -129,7 +133,8 @@ impl RtClient {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn add_route(&self, route: proto::sart::Route, replace: bool) -> Result<(), Error> {
+    pub async fn add_route(&self, route: &proto::sart::Route, replace: bool) -> Result<(), Error> {
+        tracing::info!("add a route");
         let rt = self.handler.route();
         let ip_version = ip_version_from(route.ip_version as u32)?;
 
@@ -138,6 +143,11 @@ impl RtClient {
             .destination
             .parse()
             .map_err(|_| Error::FailedToParseAddress)?;
+
+        let dest = match destination {
+            IpNet::V4(a) => a,
+            IpNet::V6(_) => panic!(),
+        };
 
         let mut exist = false;
         let mut res = rt.get(ip_version.clone()).execute();
@@ -159,6 +169,9 @@ impl RtClient {
                         tracing::info!(existing_ad=?existing_ad,new_ad=?new_ad, "replace it");
                         // rt.del(r).execute().await?;
                         exist = true;
+                    } else {
+                        tracing::info!("the existing route has lower ad value. nothing to do.");
+                        return Ok(());
                     }
                 }
             }
@@ -174,27 +187,70 @@ impl RtClient {
             .protocol(route.protocol as u8)
             .scope(route.scope as u8);
 
+
         if replace {
             req = req.replace();
         }
 
         let msg = req.message_mut();
 
-        match ip_version {
-            rtnetlink::IpVersion::V4 => {
-                if let IpNet::V4(dst) = destination {
-                    let msg = req
-                        .v4()
-                        .destination_prefix(dst.addr(), dst.prefix_len())
-                        .message_mut();
-                }
+        // destination
+        msg.header.destination_prefix_length = destination.prefix_len();
+        match destination.addr() {
+            IpAddr::V4(a) => msg.nlas.push(Nla::Destination(a.octets().to_vec())),
+            IpAddr::V6(a) => msg.nlas.push(Nla::Destination(a.octets().to_vec())),
+        }
+
+        // source
+        if let Ok(src) = route.source.parse::<IpAddr>() {
+            match src {
+                IpAddr::V4(addr) => msg.nlas.push(Nla::Source(addr.octets().to_vec())),
+                IpAddr::V6(addr) => msg.nlas.push(Nla::Source(addr.octets().to_vec())),
             }
-            rtnetlink::IpVersion::V6 => {
-                if let IpNet::V6(dst) = destination {
-                    req.v6().destination_prefix(dst.addr(), dst.prefix_len());
+        }
+        
+        if route.priority != 0 {
+            msg.nlas.push(Nla::Priority(route.priority));
+        }
+        // next hop
+        if route.next_hops.len() > 1 {
+            // multi_path
+            let n = route.next_hops.iter().map(|h| {
+                let mut next = NextHop::default();
+                next.flags = NextHopFlags::from_bits_truncate(h.flags as u8);
+                if h.weight > 0 {
+                    next.hops = (h.weight - 1) as u8;
+                }
+                if h.interface != 0 {
+                    next.interface_id = h.interface;
+                }
+                if let Ok(gateway) = h.gateway.parse::<IpAddr>() {
+                    match gateway {
+                        IpAddr::V4(addr) => msg.nlas.push(Nla::Gateway(addr.octets().to_vec())),
+                        IpAddr::V6(addr) => msg.nlas.push(Nla::Gateway(addr.octets().to_vec())),
+                    }
+                }
+                next
+            }).collect();
+            msg.nlas.push(Nla::MultiPath(n));
+        } else if route.next_hops.is_empty() {
+            // no next_hop
+            return Err(Error::GatewayNotFound)
+        } else {
+            if let Ok(gateway) = route.next_hops[0].gateway.parse::<IpAddr>() {
+                match gateway {
+                    IpAddr::V4(addr) => msg.nlas.push(Nla::Gateway(addr.octets().to_vec())),
+                    IpAddr::V6(addr) => msg.nlas.push(Nla::Gateway(addr.octets().to_vec())),
                 }
             }
         }
+
+        match ip_version {
+            rtnetlink::IpVersion::V4 => req.v4().execute().await?,
+            rtnetlink::IpVersion::V6 => req.v6().execute().await?,
+        }
+        // req.execute().await?;
+
         Ok(())
     }
 
@@ -328,7 +384,7 @@ impl TryFrom<u8> for Protocol {
 fn next_hop_default() -> proto::sart::RtNextHop {
     proto::sart::RtNextHop {
         gateway: String::new(),
-        weight: 1,
+        weight: 0,
         flags: 0,
         interface: 0,
     }

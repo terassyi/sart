@@ -60,7 +60,14 @@ impl FibApi for FibServer {
 
     #[tracing::instrument(skip(self, req))]
     async fn add_route(&self, req: Request<AddRouteRequest>) -> Result<Response<()>, Status> {
-        Ok(Response::new(()))
+        if let Some(route) = &req.get_ref().route {
+            match self.rt.add_route(route, req.get_ref().replace).await {
+                Ok(_) => Ok(Response::new(())),
+                Err(e) => Err(Status::internal(format!("{e}")))
+            }
+        } else {
+            Err(Status::aborted("route is required"))
+        }
     }
 
     async fn delete_route(&self, req: Request<DeleteRouteRequest>) -> Result<Response<()>, Status> {
