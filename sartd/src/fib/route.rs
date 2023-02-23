@@ -1,11 +1,8 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use futures::TryStreamExt;
-use ipnet::{IpNet, Ipv4Net, Ipv6Net};
-use netlink_packet_route::{
-    route::{NextHop, NextHopBuffer, NextHopFlags, Nla},
-    RouteFlags, RouteHeader, RouteMessage,
-};
+use ipnet::IpNet;
+use netlink_packet_route::route::{NextHop, NextHopFlags, Nla};
 
 use crate::proto;
 
@@ -146,11 +143,6 @@ impl RtClient {
             .destination
             .parse()
             .map_err(|_| Error::FailedToParseAddress)?;
-
-        let dest = match destination {
-            IpNet::V4(a) => a,
-            IpNet::V6(_) => panic!(),
-        };
 
         let mut exist = false;
         let mut res = rt.get(ip_version.clone()).execute();
@@ -425,15 +417,4 @@ fn parse_ipaddr(data: &Vec<u8>) -> Result<IpAddr, Error> {
     } else {
         Err(Error::FailedToGetPrefix)
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use futures::TryStreamExt;
-    use rtnetlink::NetworkNamespace;
-
-    use super::RtClient;
-
-    #[tokio::test]
-    async fn test_rtnetlink() {}
 }

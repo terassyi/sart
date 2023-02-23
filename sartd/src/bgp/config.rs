@@ -8,12 +8,14 @@ use crate::proto;
 
 use super::event::ControlEvent;
 use super::packet::attribute::Attribute;
+use super::server::Bgp;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Config {
     pub asn: u32,
     pub router_id: Ipv4Addr,
-    pub rib_endpoint: String,
+    pub fib_endpoint: Option<String>,
+    pub fib_table: Option<u8>,
     pub neighbors: Vec<NeighborConfig>,
     pub multi_path: Option<bool>,
     pub paths: Option<Vec<PathConfig>>,
@@ -23,7 +25,8 @@ impl Config {
     pub fn default() -> Self {
         Config {
             asn: 0,
-            rib_endpoint: "".to_string(),
+            fib_endpoint: None,
+            fib_table: Some(Bgp::ROUTE_TABLE_MAIN),
             router_id: Ipv4Addr::new(0, 0, 0, 0),
             neighbors: Vec::new(),
             multi_path: Some(false),
@@ -113,7 +116,7 @@ mod tests {
     fn work_serd_yaml_from_str() {
         let yaml_str = r"asn: 6550
 router_id: 1.1.1.1
-rib_endpoint: test
+fib_endpoint: test
 neighbors:
   - asn: 100
     router_id: 2.2.2.2

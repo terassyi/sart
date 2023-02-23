@@ -111,6 +111,15 @@ impl From<Afi> for u16 {
     }
 }
 
+impl Afi {
+    pub fn inet(&self) -> u8 {
+        match self {
+            Afi::IPv4 => 2,
+            Afi::IPv6 => 10,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum Safi {
     Unicast = 1,
@@ -133,6 +142,15 @@ impl From<Safi> for u8 {
         match val {
             Safi::Unicast => 1,
             Safi::Multicast => 2,
+        }
+    }
+}
+
+impl Safi {
+    pub fn inet(&self) -> u8 {
+        match self {
+            Safi::Unicast => 1,
+            Safi::Multicast => 5,
         }
     }
 }

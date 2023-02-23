@@ -11,8 +11,11 @@ pub(crate) struct BgpCmd {
     #[arg(short, long, help = "Local router id(must be ipv4 format)")]
     pub router_id: Option<String>,
 
-    #[arg(long = "fib", help = "Fib endpoint url(gRPC)")]
+    #[arg(long = "fib", help = "Fib endpoint url(gRPC) exp) localhost:5001")]
     pub fib_endpoint: Option<String>,
+
+    #[arg(long = "table-id", help = "Target fib table id(default is main(254))")]
+    pub fib_table_id: Option<u8>,
 
     #[arg(
         short,

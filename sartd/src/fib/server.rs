@@ -41,6 +41,7 @@ impl Fib {
             .build()
             .unwrap();
 
+        tracing::info!("start to listen at {}", endpoint);
         tonic::transport::Server::builder()
             .add_service(FibApiServer::new(FibServer::new(handler)))
             .add_service(reflection)

@@ -40,6 +40,11 @@ pub(crate) enum Error {
     Peer(#[from] PeerError),
     #[error("rib error")]
     Rib(#[from] RibError),
+    #[error("endpoint error: {}", e)]
+    Endpoint {
+        #[from]
+        e: tonic::Status,
+    },
 }
 
 // https://www.rfc-editor.org/rfc/rfc1771#section-6.1
@@ -195,4 +200,6 @@ pub(crate) enum RibError {
     PathNotFound,
     #[error("unhandlable event")]
     UnhandlableEvent,
+    #[error("failed to connect to fib endpoint")]
+    FailedToConnectToFibEndpoint,
 }
