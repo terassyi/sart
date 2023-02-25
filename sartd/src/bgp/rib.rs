@@ -655,8 +655,11 @@ impl RibManager {
                     } else {
                         Bgp::AD_EBGP
                     };
-                    let next_hop = path.next_hops[0]; // must have at least one next_hop // TODO: handle multiple next_hops
                     if apply_to_fib && self.endpoint.is_some() {
+                        if path.next_hops.is_empty() {
+                            return Err(Error::Rib(RibError::NextHopMustBeSet));
+                        }
+                        let next_hop = path.next_hops[0]; // must have at least one next_hop // TODO: handle multiple next_hops(ipv6)
                         let endpoint = self.endpoint.as_mut().unwrap();
                         tracing::info!("apply to fib endpoint to add the route");
                         endpoint

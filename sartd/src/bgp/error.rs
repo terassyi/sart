@@ -186,6 +186,8 @@ pub(crate) enum PeerError {
 pub(crate) enum RibError {
     #[error("invalid address family")]
     InvalidAddressFamily,
+    #[error("next hop must be set")]
+    NextHopMustBeSet,
     #[error("address family is not set")]
     AddressFamilyNotSet,
     #[error("peer is already registered")]
