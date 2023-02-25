@@ -667,13 +667,13 @@ impl RibManager {
                                 table: self.table_id as u32,
                                 version: path.family().afi.inet() as i32,
                                 route: Some(proto::sart::Route {
-                                    table_id: self.table_id as u32,
-                                    ip_version: path.family().afi.inet() as i32,
+                                    table: self.table_id as u32,
+                                    version: path.family().afi.inet() as i32,
                                     destination: path.prefix.to_string(),
                                     protocol: Bgp::RTPROTO_BGP as i32,
                                     scope: Bgp::RT_SCOPE_UNIVERSE as i32,
                                     r#type: path.family().safi.inet() as i32,
-                                    next_hops: vec![proto::sart::RtNextHop {
+                                    next_hops: vec![proto::sart::NextHop {
                                         gateway: next_hop.to_string(),
                                         weight: priority as u32,
                                         flags: 0,
@@ -769,13 +769,13 @@ impl RibManager {
                                 table: self.table_id as u32,
                                 version: path.family().afi.inet() as i32,
                                 route: Some(proto::sart::Route {
-                                    table_id: self.table_id as u32,
-                                    ip_version: path.family().afi.inet() as i32,
+                                    table: self.table_id as u32,
+                                    version: path.family().afi.inet() as i32,
                                     destination: path.prefix.to_string(),
                                     protocol: Bgp::RTPROTO_BGP as i32,
                                     scope: Bgp::RT_SCOPE_UNIVERSE as i32,
                                     r#type: path.family().safi.inet() as i32,
-                                    next_hops: vec![proto::sart::RtNextHop {
+                                    next_hops: vec![proto::sart::NextHop {
                                         gateway: next_hop.to_string(),
                                         weight: priority as u32,
                                         flags: 0,

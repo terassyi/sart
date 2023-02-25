@@ -1,8 +1,8 @@
 use tonic::{Request, Response, Status};
 
 use crate::proto::sart::{
-    fib_api_server::FibApi, AddRouteRequest, DeleteRouteRequest, GetRouteRequest, GetRouteResponse,
-    ListRoutesRequest, ListRoutesResponse,
+    fib_api_server::FibApi, AddMultiPathRouteRequest, AddRouteRequest, DeleteMultiPathRouteRequest,
+    DeleteRouteRequest, GetRouteRequest, GetRouteResponse, ListRoutesRequest, ListRoutesResponse,
 };
 
 use super::route::{ip_version_from, RtClient};
@@ -75,6 +75,7 @@ impl FibApi for FibServer {
         }
     }
 
+    #[tracing::instrument(skip(self, req))]
     async fn delete_route(&self, req: Request<DeleteRouteRequest>) -> Result<Response<()>, Status> {
         let table_id = req.get_ref().table as u8;
         let ver = match ip_version_from(req.get_ref().version as u32) {
@@ -90,5 +91,20 @@ impl FibApi for FibServer {
             Ok(_) => Ok(Response::new(())),
             Err(e) => Err(Status::internal(format!("{}", e))),
         }
+    }
+
+    #[tracing::instrument(skip(self, req))]
+    async fn add_multi_path_route(
+        &self,
+        req: Request<AddMultiPathRouteRequest>,
+    ) -> Result<Response<()>, Status> {
+        Ok(Response::new(()))
+    }
+
+    async fn delete_multi_path_route(
+        &self,
+        req: Request<DeleteMultiPathRouteRequest>,
+    ) -> Result<Response<()>, Status> {
+        Ok(Response::new(()))
     }
 }

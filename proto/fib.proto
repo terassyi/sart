@@ -10,6 +10,8 @@ service FibApi {
 	rpc ListRoutes(ListRoutesRequest) returns (ListRoutesResponse);
 	rpc AddRoute(AddRouteRequest) returns (google.protobuf.Empty);
 	rpc DeleteRoute(DeleteRouteRequest) returns (google.protobuf.Empty);
+	rpc AddMultiPathRoute(AddMultiPathRouteRequest) returns (google.protobuf.Empty);
+	rpc DeleteMultiPathRoute(DeleteMultiPathRouteRequest) returns (google.protobuf.Empty);
 }
 
 message GetRouteRequest {
@@ -44,21 +46,35 @@ message DeleteRouteRequest {
 	string destination = 3;
 }
 
+message AddMultiPathRouteRequest {
+	uint32 table = 1;
+	IpVersion version = 2;
+	string destination = 3;
+	repeated NextHop next_hops = 4;
+}
+
+message DeleteMultiPathRouteRequest {
+	uint32 table = 1;
+	IpVersion version = 2;
+	string destination = 3;
+	repeated string gateways = 4;
+}
+
 message Route {
-	uint32 table_id = 1;
-	IpVersion ip_version = 2;
+	uint32 table = 1;
+	IpVersion version = 2;
 	string destination = 3;
 	Protocol protocol = 4;
 	Scope scope = 5;
 	Type type = 6;
-	repeated RtNextHop next_hops = 7;
+	repeated NextHop next_hops = 7;
 	string source = 8;
 	AdministrativeDistance ad = 9;
 	uint32 priority = 10;
 	bool ibgp = 11;
 }
 
-message RtNextHop {
+message NextHop {
 	string gateway = 1;
 	uint32 weight = 2;
 	enum NextHopFlags {
