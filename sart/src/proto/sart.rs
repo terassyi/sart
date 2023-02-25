@@ -1259,11 +1259,35 @@ pub struct DeleteRouteRequest {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AddMultiPathRouteRequest {
+    #[prost(uint32, tag = "1")]
+    pub table: u32,
+    #[prost(enumeration = "IpVersion", tag = "2")]
+    pub version: i32,
+    #[prost(string, tag = "3")]
+    pub destination: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "4")]
+    pub next_hops: ::prost::alloc::vec::Vec<NextHop>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DeleteMultiPathRouteRequest {
+    #[prost(uint32, tag = "1")]
+    pub table: u32,
+    #[prost(enumeration = "IpVersion", tag = "2")]
+    pub version: i32,
+    #[prost(string, tag = "3")]
+    pub destination: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag = "4")]
+    pub gateways: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Route {
     #[prost(uint32, tag = "1")]
-    pub table_id: u32,
+    pub table: u32,
     #[prost(enumeration = "IpVersion", tag = "2")]
-    pub ip_version: i32,
+    pub version: i32,
     #[prost(string, tag = "3")]
     pub destination: ::prost::alloc::string::String,
     #[prost(enumeration = "Protocol", tag = "4")]
@@ -1273,7 +1297,7 @@ pub struct Route {
     #[prost(enumeration = "Type", tag = "6")]
     pub r#type: i32,
     #[prost(message, repeated, tag = "7")]
-    pub next_hops: ::prost::alloc::vec::Vec<RtNextHop>,
+    pub next_hops: ::prost::alloc::vec::Vec<NextHop>,
     #[prost(string, tag = "8")]
     pub source: ::prost::alloc::string::String,
     #[prost(enumeration = "AdministrativeDistance", tag = "9")]
@@ -1285,18 +1309,18 @@ pub struct Route {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct RtNextHop {
+pub struct NextHop {
     #[prost(string, tag = "1")]
     pub gateway: ::prost::alloc::string::String,
     #[prost(uint32, tag = "2")]
     pub weight: u32,
-    #[prost(enumeration = "rt_next_hop::NextHopFlags", tag = "3")]
+    #[prost(enumeration = "next_hop::NextHopFlags", tag = "3")]
     pub flags: i32,
     #[prost(uint32, tag = "4")]
     pub interface: u32,
 }
-/// Nested message and enum types in `RtNextHop`.
-pub mod rt_next_hop {
+/// Nested message and enum types in `NextHop`.
+pub mod next_hop {
     #[derive(
         Clone,
         Copy,
@@ -1689,6 +1713,44 @@ pub mod fib_api_client {
             let path = http::uri::PathAndQuery::from_static("/sart.FibApi/DeleteRoute");
             self.inner.unary(request.into_request(), path, codec).await
         }
+        pub async fn add_multi_path_route(
+            &mut self,
+            request: impl tonic::IntoRequest<super::AddMultiPathRouteRequest>,
+        ) -> Result<tonic::Response<()>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/sart.FibApi/AddMultiPathRoute",
+            );
+            self.inner.unary(request.into_request(), path, codec).await
+        }
+        pub async fn delete_multi_path_route(
+            &mut self,
+            request: impl tonic::IntoRequest<super::DeleteMultiPathRouteRequest>,
+        ) -> Result<tonic::Response<()>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/sart.FibApi/DeleteMultiPathRoute",
+            );
+            self.inner.unary(request.into_request(), path, codec).await
+        }
     }
 }
 /// Generated server implementations.
@@ -1713,6 +1775,14 @@ pub mod fib_api_server {
         async fn delete_route(
             &self,
             request: tonic::Request<super::DeleteRouteRequest>,
+        ) -> Result<tonic::Response<()>, tonic::Status>;
+        async fn add_multi_path_route(
+            &self,
+            request: tonic::Request<super::AddMultiPathRouteRequest>,
+        ) -> Result<tonic::Response<()>, tonic::Status>;
+        async fn delete_multi_path_route(
+            &self,
+            request: tonic::Request<super::DeleteMultiPathRouteRequest>,
         ) -> Result<tonic::Response<()>, tonic::Status>;
     }
     #[derive(Debug)]
@@ -1911,6 +1981,86 @@ pub mod fib_api_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = DeleteRouteSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/sart.FibApi/AddMultiPathRoute" => {
+                    #[allow(non_camel_case_types)]
+                    struct AddMultiPathRouteSvc<T: FibApi>(pub Arc<T>);
+                    impl<
+                        T: FibApi,
+                    > tonic::server::UnaryService<super::AddMultiPathRouteRequest>
+                    for AddMultiPathRouteSvc<T> {
+                        type Response = ();
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::AddMultiPathRouteRequest>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move {
+                                (*inner).add_multi_path_route(request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = AddMultiPathRouteSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/sart.FibApi/DeleteMultiPathRoute" => {
+                    #[allow(non_camel_case_types)]
+                    struct DeleteMultiPathRouteSvc<T: FibApi>(pub Arc<T>);
+                    impl<
+                        T: FibApi,
+                    > tonic::server::UnaryService<super::DeleteMultiPathRouteRequest>
+                    for DeleteMultiPathRouteSvc<T> {
+                        type Response = ();
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::DeleteMultiPathRouteRequest>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move {
+                                (*inner).delete_multi_path_route(request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = DeleteMultiPathRouteSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
