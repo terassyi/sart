@@ -1,6 +1,10 @@
 use tonic::{Request, Response, Status};
 
-use crate::proto::sart::{fib_api_server::FibApi, ListRoutesResponse, ListRoutesRequest, AddRouteRequest, DeletePathRequest, DeleteRouteRequest, GetRouteRequest, GetRouteResponse, DeleteMultiPathRouteRequest, AddMultiPathRouteRequest};
+use crate::proto::sart::{
+    fib_api_server::FibApi, AddMultiPathRouteRequest, AddRouteRequest, DeleteMultiPathRouteRequest,
+    DeletePathRequest, DeleteRouteRequest, GetRouteRequest, GetRouteResponse, ListRoutesRequest,
+    ListRoutesResponse,
+};
 
 use super::route::{ip_version_from, RtClient};
 
@@ -23,9 +27,11 @@ impl FibServer {
 
 #[tonic::async_trait]
 impl FibApi for FibServer {
-
     #[tracing::instrument(skip(self, req))]
-    async fn get_route(&self, req: Request<GetRouteRequest>) -> Result<Response<GetRouteResponse>, Status> {
+    async fn get_route(
+        &self,
+        req: Request<GetRouteRequest>,
+    ) -> Result<Response<GetRouteResponse>, Status> {
         let table_id = req.get_ref().table;
         let ver = match ip_version_from(req.get_ref().version as u32) {
             Ok(ver) => ver,
@@ -36,9 +42,9 @@ impl FibApi for FibServer {
         } else {
             &req.get_ref().destination
         };
-        match self.rt.get_route(table_id, ver, dst).await {
-            Ok(route) => Ok(Response::new(GetRouteResponse{ route: Some(route) })),
-            Err(e) => Err(Status::internal(format!("{}", e)))
+        match self.rt.get_route(table_id as u8, ver, dst).await {
+            Ok(route) => Ok(Response::new(GetRouteResponse { route: Some(route) })),
+            Err(e) => Err(Status::internal(format!("{}", e))),
         }
     }
 
@@ -52,7 +58,7 @@ impl FibApi for FibServer {
             Ok(ver) => ver,
             Err(_) => return Err(Status::aborted("invalid ip version")),
         };
-        match self.rt.list_routes(table_id, ver).await {
+        match self.rt.list_routes(table_id as u8, ver).await {
             Ok(routes) => Ok(Response::new(ListRoutesResponse { routes })),
             Err(e) => Err(Status::internal(format!("{}", e))),
         }
@@ -63,7 +69,7 @@ impl FibApi for FibServer {
         if let Some(route) = &req.get_ref().route {
             match self.rt.add_route(route, req.get_ref().replace).await {
                 Ok(_) => Ok(Response::new(())),
-                Err(e) => Err(Status::internal(format!("{e}")))
+                Err(e) => Err(Status::internal(format!("{e}"))),
             }
         } else {
             Err(Status::aborted("route is required"))
@@ -79,22 +85,27 @@ impl FibApi for FibServer {
         };
         let dest = match req.get_ref().destination.parse() {
             Ok(dest) => dest,
-            Err(e) => return Err(Status::aborted("failed to parse destination"))
+            Err(e) => return Err(Status::aborted("failed to parse destination")),
         };
 
         match self.rt.delete_route(table_id, ver, dest).await {
             Ok(_) => Ok(Response::new(())),
-            Err(e) => Err(Status::internal(format!("{}", e)))
+            Err(e) => Err(Status::internal(format!("{}", e))),
         }
     }
 
     #[tracing::instrument(skip(self, req))]
-    async fn add_multi_path_route(&self, req: Request<AddMultiPathRouteRequest>) -> Result<Response<()>, Status> {
-
+    async fn add_multi_path_route(
+        &self,
+        req: Request<AddMultiPathRouteRequest>,
+    ) -> Result<Response<()>, Status> {
         Ok(Response::new(()))
     }
 
-    async fn delete_multi_path_route(&self, req: Request<DeleteMultiPathRouteRequest>) -> Result<Response<()>, Status> {
+    async fn delete_multi_path_route(
+        &self,
+        req: Request<DeleteMultiPathRouteRequest>,
+    ) -> Result<Response<()>, Status> {
         Ok(Response::new(()))
     }
 }
