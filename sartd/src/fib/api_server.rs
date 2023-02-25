@@ -41,7 +41,7 @@ impl FibApi for FibServer {
         } else {
             &req.get_ref().destination
         };
-        match self.rt.get_route(table_id, ver, dst).await {
+        match self.rt.get_route(table_id as u8, ver, dst).await {
             Ok(route) => Ok(Response::new(GetRouteResponse { route: Some(route) })),
             Err(e) => Err(Status::internal(format!("{}", e))),
         }
@@ -57,7 +57,7 @@ impl FibApi for FibServer {
             Ok(ver) => ver,
             Err(_) => return Err(Status::aborted("invalid ip version")),
         };
-        match self.rt.list_routes(table_id, ver).await {
+        match self.rt.list_routes(table_id as u8, ver).await {
             Ok(routes) => Ok(Response::new(ListRoutesResponse { routes })),
             Err(e) => Err(Status::internal(format!("{}", e))),
         }
