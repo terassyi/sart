@@ -1,10 +1,9 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-use futures::{TryStreamExt};
-use ipnet::{IpNet};
-use netlink_packet_route::{
-    route::{NextHop, NextHopFlags, Nla, NextHopBuffer},
-};
+use futures::TryStreamExt;
+use ipnet::IpNet;
+use netlink_packet_route::route::{NextHop, NextHopBuffer, NextHopFlags, Nla};
+use rtnetlink::RouteAddRequest;
 
 use crate::proto;
 
@@ -221,8 +220,12 @@ impl RtClient {
                     }
                     if let Ok(gateway) = h.gateway.parse::<IpAddr>() {
                         match gateway {
-                            IpAddr::V4(addr) => next.nlas.push(Nla::Gateway(addr.octets().to_vec())),
-                            IpAddr::V6(addr) => next.nlas.push(Nla::Gateway(addr.octets().to_vec())),
+                            IpAddr::V4(addr) => {
+                                next.nlas.push(Nla::Gateway(addr.octets().to_vec()))
+                            }
+                            IpAddr::V6(addr) => {
+                                next.nlas.push(Nla::Gateway(addr.octets().to_vec()))
+                            }
                         }
                     }
                     next
@@ -273,10 +276,16 @@ impl RtClient {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn add_multi_path_route(&self, table: u8, ip_version: rtnetlink::IpVersion, destination: IpNet, next_hops: Vec<proto::sart::NextHop>) -> Result<(), Error> {
+    pub async fn add_multi_path_route(
+        &self,
+        table: u8,
+        ip_version: rtnetlink::IpVersion,
+        destination: IpNet,
+        next_hops: Vec<proto::sart::NextHop>,
+    ) -> Result<(), Error> {
         tracing::info!("add multiple path to the route");
         if next_hops.is_empty() {
-            return Ok(())
+            return Ok(());
         }
         let rt = self.handler.route();
 
@@ -292,14 +301,17 @@ impl RtClient {
                     // delete the old route
                     tracing::info!("delete the old route");
                     rt.del(route.clone()).execute().await?;
-                    let mut nhs: Vec<NextHop> = next_hops.iter().map(|n| {
-                        let mut rt_n = NextHop::default();
-                        rt_n.hops = (n.weight - 1) as u8;
-                        rt_n.flags = NextHopFlags::from_bits_truncate(n.flags as u8);
-                        let addr = n.gateway.parse::<IpAddr>().unwrap();
-                        rt_n.nlas.push(Nla::Gateway(ipaddr_to_vec(addr)));
-                        rt_n
-                    }).collect();
+                    let mut nhs: Vec<NextHop> = next_hops
+                        .iter()
+                        .map(|n| {
+                            let mut rt_n = NextHop::default();
+                            rt_n.hops = (n.weight - 1) as u8;
+                            rt_n.flags = NextHopFlags::from_bits_truncate(n.flags as u8);
+                            let addr = n.gateway.parse::<IpAddr>().unwrap();
+                            rt_n.nlas.push(Nla::Gateway(ipaddr_to_vec(addr)));
+                            rt_n
+                        })
+                        .collect();
                     let mut new_multi_path = false;
                     for nla in route.nlas.iter_mut() {
                         if let Nla::Gateway(g) = nla {
@@ -316,10 +328,9 @@ impl RtClient {
                             multi.append(&mut nhs);
                         }
                     }
-                    route.nlas = route.nlas.into_iter().filter(|nla| match nla {
-                        Nla::Gateway(_) | Nla::Oif(_) | Nla::Source(_) => false,
-                        _ => true,
-                    }).collect();
+                    route.nlas.retain(|nla| {
+                        !matches!(nla, Nla::Gateway(_) | Nla::Oif(_) | Nla::Source(_))
+                    });
                     if new_multi_path {
                         route.nlas.push(Nla::MultiPath(nhs));
                     }
@@ -332,7 +343,7 @@ impl RtClient {
                     match ip_version_num {
                         2 => req.v4().execute().await?,
                         10 => req.v6().execute().await?,
-                        _ => return Err(Error::InvalidProtocol)
+                        _ => return Err(Error::InvalidProtocol),
                     }
                 }
             }
@@ -341,10 +352,16 @@ impl RtClient {
         Ok(())
     }
 
-    pub async fn delete_multi_path_route(&self, table: u8, ip_version: rtnetlink::IpVersion, destination: IpNet, gateways: Vec<IpAddr>) -> Result<(), Error> {
+    pub async fn delete_multi_path_route(
+        &self,
+        table: u8,
+        ip_version: rtnetlink::IpVersion,
+        destination: IpNet,
+        gateways: Vec<IpAddr>,
+    ) -> Result<(), Error> {
         tracing::info!("add multiple path to the route");
         if gateways.is_empty() {
-            return Ok(())
+            return Ok(());
         }
         let rt = self.handler.route();
 
@@ -359,40 +376,57 @@ impl RtClient {
                     // delete the old route
                     tracing::info!("delete the old route");
                     rt.del(route.clone()).execute().await?;
+                    println!("delete old route");
 
-                    match route.nlas.iter().find(|&nla| if let Nla::MultiPath(m) = nla {true} else {false}) {
+                    let mut new_nlas = Vec::new();
+                    let mut to_single_path = false;
+
+                    match route
+                        .nlas
+                        .iter_mut()
+                        .find(|nla| matches!(nla, Nla::MultiPath(_m)))
+                    {
                         Some(multi_path) => {
                             if let Nla::MultiPath(next_hops) = multi_path {
                                 if next_hops.len() - gateways.len() > 1 {
-                                    let a = next_hops.iter().filter(|&n| match n.gateway() {
-                                        Some(gateway) => {
-                                            gateways.iter().find(|&g| gateway.eq(g)).is_none()
-                                        }
+                                    next_hops.retain(|next| match next.gateway() {
+                                        Some(gateway) => !gateways.iter().any(|g| gateway.eq(g)),
                                         None => true,
-                                    }).collect::<Vec<&NextHop>>();
+                                    })
                                 } else {
-                                    let gateway = match next_hops.iter().find(|&n| gateways.iter().find(|&g| g.eq(&n.gateway().unwrap())).is_none()) {
+                                    to_single_path = true;
+                                    let gateway = match next_hops.iter_mut().find(|n| {
+                                        !gateways.iter().any(|g| g.eq(&n.gateway().unwrap()))
+                                    }) {
                                         Some(gateway) => gateway,
-                                        None => return Err(Error::GatewayNotFound)
+                                        None => return Err(Error::GatewayNotFound),
                                     };
-                                    
+                                    new_nlas.append(&mut gateway.nlas);
                                 }
                             }
                         }
-                        None => {}
+                        None => return Err(Error::InvalidGateway),
                     }
 
+                    if to_single_path {
+                        route.nlas.retain(|nla| !matches!(nla, Nla::MultiPath(_)));
+                        route.nlas.append(&mut new_nlas);
+                    }
 
                     // add as new route
-                    let mut req = rt.add();
-                    let mut msg = req.message_mut();
-                    msg = &mut route;
-                    tracing::info!(msg=?msg,"drop multi path");
+                    let mut req = rt
+                        .add()
+                        .table(route.header.table)
+                        .kind(route.header.kind)
+                        .protocol(route.header.protocol)
+                        .scope(route.header.scope);
+
                     match ip_version_num {
                         2 => req.v4().execute().await?,
                         10 => req.v6().execute().await?,
-                        _ => return Err(Error::InvalidProtocol)
+                        _ => return Err(Error::InvalidProtocol),
                     }
+                    println!("add new route");
                 }
             }
         }
@@ -553,15 +587,18 @@ fn ipaddr_to_vec(addr: IpAddr) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    use core::panic;
     use futures::TryStreamExt;
     use netlink_packet_route::route::Nla;
-    use rtnetlink::NetworkNamespace;
-    use core::panic;
-    use std::{os::fd::AsRawFd, net::{Ipv4Addr, IpAddr}};
 
-    use crate::{proto};
+    use std::{
+        net::{IpAddr, Ipv4Addr},
+        os::fd::AsRawFd,
+    };
 
-    use super::{RtClient, parse_ipaddr};
+    use crate::proto;
+
+    use super::{parse_ipaddr, RtClient};
 
     #[tokio::test]
     async fn test_rt_client() {
@@ -578,8 +615,20 @@ mod tests {
         // prepare links
         let (v0, p0) = ("v0".to_string(), "p0".to_string());
         let (v1, p1) = ("v1".to_string(), "p1".to_string());
-        rt.handler.link().add().veth(v0.clone(), p0).execute().await.unwrap();
-        rt.handler.link().add().veth(v1.clone(), p1).execute().await.unwrap();
+        rt.handler
+            .link()
+            .add()
+            .veth(v0.clone(), p0)
+            .execute()
+            .await
+            .unwrap();
+        rt.handler
+            .link()
+            .add()
+            .veth(v1.clone(), p1)
+            .execute()
+            .await
+            .unwrap();
 
         let mut v0_idx = 0;
         let mut v1_idx = 0;
@@ -592,9 +641,21 @@ mod tests {
             v1_idx = l.header.index;
         }
 
-        // set ns 
-        rt.handler.link().set(v0_idx).setns_by_fd(fd).execute().await.unwrap();
-        rt.handler.link().set(v1_idx).setns_by_fd(fd).execute().await.unwrap();
+        // set ns
+        rt.handler
+            .link()
+            .set(v0_idx)
+            .setns_by_fd(fd)
+            .execute()
+            .await
+            .unwrap();
+        rt.handler
+            .link()
+            .set(v1_idx)
+            .setns_by_fd(fd)
+            .execute()
+            .await
+            .unwrap();
 
         ns.enter().unwrap();
         let (ns_conn, ns_handler, _rx) = rtnetlink::new_connection().unwrap();
@@ -609,8 +670,20 @@ mod tests {
         while let Some(l) = v1_l.try_next().await.map_err(|e| format!("{e}")).unwrap() {
             v1_idx = l.header.index;
         }
-        ns_handler.address().add(v0_idx, "10.0.0.1".parse().unwrap(), 24).execute().await.map_err(|e| format!("{e}")) .unwrap();
-        ns_handler.address().add(v1_idx, "10.0.1.1".parse().unwrap(), 24).execute().await.map_err(|e| format!("{e}")) .unwrap();
+        ns_handler
+            .address()
+            .add(v0_idx, "10.0.0.1".parse().unwrap(), 24)
+            .execute()
+            .await
+            .map_err(|e| format!("{e}"))
+            .unwrap();
+        ns_handler
+            .address()
+            .add(v1_idx, "10.0.1.1".parse().unwrap(), 24)
+            .execute()
+            .await
+            .map_err(|e| format!("{e}"))
+            .unwrap();
 
         // set up
         ns_handler.link().set(1).up().execute().await.unwrap();
@@ -619,31 +692,44 @@ mod tests {
 
         let ns_rt = RtClient::new(ns_handler);
 
-        ns_rt.add_route(&proto::sart::Route{
-            table: 254,
-            version: 2,
-            destination: "10.10.0.0/24".to_string(),
-            protocol: 186,
-            scope: 0,
-            r#type: 1,
-            next_hops: vec![proto::sart::NextHop{
-                gateway: "10.0.0.1".to_string(),
-                weight: 20,
-                flags: 0,
-                interface: 0,
-            }],
-            source: String::new(),
-            ad: 20,
-            priority: 20,
-            ibgp: false,
-        }, false).await.unwrap();
+        ns_rt
+            .add_route(
+                &proto::sart::Route {
+                    table: 254,
+                    version: 2,
+                    destination: "10.10.0.0/24".to_string(),
+                    protocol: 186,
+                    scope: 0,
+                    r#type: 1,
+                    next_hops: vec![proto::sart::NextHop {
+                        gateway: "10.0.0.1".to_string(),
+                        weight: 20,
+                        flags: 0,
+                        interface: 0,
+                    }],
+                    source: String::new(),
+                    ad: 20,
+                    priority: 20,
+                    ibgp: false,
+                },
+                false,
+            )
+            .await
+            .unwrap();
 
-        let mut a = ns_rt.handler.route().get(rtnetlink::IpVersion::V4).execute();
+        let mut a = ns_rt
+            .handler
+            .route()
+            .get(rtnetlink::IpVersion::V4)
+            .execute();
         let mut existing = false;
         while let Some(route) = a.try_next().await.unwrap() {
             let (addr, prefix_len) = route.destination_prefix().unwrap();
             if addr.to_string() == "10.10.0.0" && prefix_len == 24 {
-                assert_eq!(route.gateway().unwrap(), "10.0.0.1".parse::<Ipv4Addr>().unwrap());
+                assert_eq!(
+                    route.gateway().unwrap(),
+                    "10.0.0.1".parse::<Ipv4Addr>().unwrap()
+                );
                 existing = true;
             }
         }
@@ -652,31 +738,45 @@ mod tests {
         }
 
         // replace
-        ns_rt.add_route(&proto::sart::Route{
-            table: 254,
-            version: 2,
-            destination: "10.10.0.0/24".to_string(),
-            protocol: 186,
-            scope: 0,
-            r#type: 1,
-            next_hops: vec![proto::sart::NextHop{
-                gateway: "10.0.1.1".to_string(),
-                weight: 20,
-                flags: 0,
-                interface: 0,
-            }],
-            source: String::new(),
-            ad: 20,
-            priority: 20,
-            ibgp: false,
-        }, true).await.map_err(|e| format!("{e}")).unwrap();
+        ns_rt
+            .add_route(
+                &proto::sart::Route {
+                    table: 254,
+                    version: 2,
+                    destination: "10.10.0.0/24".to_string(),
+                    protocol: 186,
+                    scope: 0,
+                    r#type: 1,
+                    next_hops: vec![proto::sart::NextHop {
+                        gateway: "10.0.1.1".to_string(),
+                        weight: 20,
+                        flags: 0,
+                        interface: 0,
+                    }],
+                    source: String::new(),
+                    ad: 20,
+                    priority: 20,
+                    ibgp: false,
+                },
+                true,
+            )
+            .await
+            .map_err(|e| format!("{e}"))
+            .unwrap();
 
-        let mut a = ns_rt.handler.route().get(rtnetlink::IpVersion::V4).execute();
+        let mut a = ns_rt
+            .handler
+            .route()
+            .get(rtnetlink::IpVersion::V4)
+            .execute();
         existing = false;
         while let Some(route) = a.try_next().await.unwrap() {
             let (addr, prefix_len) = route.destination_prefix().unwrap();
             if addr.to_string() == "10.10.0.0" && prefix_len == 24 {
-                assert_eq!(route.gateway().unwrap(), "10.0.1.1".parse::<Ipv4Addr>().unwrap());
+                assert_eq!(
+                    route.gateway().unwrap(),
+                    "10.0.1.1".parse::<Ipv4Addr>().unwrap()
+                );
                 existing = true;
             }
         }
@@ -685,49 +785,74 @@ mod tests {
         }
 
         // delete route
-        ns_rt.delete_route(254, rtnetlink::IpVersion::V4, "10.10.0.0/24".parse().unwrap()).await.unwrap();
-        let mut a = ns_rt.handler.route().get(rtnetlink::IpVersion::V4).execute();
+        ns_rt
+            .delete_route(
+                254,
+                rtnetlink::IpVersion::V4,
+                "10.10.0.0/24".parse().unwrap(),
+            )
+            .await
+            .unwrap();
+        let mut a = ns_rt
+            .handler
+            .route()
+            .get(rtnetlink::IpVersion::V4)
+            .execute();
         existing = false;
         while let Some(route) = a.try_next().await.unwrap() {
             let (addr, prefix_len) = route.destination_prefix().unwrap();
             if addr.to_string() == "10.10.0.0" && prefix_len == 24 {
-                assert_eq!(route.gateway().unwrap(), "10.0.1.1".parse::<Ipv4Addr>().unwrap());
+                assert_eq!(
+                    route.gateway().unwrap(),
+                    "10.0.1.1".parse::<Ipv4Addr>().unwrap()
+                );
                 existing = true;
             }
         }
         if existing {
             panic!("a route should not exist");
         }
-        
-        // add a route that has multiple path
-        ns_rt.add_route(&proto::sart::Route{
-            table: 254,
-            version: 2,
-            destination: "10.100.0.0/24".to_string(),
-            protocol: 186,
-            scope: 0,
-            r#type: 1,
-            next_hops: vec![
-                proto::sart::NextHop{
-                    gateway: "10.0.0.1".to_string(),
-                    weight: 20,
-                    flags: 0,
-                    interface: 0,
-                },
-                proto::sart::NextHop{
-                    gateway: "10.0.1.1".to_string(),
-                    weight: 20,
-                    flags: 0,
-                    interface: 0,
-                },
-            ],
-            source: String::new(),
-            ad: 20,
-            priority: 20,
-            ibgp: false,
-        }, false).await.map_err(|e| format!("{e}")).unwrap();
 
-        let mut a = ns_rt.handler.route().get(rtnetlink::IpVersion::V4).execute();
+        // add a route that has multiple path
+        ns_rt
+            .add_route(
+                &proto::sart::Route {
+                    table: 254,
+                    version: 2,
+                    destination: "10.100.0.0/24".to_string(),
+                    protocol: 186,
+                    scope: 0,
+                    r#type: 1,
+                    next_hops: vec![
+                        proto::sart::NextHop {
+                            gateway: "10.0.0.1".to_string(),
+                            weight: 1,
+                            flags: 0,
+                            interface: 0,
+                        },
+                        proto::sart::NextHop {
+                            gateway: "10.0.1.1".to_string(),
+                            weight: 1,
+                            flags: 0,
+                            interface: 0,
+                        },
+                    ],
+                    source: String::new(),
+                    ad: 20,
+                    priority: 20,
+                    ibgp: false,
+                },
+                false,
+            )
+            .await
+            .map_err(|e| format!("{e}"))
+            .unwrap();
+
+        let mut a = ns_rt
+            .handler
+            .route()
+            .get(rtnetlink::IpVersion::V4)
+            .execute();
         let mut existing = 0;
         let expected: Vec<IpAddr> = vec!["10.0.0.1".parse().unwrap(), "10.0.1.1".parse().unwrap()];
         while let Some(route) = a.try_next().await.unwrap() {
@@ -739,7 +864,91 @@ mod tests {
                             for n in m.nlas.iter() {
                                 if let Nla::Gateway(g) = n {
                                     let gaddr = parse_ipaddr(g).unwrap();
-                                    if expected.iter().find(|&a| a.eq(&gaddr)).is_none() {
+                                    if !expected.iter().any(|a| a.eq(&gaddr)) {
+                                        panic!("found unexpected gateway address")
+                                    }
+                                    existing += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if existing != 2 {
+            panic!("a route should have two gateways");
+        }
+
+        // delete multi path route
+        ns_rt
+            .delete_multi_path_route(
+                254,
+                rtnetlink::IpVersion::V4,
+                "10.100.0.0/24".parse().unwrap(),
+                vec!["10.0.0.1".parse().unwrap()],
+            )
+            .await
+            .map_err(|e| format!("{e}"))
+            .unwrap();
+
+        let mut a = ns_rt
+            .handler
+            .route()
+            .get(rtnetlink::IpVersion::V4)
+            .execute();
+        let mut existing = false;
+        while let Some(route) = a.try_next().await.unwrap() {
+            let (addr, prefix_len) = route.destination_prefix().unwrap();
+            if addr.to_string() == "10.100.0.0" && prefix_len == 24 {
+                for nla in route.nlas.iter() {
+                    match nla {
+                        Nla::MultiPath(_) => panic!("multi path is not expected"),
+                        Nla::Gateway(g) => {
+                            let a = parse_ipaddr(g).unwrap();
+                            existing = a.eq(&"10.0.1.1".parse::<IpAddr>().unwrap());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        if !existing {
+            panic!("a route should have one gateway");
+        }
+
+        // add multi path route
+        ns_rt
+            .add_multi_path_route(
+                254,
+                rtnetlink::IpVersion::V4,
+                "10.10.0.0/24".parse().unwrap(),
+                vec![proto::sart::NextHop {
+                    gateway: "10.0.0.1".to_string(),
+                    weight: 1,
+                    flags: 0,
+                    interface: 0,
+                }],
+            )
+            .await
+            .unwrap();
+
+        let mut a = ns_rt
+            .handler
+            .route()
+            .get(rtnetlink::IpVersion::V4)
+            .execute();
+        let mut existing = 0;
+        let expected: Vec<IpAddr> = vec!["10.0.0.1".parse().unwrap(), "10.0.1.1".parse().unwrap()];
+        while let Some(route) = a.try_next().await.unwrap() {
+            let (addr, prefix_len) = route.destination_prefix().unwrap();
+            if addr.to_string() == "10.100.0.0" && prefix_len == 24 {
+                for nla in route.nlas.iter() {
+                    if let Nla::MultiPath(multi) = nla {
+                        for m in multi.iter() {
+                            for n in m.nlas.iter() {
+                                if let Nla::Gateway(g) = n {
+                                    let gaddr = parse_ipaddr(g).unwrap();
+                                    if !expected.iter().any(|a| a.eq(&gaddr)) {
                                         panic!("found unexpected gateway address")
                                     }
                                     existing += 1;
