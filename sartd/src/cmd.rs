@@ -83,11 +83,17 @@ pub(crate) fn main() {
             if let Some(router_id) = b.router_id {
                 conf.router_id = router_id.parse().unwrap();
             }
+            if let Some(fib_endpoint) = b.fib_endpoint {
+                conf.fib_endpoint = Some(fib_endpoint);
+            }
+            if let Some(table_id) = b.fib_table_id {
+                conf.fib_table = Some(table_id);
+            }
             let trace_conf = TraceConfig {
                 level,
                 format: format.to_string(),
                 file: log_file,
-                metrics_endpoint: None,
+                _metrics_endpoint: None,
             };
 
             server::start(conf, trace_conf);
@@ -97,7 +103,7 @@ pub(crate) fn main() {
                 level,
                 format: format.to_string(),
                 file: log_file,
-                metrics_endpoint: None,
+                _metrics_endpoint: None,
             };
 
             crate::fib::server::start(f.endpoint, trace_conf);

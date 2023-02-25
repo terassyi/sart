@@ -6,8 +6,8 @@ use std::{
 };
 use tokio::sync::mpsc::Sender;
 
-use crate::bgp::path::PathKind;
-use crate::proto;
+use crate::proto::{self, sart::DeleteRouteRequest};
+use crate::{bgp::path::PathKind, proto::sart::AddRouteRequest};
 
 use super::{
     api_server::ApiResponse,
@@ -17,6 +17,7 @@ use super::{
     packet::attribute::Attribute,
     path::{BestPathReason, Path, PathBuilder},
     peer::neighbor::NeighborPair,
+    server::Bgp,
 };
 
 #[derive(Debug)]
@@ -442,28 +443,55 @@ pub(crate) struct RibManager {
     asn: u32,
     router_id: Ipv4Addr,
     loc_rib: LocRib,
-    endpoint: String,
+    endpoint: Option<proto::sart::fib_api_client::FibApiClient<tonic::transport::Channel>>,
+    table_id: u8,
     peers_tx: HashMap<NeighborPair, Sender<RibEvent>>,
     api_tx: Sender<ApiResponse>,
 }
 
 impl RibManager {
-    pub fn new(
+    #[tracing::instrument(skip(api_tx))]
+    pub async fn new(
         asn: u32,
         router_id: Ipv4Addr,
-        endpoint: String,
+        endpoint: Option<String>,
+        table_id: u8,
         protocols: Vec<Afi>,
         multi_path_enabled: bool,
         api_tx: Sender<ApiResponse>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, Error> {
+        let endpoint = match endpoint {
+            Some(endpoint) => {
+                match proto::sart::fib_api_client::FibApiClient::connect(format!(
+                    "http://{}",
+                    endpoint
+                ))
+                .await
+                {
+                    Ok(conn) => {
+                        tracing::info!("success to connect to fib endpoint");
+                        Some(conn)
+                    }
+                    Err(e) => {
+                        tracing::error!("{}", e);
+                        return Err(Error::Rib(RibError::FailedToConnectToFibEndpoint));
+                    }
+                }
+            }
+            None => {
+                tracing::warn!("fib endpoint is not configured");
+                None
+            }
+        };
+        Ok(Self {
             asn,
             router_id,
             loc_rib: LocRib::new(protocols, multi_path_enabled),
             endpoint,
+            table_id,
             peers_tx: HashMap::new(),
             api_tx,
-        }
+        })
     }
 
     #[tracing::instrument(skip(self, event))]
@@ -484,9 +512,11 @@ impl RibManager {
             RibEvent::Flush(family, neighbor) => self.flush(family, neighbor).await,
             RibEvent::AddPath(networks, attrs) => self.add_path(networks, attrs).await,
             RibEvent::DeletePath(family, network) => self.delete_path(family, network).await,
-            RibEvent::InstallPaths(neighbor, paths) => self.install_paths(neighbor, paths).await,
+            RibEvent::InstallPaths(neighbor, paths) => {
+                self.install_paths(neighbor, paths, true).await
+            }
             RibEvent::DropPaths(neighbor, family, path_ids) => {
-                self.drop_paths(neighbor, family, path_ids).await
+                self.drop_paths(neighbor, family, path_ids, true).await
             }
             RibEvent::GetPath(family) => self.get_path(family).await,
             _ => Err(Error::Rib(RibError::UnhandlableEvent)),
@@ -508,7 +538,7 @@ impl RibManager {
     fn delete_peer(&mut self, neighbor: NeighborPair) -> Result<(), Error> {
         tracing::warn!("delete peer from rib manager");
         match self.peers_tx.remove(&neighbor) {
-            Some(neighbor) => Ok(()),
+            Some(_neighbor) => Ok(()),
             None => Err(Error::Rib(RibError::PeerNotFound)),
         }
     }
@@ -564,6 +594,7 @@ impl RibManager {
         self.install_paths(
             NeighborPair::new(IpAddr::V4(self.router_id), self.asn),
             paths,
+            false,
         )
         .await
     }
@@ -593,6 +624,7 @@ impl RibManager {
             NeighborPair::new(IpAddr::V4(self.router_id), self.asn),
             family,
             path_ids,
+            false,
         )
         .await
     }
@@ -602,6 +634,7 @@ impl RibManager {
         &mut self,
         neighbor: NeighborPair,
         mut paths: Vec<Path>,
+        apply_to_fib: bool,
     ) -> Result<(), Error> {
         if paths.is_empty() {
             return Ok(());
@@ -610,12 +643,54 @@ impl RibManager {
 
         let mut changed_prefixes = Vec::new();
         for path in paths.iter_mut() {
-            // TODO: should send event to fib endpoint
             match self.loc_rib.insert(&family, path)? {
                 LocRibStatus::BestPathChanged(prefix, id) => {
                     tracing::info!(family=?family,prefix=?prefix,path_id=id,"best path changed");
                     changed_prefixes.push((prefix, id));
+
+                    // send the new path to fib endpoint
+                    let ibgp_path = !path.is_external();
+                    let priority = if ibgp_path {
+                        Bgp::AD_IBGP
+                    } else {
+                        Bgp::AD_EBGP
+                    };
+                    if apply_to_fib && self.endpoint.is_some() {
+                        if path.next_hops.is_empty() {
+                            return Err(Error::Rib(RibError::NextHopMustBeSet));
+                        }
+                        let next_hop = path.next_hops[0]; // must have at least one next_hop // TODO: handle multiple next_hops(ipv6)
+                        let endpoint = self.endpoint.as_mut().unwrap();
+                        tracing::info!("apply to fib endpoint to add the route");
+                        endpoint
+                            .add_route(AddRouteRequest {
+                                table: self.table_id as u32,
+                                version: path.family().afi.inet() as i32,
+                                route: Some(proto::sart::Route {
+                                    table_id: self.table_id as u32,
+                                    ip_version: path.family().afi.inet() as i32,
+                                    destination: path.prefix.to_string(),
+                                    protocol: Bgp::RTPROTO_BGP as i32,
+                                    scope: Bgp::RT_SCOPE_UNIVERSE as i32,
+                                    r#type: path.family().safi.inet() as i32,
+                                    next_hops: vec![proto::sart::RtNextHop {
+                                        gateway: next_hop.to_string(),
+                                        weight: priority as u32,
+                                        flags: 0,
+                                        interface: 0,
+                                    }],
+                                    source: String::new(),
+                                    ad: priority as i32,
+                                    priority: priority as u32,
+                                    ibgp: ibgp_path,
+                                }),
+                                replace: true,
+                            })
+                            .await
+                            .map_err(|e| Error::Endpoint { e })?;
+                    }
                 }
+                // TODO: should send event to fib endpoint
                 LocRibStatus::MultiPathAdded => {
                     tracing::info!(family=?family,prefix=?path.prefix,"multiple best paths added");
                 }
@@ -664,6 +739,7 @@ impl RibManager {
         neighbor: NeighborPair,
         family: AddressFamily,
         path_ids: Vec<(IpNet, u64)>,
+        apply_to_fib: bool,
     ) -> Result<(), Error> {
         let mut advertise_prefixes = Vec::new();
         let mut withdraw_prefixes = Vec::new();
@@ -672,13 +748,71 @@ impl RibManager {
                 LocRibStatus::BestPathChanged(prefix, id) => {
                     tracing::info!(new_best_id = id, "best path changed");
                     advertise_prefixes.push((prefix, id));
+
+                    // send the new path to fib endpoint
+                    let path = match self.loc_rib.get_by_id(&family, &prefix, id) {
+                        Some(path) => path,
+                        None => return Err(Error::Rib(RibError::PathNotFound)),
+                    };
+                    let ibgp_path = !path.is_external();
+                    let priority = if ibgp_path {
+                        Bgp::AD_IBGP
+                    } else {
+                        Bgp::AD_EBGP
+                    };
+                    let next_hop = path.next_hops[0]; // must have at least one next_hop // TODO: handle multiple next_hops
+                    if apply_to_fib && self.endpoint.is_some() {
+                        let endpoint = self.endpoint.as_mut().unwrap();
+                        tracing::info!("apply to fib endpoint to replace the route");
+                        endpoint
+                            .add_route(AddRouteRequest {
+                                table: self.table_id as u32,
+                                version: path.family().afi.inet() as i32,
+                                route: Some(proto::sart::Route {
+                                    table_id: self.table_id as u32,
+                                    ip_version: path.family().afi.inet() as i32,
+                                    destination: path.prefix.to_string(),
+                                    protocol: Bgp::RTPROTO_BGP as i32,
+                                    scope: Bgp::RT_SCOPE_UNIVERSE as i32,
+                                    r#type: path.family().safi.inet() as i32,
+                                    next_hops: vec![proto::sart::RtNextHop {
+                                        gateway: next_hop.to_string(),
+                                        weight: priority as u32,
+                                        flags: 0,
+                                        interface: 0,
+                                    }],
+                                    source: String::new(),
+                                    ad: priority as i32,
+                                    priority: priority as u32,
+                                    ibgp: ibgp_path,
+                                }),
+                                replace: true,
+                            })
+                            .await
+                            .map_err(|e| Error::Endpoint { e })?;
+                    }
                 }
                 LocRibStatus::MultiPathWithdrawn(_prefix, _id) => {
+                    // TODO: update fib
                     tracing::info!("multiple best paths withdrawn");
                 }
                 LocRibStatus::Withdrawn(prefix, kind) => {
                     withdraw_prefixes.push((prefix, kind));
                     tracing::info!(path_kind=?kind,"all path are withdrawn");
+
+                    // send to delete the path
+                    if apply_to_fib && self.endpoint.is_some() {
+                        let endpoint = self.endpoint.as_mut().unwrap();
+                        tracing::info!("apply to fib endpoint to delete the route");
+                        endpoint
+                            .delete_route(DeleteRouteRequest {
+                                table: self.table_id as u32,
+                                version: family.afi.inet() as i32,
+                                destination: prefix.to_string(),
+                            })
+                            .await
+                            .map_err(|e| Error::Endpoint { e })?;
+                    }
                 }
                 _ => {}
             }
@@ -868,6 +1002,7 @@ mod tests {
     use crate::bgp::packet::message::Message;
     use crate::bgp::packet::prefix::Prefix;
     use crate::bgp::path::BestPathReason;
+    use crate::bgp::server::Bgp;
     use crate::bgp::{
         event::RibEvent,
         family::{AddressFamily, Afi},
@@ -878,17 +1013,20 @@ mod tests {
 
     use super::{LocRib, LocRibStatus, RibManager, Table};
 
-    #[test]
-    fn works_rib_manager_add_peer() {
+    #[tokio::test]
+    async fn works_rib_manager_add_peer() {
         let (api_tx, _api_rx) = tokio::sync::mpsc::channel(10);
         let mut manager = RibManager::new(
             100,
             Ipv4Addr::new(1, 1, 1, 1),
-            "test_endpoint".to_string(),
+            None,
+            Bgp::ROUTE_TABLE_MAIN,
             vec![Afi::IPv4],
             false,
             api_tx,
-        );
+        )
+        .await
+        .unwrap();
         let (tx, _rx) = channel::<RibEvent>(128);
         manager
             .add_peer(
@@ -2111,11 +2249,14 @@ mod tests {
         let mut manager = RibManager::new(
             65000,
             Ipv4Addr::new(1, 1, 1, 1),
-            String::from("dummy"),
+            None,
+            Bgp::ROUTE_TABLE_MAIN,
             vec![AddressFamily::ipv4_unicast().afi],
             false,
             api_tx,
-        );
+        )
+        .await
+        .unwrap();
 
         // peer1
         let peer1 = NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)), 65010);
@@ -2148,7 +2289,10 @@ mod tests {
             propagate_attributes: vec![],
             prefix: "10.0.0.0/24".parse().unwrap(),
         }];
-        manager.install_paths(peer1.clone(), paths).await.unwrap();
+        manager
+            .install_paths(peer1.clone(), paths, false)
+            .await
+            .unwrap();
 
         // recv event
         match timeout(Duration::from_millis(10), peer2_rx.recv())
@@ -2229,7 +2373,10 @@ mod tests {
                 prefix: "10.0.0.0/24".parse().unwrap(),
             },
         ];
-        manager.install_paths(peer2.clone(), paths).await.unwrap();
+        manager
+            .install_paths(peer2.clone(), paths, false)
+            .await
+            .unwrap();
 
         // recv event
         match timeout(Duration::from_millis(10), peer1_rx.recv())
@@ -2275,6 +2422,7 @@ mod tests {
             .install_paths(
                 NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), 65000),
                 paths,
+                false,
             )
             .await
             .unwrap();
@@ -2308,7 +2456,7 @@ mod tests {
         // drop from peer2
         let prefixes: Vec<(IpNet, u64)> = vec![("10.0.0.0/24".parse().unwrap(), 3)];
         manager
-            .drop_paths(peer2.clone(), family, prefixes)
+            .drop_paths(peer2.clone(), family, prefixes, false)
             .await
             .unwrap();
 
@@ -2324,7 +2472,7 @@ mod tests {
         // drop from peer1
         let prefixes: Vec<(IpNet, u64)> = vec![("10.0.0.0/24".parse().unwrap(), 0)];
         manager
-            .drop_paths(peer1.clone(), family, prefixes)
+            .drop_paths(peer1.clone(), family, prefixes, false)
             .await
             .unwrap();
 
@@ -2351,6 +2499,7 @@ mod tests {
                 NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), 65000),
                 family,
                 prefixes,
+                false,
             )
             .await
             .unwrap();
@@ -2383,11 +2532,14 @@ mod tests {
         let mut manager = RibManager::new(
             65000,
             Ipv4Addr::new(1, 1, 1, 1),
-            String::from("dummy"),
+            None,
+            Bgp::ROUTE_TABLE_MAIN,
             vec![AddressFamily::ipv4_unicast().afi],
             false,
             api_tx,
-        );
+        )
+        .await
+        .unwrap();
 
         // peer1
         let peer1 = NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)), 65000);
@@ -2420,7 +2572,10 @@ mod tests {
             propagate_attributes: vec![],
             prefix: "10.0.0.0/24".parse().unwrap(),
         }];
-        manager.install_paths(peer1.clone(), paths).await.unwrap();
+        manager
+            .install_paths(peer1.clone(), paths, false)
+            .await
+            .unwrap();
 
         // not recv
         match timeout(Duration::from_millis(10), peer1_rx.recv()).await {
@@ -2458,6 +2613,7 @@ mod tests {
             .install_paths(
                 NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), 65000),
                 paths,
+                false,
             )
             .await
             .unwrap();
@@ -2491,7 +2647,7 @@ mod tests {
         // drop from peer1
         let prefixes: Vec<(IpNet, u64)> = vec![("10.0.0.0/24".parse().unwrap(), 0)];
         manager
-            .drop_paths(peer1.clone(), family, prefixes)
+            .drop_paths(peer1.clone(), family, prefixes, false)
             .await
             .unwrap();
 
@@ -2511,6 +2667,7 @@ mod tests {
                 NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), 65000),
                 family,
                 prefixes,
+                false,
             )
             .await
             .unwrap();
@@ -2543,11 +2700,14 @@ mod tests {
         let mut manager = RibManager::new(
             65000,
             Ipv4Addr::new(1, 1, 1, 1),
-            String::from("dummy"),
+            None,
+            Bgp::ROUTE_TABLE_MAIN,
             vec![AddressFamily::ipv4_unicast().afi],
             true,
             api_tx,
-        );
+        )
+        .await
+        .unwrap();
 
         // peer1
         let peer1 = NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)), 65010);
@@ -2580,7 +2740,10 @@ mod tests {
             propagate_attributes: vec![],
             prefix: "10.0.20.0/24".parse().unwrap(),
         }];
-        manager.install_paths(peer1.clone(), paths).await.unwrap();
+        manager
+            .install_paths(peer1.clone(), paths, false)
+            .await
+            .unwrap();
 
         // recv event
         match timeout(Duration::from_millis(10), peer2_rx.recv())
@@ -2641,7 +2804,10 @@ mod tests {
                 prefix: "10.0.10.0/24".parse().unwrap(),
             },
         ];
-        manager.install_paths(peer2.clone(), paths).await.unwrap();
+        manager
+            .install_paths(peer2.clone(), paths, false)
+            .await
+            .unwrap();
 
         // recv event
         match timeout(Duration::from_millis(10), peer1_rx.recv())
@@ -2686,6 +2852,7 @@ mod tests {
             .install_paths(
                 NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), 65000),
                 paths,
+                false,
             )
             .await
             .unwrap();
@@ -2721,7 +2888,7 @@ mod tests {
             ("10.0.10.0/24".parse().unwrap(), 2),
         ];
         manager
-            .drop_paths(peer2.clone(), family, prefixes)
+            .drop_paths(peer2.clone(), family, prefixes, false)
             .await
             .unwrap();
 
@@ -2748,6 +2915,7 @@ mod tests {
                 NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), 65000),
                 family,
                 prefixes,
+                false,
             )
             .await
             .unwrap();
@@ -2782,11 +2950,14 @@ mod tests {
         let mut manager = RibManager::new(
             65000,
             Ipv4Addr::new(1, 1, 1, 1),
-            String::from("dummy"),
+            None,
+            Bgp::ROUTE_TABLE_MAIN,
             vec![AddressFamily::ipv4_unicast().afi],
             true,
             api_tx,
-        );
+        )
+        .await
+        .unwrap();
 
         // peer1
         let peer1 = NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)), 65000);
@@ -2824,7 +2995,10 @@ mod tests {
             propagate_attributes: vec![],
             prefix: "10.0.20.0/24".parse().unwrap(),
         }];
-        manager.install_paths(peer1.clone(), paths).await.unwrap();
+        manager
+            .install_paths(peer1.clone(), paths, false)
+            .await
+            .unwrap();
 
         // recv event
         match timeout(Duration::from_millis(10), peer3_rx.recv())
@@ -2889,7 +3063,10 @@ mod tests {
                 prefix: "10.0.10.0/24".parse().unwrap(),
             },
         ];
-        manager.install_paths(peer2.clone(), paths).await.unwrap();
+        manager
+            .install_paths(peer2.clone(), paths, false)
+            .await
+            .unwrap();
 
         // recv event
         match timeout(Duration::from_millis(10), peer3_rx.recv())
@@ -2933,7 +3110,10 @@ mod tests {
             propagate_attributes: vec![],
             prefix: "10.0.30.0/24".parse().unwrap(),
         }];
-        manager.install_paths(peer3.clone(), paths).await.unwrap();
+        manager
+            .install_paths(peer3.clone(), paths, false)
+            .await
+            .unwrap();
 
         // recv event
         match timeout(Duration::from_millis(10), peer2_rx.recv())
@@ -2971,7 +3151,7 @@ mod tests {
             ("10.0.10.0/24".parse().unwrap(), 2),
         ];
         manager
-            .drop_paths(peer2.clone(), family, prefixes)
+            .drop_paths(peer2.clone(), family, prefixes, false)
             .await
             .unwrap();
 
@@ -3006,7 +3186,7 @@ mod tests {
         // drop from peer1
         let prefixes: Vec<(IpNet, u64)> = vec![("10.0.20.0/24".parse().unwrap(), 0)];
         manager
-            .drop_paths(peer1.clone(), family, prefixes)
+            .drop_paths(peer1.clone(), family, prefixes, false)
             .await
             .unwrap();
 
@@ -3033,7 +3213,7 @@ mod tests {
         // drop from peer3
         let prefixes: Vec<(IpNet, u64)> = vec![("10.0.30.0/24".parse().unwrap(), 4)];
         manager
-            .drop_paths(peer3.clone(), family, prefixes)
+            .drop_paths(peer3.clone(), family, prefixes, false)
             .await
             .unwrap();
 
@@ -3071,11 +3251,14 @@ mod tests {
         let mut manager = RibManager::new(
             65000,
             Ipv4Addr::new(1, 1, 1, 1),
-            String::from("dummy"),
+            None,
+            Bgp::ROUTE_TABLE_MAIN,
             vec![AddressFamily::ipv4_unicast().afi],
             true,
             api_tx,
-        );
+        )
+        .await
+        .unwrap();
 
         // peer1
         let peer1 = NeighborPair::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)), 65000);

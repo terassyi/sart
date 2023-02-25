@@ -7,7 +7,7 @@ pub(crate) struct TraceConfig {
     pub level: String,
     pub format: String,
     pub file: Option<String>,
-    pub metrics_endpoint: Option<String>,
+    pub _metrics_endpoint: Option<String>,
 }
 
 pub(crate) fn prepare_tracing(conf: TraceConfig) {

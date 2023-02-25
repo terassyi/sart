@@ -58,6 +58,11 @@ impl Bgp {
     pub const DEFAULT_HOLD_TIME: u64 = 180;
     pub const DEFAULT_CONNECT_RETRY_TIME: u64 = 10;
     pub const DEFAULT_KEEPALIVE_TIME: u64 = 60;
+    pub const ROUTE_TABLE_MAIN: u8 = 254;
+    pub const RTPROTO_BGP: u8 = 186;
+    pub const RT_SCOPE_UNIVERSE: u8 = 0;
+    pub const AD_EBGP: u8 = 20;
+    pub const AD_IBGP: u8 = 200;
     const API_SERVER_PORT: u16 = 5000;
     const DEFAULT_API_TIMEOUT: u64 = 30;
 
@@ -80,21 +85,29 @@ impl Bgp {
         prepare_tracing(trace);
         let _enter = tracing::info_span!("bgp").entered();
 
-        let rib_endpoint_conf = conf.rib_endpoint.clone();
         let (rib_event_tx, mut rib_event_rx) = channel::<RibEvent>(128);
 
         let (api_tx, api_rx) = channel::<ApiResponse>(128);
 
         let asn = conf.asn;
         let router_id = conf.router_id;
+
+        let fib_table_id = if let Some(fib_table) = conf.fib_table {
+            fib_table
+        } else {
+            Bgp::ROUTE_TABLE_MAIN
+        };
         let mut rib_manager = RibManager::new(
             asn,
             router_id,
-            rib_endpoint_conf,
+            conf.fib_endpoint.clone(),
+            fib_table_id,
             vec![Afi::IPv4, Afi::IPv6],
             false,
             api_tx.clone(),
-        ); // TODO: enable to disable ipv6 or ipv4 by config or event
+        )
+        .await
+        .unwrap(); // TODO: enable to disable ipv6 or ipv4 by config or event
 
         let mut server = Self::new(conf, rib_event_tx, api_tx);
 
