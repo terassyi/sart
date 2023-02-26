@@ -27,4 +27,5 @@ var _ = Describe("sartd-bgp", func() {
 	Context("establish", testEstablish)
 	Context("update", testUpdate)
 	Context("api", testApi)
+	Context("integration fib api", testIntegrateFib)
 })

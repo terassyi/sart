@@ -1,8 +1,10 @@
+use std::net::IpAddr;
+
 use tonic::{Request, Response, Status};
 
 use crate::proto::sart::{
-    fib_api_server::FibApi, AddRouteRequest, DeleteRouteRequest, GetRouteRequest, GetRouteResponse,
-    ListRoutesRequest, ListRoutesResponse,
+    fib_api_server::FibApi, AddMultiPathRouteRequest, AddRouteRequest, DeleteMultiPathRouteRequest,
+    DeleteRouteRequest, GetRouteRequest, GetRouteResponse, ListRoutesRequest, ListRoutesResponse,
 };
 
 use super::route::{ip_version_from, RtClient};
@@ -41,7 +43,7 @@ impl FibApi for FibServer {
         } else {
             &req.get_ref().destination
         };
-        match self.rt.get_route(table_id, ver, dst).await {
+        match self.rt.get_route(table_id as u8, ver, dst).await {
             Ok(route) => Ok(Response::new(GetRouteResponse { route: Some(route) })),
             Err(e) => Err(Status::internal(format!("{}", e))),
         }
@@ -57,7 +59,7 @@ impl FibApi for FibServer {
             Ok(ver) => ver,
             Err(_) => return Err(Status::aborted("invalid ip version")),
         };
-        match self.rt.list_routes(table_id, ver).await {
+        match self.rt.list_routes(table_id as u8, ver).await {
             Ok(routes) => Ok(Response::new(ListRoutesResponse { routes })),
             Err(e) => Err(Status::internal(format!("{}", e))),
         }
@@ -75,6 +77,7 @@ impl FibApi for FibServer {
         }
     }
 
+    #[tracing::instrument(skip(self, req))]
     async fn delete_route(&self, req: Request<DeleteRouteRequest>) -> Result<Response<()>, Status> {
         let table_id = req.get_ref().table as u8;
         let ver = match ip_version_from(req.get_ref().version as u32) {
@@ -87,6 +90,60 @@ impl FibApi for FibServer {
         };
 
         match self.rt.delete_route(table_id, ver, dest).await {
+            Ok(_) => Ok(Response::new(())),
+            Err(e) => Err(Status::internal(format!("{}", e))),
+        }
+    }
+
+    #[tracing::instrument(skip(self, req))]
+    async fn add_multi_path_route(
+        &self,
+        req: Request<AddMultiPathRouteRequest>,
+    ) -> Result<Response<()>, Status> {
+        let table = req.get_ref().table as u8;
+        let ver = match ip_version_from(req.get_ref().version as u32) {
+            Ok(ver) => ver,
+            Err(_) => return Err(Status::aborted("invalid ip version")),
+        };
+        let destination = match req.get_ref().destination.parse() {
+            Ok(dst) => dst,
+            Err(_) => return Err(Status::aborted("failed to parse destination")),
+        };
+        match self
+            .rt
+            .add_multi_path_route(table, ver, destination, req.get_ref().next_hops.clone())
+            .await
+        {
+            Ok(_) => Ok(Response::new(())),
+            Err(e) => Err(Status::internal(format!("{}", e))),
+        }
+    }
+
+    async fn delete_multi_path_route(
+        &self,
+        req: Request<DeleteMultiPathRouteRequest>,
+    ) -> Result<Response<()>, Status> {
+        let table = req.get_ref().table as u8;
+        let ver = match ip_version_from(req.get_ref().version as u32) {
+            Ok(ver) => ver,
+            Err(_) => return Err(Status::aborted("invalid ip version")),
+        };
+        let destination = match req.get_ref().destination.parse() {
+            Ok(dst) => dst,
+            Err(_) => return Err(Status::aborted("failed to parse destination")),
+        };
+        let mut gateways = Vec::new();
+        for g in req.get_ref().gateways.iter() {
+            match g.parse() {
+                Ok(g) => gateways.push(g),
+                Err(_) => return Err(Status::aborted("failed to parse gateway address")),
+            }
+        }
+        match self
+            .rt
+            .delete_multi_path_route(table, ver, destination, gateways)
+            .await
+        {
             Ok(_) => Ok(Response::new(())),
             Err(e) => Err(Status::internal(format!("{}", e))),
         }
