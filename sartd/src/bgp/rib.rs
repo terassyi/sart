@@ -6,7 +6,10 @@ use std::{
 };
 use tokio::sync::mpsc::Sender;
 
-use crate::proto::{self, sart::DeleteRouteRequest};
+use crate::proto::{
+    self,
+    sart::{AddMultiPathRouteRequest, DeleteMultiPathRouteRequest, DeleteRouteRequest},
+};
 use crate::{bgp::path::PathKind, proto::sart::AddRouteRequest};
 
 use super::{
@@ -376,11 +379,20 @@ impl LocRib {
                         return Ok(LocRibStatus::BestPathChanged(*prefix, paths[0].id));
                     }
                     if self.multi_path {
+                        let next_hop = if removed.next_hops.is_empty() {
+                            None
+                        } else {
+                            Some(removed.next_hops[0])
+                        };
                         if idx == 0 {
                             // when idx is best, we don't have to update best paths.
                             if paths[idx].best {
                                 // TODO: the best path selected reason may be changed
-                                return Ok(LocRibStatus::MultiPathWithdrawn(*prefix, paths[0].id));
+                                return Ok(LocRibStatus::MultiPathWithdrawn(
+                                    *prefix,
+                                    paths[0].id,
+                                    next_hop,
+                                ));
                             }
                             // when idx is not best, we have to calculate best path again with considering multiple best paths.
                             let funcs = get_comparison_funcs(self.multi_path);
@@ -406,7 +418,11 @@ impl LocRib {
                             return Ok(LocRibStatus::BestPathChanged(*prefix, paths[0].id));
                         }
                         // when idx > 0 and it is best
-                        return Ok(LocRibStatus::MultiPathWithdrawn(*prefix, paths[0].id));
+                        return Ok(LocRibStatus::MultiPathWithdrawn(
+                            *prefix,
+                            paths[0].id,
+                            next_hop,
+                        ));
                     } else {
                         paths[0].best = true; // best path must exist at index 0
                         for (r, f) in get_comparison_funcs(self.multi_path).iter() {
@@ -433,7 +449,7 @@ enum LocRibStatus {
     Withdrawn(IpNet, PathKind),
     BestPathChanged(IpNet, u64),
     MultiPathAdded,
-    MultiPathWithdrawn(IpNet, u64),
+    MultiPathWithdrawn(IpNet, u64, Option<IpAddr>),
     AddtionalPathAdded(IpNet, u64),
     AdditionalPathWithdrawn(IpNet, u64),
 }
@@ -693,6 +709,35 @@ impl RibManager {
                 // TODO: should send event to fib endpoint
                 LocRibStatus::MultiPathAdded => {
                     tracing::info!(family=?family,prefix=?path.prefix,"multiple best paths added");
+                    // send the new path to fib endpoint
+                    let ibgp_path = !path.is_external();
+                    let priority = if ibgp_path {
+                        Bgp::AD_IBGP
+                    } else {
+                        Bgp::AD_EBGP
+                    };
+                    if apply_to_fib && self.endpoint.is_some() {
+                        if path.next_hops.is_empty() {
+                            return Err(Error::Rib(RibError::NextHopMustBeSet));
+                        }
+                        let next_hop = path.next_hops[0]; // must have at least one next_hop // TODO: handle multiple next_hops(ipv6)
+                        tracing::info!("apply to fib endpoint to add the multi path");
+                        let endpoint = self.endpoint.as_mut().unwrap();
+                        endpoint
+                            .add_multi_path_route(AddMultiPathRouteRequest {
+                                table: self.table_id as u32,
+                                version: path.family().afi.inet() as i32,
+                                destination: path.prefix.to_string(),
+                                next_hops: vec![proto::sart::NextHop {
+                                    gateway: next_hop.to_string(),
+                                    weight: priority as u32,
+                                    flags: 0,
+                                    interface: 0,
+                                }],
+                            })
+                            .await
+                            .map_err(|e| Error::Endpoint { e })?;
+                    }
                 }
                 _ => {}
             }
@@ -760,8 +805,11 @@ impl RibManager {
                     } else {
                         Bgp::AD_EBGP
                     };
-                    let next_hop = path.next_hops[0]; // must have at least one next_hop // TODO: handle multiple next_hops
                     if apply_to_fib && self.endpoint.is_some() {
+                        if path.next_hops.is_empty() {
+                            return Err(Error::Rib(RibError::NextHopMustBeSet));
+                        }
+                        let next_hop = path.next_hops[0]; // must have at least one next_hop // TODO: handle multiple next_hops(ipv6)
                         let endpoint = self.endpoint.as_mut().unwrap();
                         tracing::info!("apply to fib endpoint to replace the route");
                         endpoint
@@ -792,9 +840,26 @@ impl RibManager {
                             .map_err(|e| Error::Endpoint { e })?;
                     }
                 }
-                LocRibStatus::MultiPathWithdrawn(_prefix, _id) => {
+                LocRibStatus::MultiPathWithdrawn(prefix, id, gateway) => {
                     // TODO: update fib
                     tracing::info!("multiple best paths withdrawn");
+                    let path = match self.loc_rib.get_by_id(&family, &prefix, id) {
+                        Some(path) => path,
+                        None => return Err(Error::Rib(RibError::PathNotFound)),
+                    };
+                    if apply_to_fib && self.endpoint.is_some() && gateway.is_some() {
+                        let endpoint = self.endpoint.as_mut().unwrap();
+                        tracing::info!("apply to fib endpoint to withdraw multi path");
+                        endpoint
+                            .delete_multi_path_route(DeleteMultiPathRouteRequest {
+                                table: self.table_id as u32,
+                                version: path.family().afi.inet() as i32,
+                                destination: prefix.to_string(),
+                                gateways: vec![gateway.unwrap().to_string()],
+                            })
+                            .await
+                            .map_err(|e| Error::Endpoint { e })?;
+                    }
                 }
                 LocRibStatus::Withdrawn(prefix, kind) => {
                     withdraw_prefixes.push((prefix, kind));
@@ -2045,7 +2110,7 @@ mod tests {
 				},
 			],
 			2,
-			LocRibStatus::MultiPathWithdrawn("10.0.0.0/24".parse().unwrap(), 1),
+			LocRibStatus::MultiPathWithdrawn("10.0.0.0/24".parse().unwrap(), 1, Some(IpAddr::V4(Ipv4Addr::new(4, 4, 4, 4)))),
 			vec![1],
 		),
 		case(
@@ -2115,7 +2180,7 @@ mod tests {
 				},
 			],
 			1,
-			LocRibStatus::MultiPathWithdrawn("10.0.0.0/24".parse().unwrap(), 2),
+			LocRibStatus::MultiPathWithdrawn("10.0.0.0/24".parse().unwrap(), 2, Some(IpAddr::V4(Ipv4Addr::new(2, 2, 2, 2)))),
 			vec![2],
 		),
 		case(

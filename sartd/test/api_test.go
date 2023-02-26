@@ -30,6 +30,22 @@ func testApi() {
 		cmd.Run()
 		// Expect(err).NotTo(HaveOccurred())
 
+		defer func() {
+			By("stopping frr daemon for gobgp")
+			cmd = exec.Command("sudo", "./simple_rib/frr_stop.sh")
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			err = cmd.Run()
+			// Expect(err).NotTo(HaveOccurred())
+
+			By("cleaning up the topology")
+			cmd = exec.Command("./simple_rib/clean_topology.sh")
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			err = cmd.Run()
+			Expect(err).NotTo(HaveOccurred())
+		}()
+
 		By("starting gobgp daemon in netns")
 		go func(context.Context) {
 			_, _, _, err = execInNetns("spine1", "gobgpd", "-f", "simple_rib/gobgp_spine1.conf")
@@ -183,19 +199,6 @@ func testApi() {
 		preff1 := res4["10.100.0.0/24"]
 		Expect(preff1).To(BeNil())
 
-		By("stopping frr daemon for gobgp")
-		cmd = exec.Command("sudo", "./simple_rib/frr_stop.sh")
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		err = cmd.Run()
-		// Expect(err).NotTo(HaveOccurred())
-
-		By("cleaning up the topology")
-		cmd = exec.Command("./simple/clean_topology.sh")
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		err = cmd.Run()
-		Expect(err).NotTo(HaveOccurred())
 	})
 
 }

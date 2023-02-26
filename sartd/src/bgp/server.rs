@@ -97,13 +97,23 @@ impl Bgp {
         } else {
             Bgp::ROUTE_TABLE_MAIN
         };
+
+        let multi_path = if let Some(multi_path) = conf.multi_path {
+            multi_path
+        } else {
+            false
+        };
+        if multi_path {
+            tracing::info!("multi path enabled");
+        }
+
         let mut rib_manager = RibManager::new(
             asn,
             router_id,
             conf.fib_endpoint.clone(),
             fib_table_id,
             vec![Afi::IPv4, Afi::IPv6],
-            false,
+            multi_path,
             api_tx.clone(),
         )
         .await

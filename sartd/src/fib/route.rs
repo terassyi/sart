@@ -286,7 +286,8 @@ impl RtClient {
         let mut route = self
             .get_route(table, ip_version, &destination.to_string())
             .await?;
-        for next_hop in next_hops.into_iter() {
+        for mut next_hop in next_hops.into_iter() {
+            next_hop.weight = 1; // TODO: not to use fixed weight(=1)
             route.next_hops.push(next_hop);
         }
 

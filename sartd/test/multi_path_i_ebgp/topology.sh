@@ -94,3 +94,4 @@ sudo ip netns exec node4 ip route add 4.4.4.4/32 via 10.0.2.2 dev n4-n1
 
 sudo ip netns exec node2 ip route add 10.69.0.0/24 via 10.10.0.2 dev n2-n5
 sudo ip netns exec node3 ip route add 10.69.0.0/24 via 10.12.0.2 dev n3-n5
+sudo ip netns exec node5 ip route add default nexthop via 10.10.0.2 weight 1 nexthop via 10.12.0.2 weight 1

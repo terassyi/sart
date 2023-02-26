@@ -1,3 +1,5 @@
+use std::net::IpAddr;
+
 use tonic::{Request, Response, Status};
 
 use crate::proto::sart::{
@@ -98,13 +100,52 @@ impl FibApi for FibServer {
         &self,
         req: Request<AddMultiPathRouteRequest>,
     ) -> Result<Response<()>, Status> {
-        Ok(Response::new(()))
+        let table = req.get_ref().table as u8;
+        let ver = match ip_version_from(req.get_ref().version as u32) {
+            Ok(ver) => ver,
+            Err(_) => return Err(Status::aborted("invalid ip version")),
+        };
+        let destination = match req.get_ref().destination.parse() {
+            Ok(dst) => dst,
+            Err(_) => return Err(Status::aborted("failed to parse destination")),
+        };
+        match self
+            .rt
+            .add_multi_path_route(table, ver, destination, req.get_ref().next_hops.clone())
+            .await
+        {
+            Ok(_) => Ok(Response::new(())),
+            Err(e) => Err(Status::internal(format!("{}", e))),
+        }
     }
 
     async fn delete_multi_path_route(
         &self,
         req: Request<DeleteMultiPathRouteRequest>,
     ) -> Result<Response<()>, Status> {
-        Ok(Response::new(()))
+        let table = req.get_ref().table as u8;
+        let ver = match ip_version_from(req.get_ref().version as u32) {
+            Ok(ver) => ver,
+            Err(_) => return Err(Status::aborted("invalid ip version")),
+        };
+        let destination = match req.get_ref().destination.parse() {
+            Ok(dst) => dst,
+            Err(_) => return Err(Status::aborted("failed to parse destination")),
+        };
+        let mut gateways = Vec::new();
+        for g in req.get_ref().gateways.iter() {
+            match g.parse() {
+                Ok(g) => gateways.push(g),
+                Err(_) => return Err(Status::aborted("failed to parse gateway address")),
+            }
+        }
+        match self
+            .rt
+            .delete_multi_path_route(table, ver, destination, gateways)
+            .await
+        {
+            Ok(_) => Ok(Response::new(())),
+            Err(e) => Err(Status::internal(format!("{}", e))),
+        }
     }
 }
