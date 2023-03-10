@@ -2,6 +2,7 @@ RUSTUP := rustup
 CARGO := cargo
 GOBGP_VERSION := 3.10.0
 GRPCURL_VERSION := 1.8.7
+IMAGE_VERSION := dev
 
 .PHONY: setup
 setup: setup-rust-tools setup-protoc
@@ -23,6 +24,12 @@ setup-dev:
 	sudo tar -zxvf /tmp/gobgp_${GOBGP_VERSION}_linux_amd64.tar.gz -C /usr/bin/
 	sudo wget -P /tmp https://github.com/fullstorydev/grpcurl/releases/download/v${GRPCURL_VERSION}/grpcurl_${GRPCURL_VERSION}_linux_x86_64.tar.gz
 	sudo tar -zxvf /tmp/grpcurl_${GRPCURL_VERSION}_linux_x86_64.tar.gz -C /usr/bin/
+
+.PHONY: release-build
+release-build:
+	cd sartd; $(CARGO) build --release
+	cd ..
+	cd sart; $(CARGO) build --release
 
 .PHONY: build
 build: build-daemon build-cli
@@ -58,3 +65,20 @@ dev-container:
 .PHONY: in-container
 in-container:
 	docker exec -it sart-dev bash
+
+.PHONY: build-image
+build-image:
+	docker build -t sart:${IMAGE_VERSION} .
+
+
+.PHONY: devenv
+devenv: build-image
+	docker rm -f devenv-bgp || true
+	kind create cluster --name devenv --config ./cluster.yaml
+	docker run -d --privileged --network kind --rm --ulimit core=-1 --name devenv-bgp frrouting/frr:latest
+	kind load docker-image --name devenv sart:${IMAGE_VERSION}
+
+.PHONY: clean-devenv
+clean-devenv:
+	kind delete cluster --name devenv
+	docker rm -f devenv-bgp
