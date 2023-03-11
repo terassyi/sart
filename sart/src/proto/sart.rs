@@ -24,6 +24,15 @@ pub struct GetNeighborResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListNeighborRequest {}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListNeighborResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub peers: ::prost::alloc::vec::Vec<Peer>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetPathRequest {
     #[prost(message, optional, tag = "1")]
     pub family: ::core::option::Option<AddressFamily>,
@@ -31,6 +40,64 @@ pub struct GetPathRequest {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetPathResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub paths: ::prost::alloc::vec::Vec<Path>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetNeighborPathRequest {
+    #[prost(enumeration = "get_neighbor_path_request::Kind", tag = "1")]
+    pub kind: i32,
+    #[prost(string, tag = "2")]
+    pub addr: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "3")]
+    pub family: ::core::option::Option<AddressFamily>,
+}
+/// Nested message and enum types in `GetNeighborPathRequest`.
+pub mod get_neighbor_path_request {
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum Kind {
+        Unknown = 0,
+        In = 1,
+        Out = 2,
+    }
+    impl Kind {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Kind::Unknown => "UNKNOWN",
+                Kind::In => "IN",
+                Kind::Out => "OUT",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "UNKNOWN" => Some(Self::Unknown),
+                "IN" => Some(Self::In),
+                "OUT" => Some(Self::Out),
+                _ => None,
+            }
+        }
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetNeighborPathResponse {
     #[prost(message, repeated, tag = "1")]
     pub paths: ::prost::alloc::vec::Vec<Path>,
 }
@@ -566,7 +633,23 @@ pub mod bgp_api_client {
             let path = http::uri::PathAndQuery::from_static("/sart.BgpApi/GetNeighbor");
             self.inner.unary(request.into_request(), path, codec).await
         }
-        /// rpc ListNeighbor(ListNeighborRequest) returns (ListNeighborResponse);
+        pub async fn list_neighbor(
+            &mut self,
+            request: impl tonic::IntoRequest<super::ListNeighborRequest>,
+        ) -> Result<tonic::Response<super::ListNeighborResponse>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/sart.BgpApi/ListNeighbor");
+            self.inner.unary(request.into_request(), path, codec).await
+        }
         pub async fn get_path(
             &mut self,
             request: impl tonic::IntoRequest<super::GetPathRequest>,
@@ -582,6 +665,25 @@ pub mod bgp_api_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/sart.BgpApi/GetPath");
+            self.inner.unary(request.into_request(), path, codec).await
+        }
+        pub async fn get_neighbor_path(
+            &mut self,
+            request: impl tonic::IntoRequest<super::GetNeighborPathRequest>,
+        ) -> Result<tonic::Response<super::GetNeighborPathResponse>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/sart.BgpApi/GetNeighborPath",
+            );
             self.inner.unary(request.into_request(), path, codec).await
         }
         pub async fn set_as(
@@ -707,11 +809,18 @@ pub mod bgp_api_server {
             &self,
             request: tonic::Request<super::GetNeighborRequest>,
         ) -> Result<tonic::Response<super::GetNeighborResponse>, tonic::Status>;
-        /// rpc ListNeighbor(ListNeighborRequest) returns (ListNeighborResponse);
+        async fn list_neighbor(
+            &self,
+            request: tonic::Request<super::ListNeighborRequest>,
+        ) -> Result<tonic::Response<super::ListNeighborResponse>, tonic::Status>;
         async fn get_path(
             &self,
             request: tonic::Request<super::GetPathRequest>,
         ) -> Result<tonic::Response<super::GetPathResponse>, tonic::Status>;
+        async fn get_neighbor_path(
+            &self,
+            request: tonic::Request<super::GetNeighborPathRequest>,
+        ) -> Result<tonic::Response<super::GetNeighborPathResponse>, tonic::Status>;
         async fn set_as(
             &self,
             request: tonic::Request<super::SetAsRequest>,
@@ -910,6 +1019,46 @@ pub mod bgp_api_server {
                     };
                     Box::pin(fut)
                 }
+                "/sart.BgpApi/ListNeighbor" => {
+                    #[allow(non_camel_case_types)]
+                    struct ListNeighborSvc<T: BgpApi>(pub Arc<T>);
+                    impl<
+                        T: BgpApi,
+                    > tonic::server::UnaryService<super::ListNeighborRequest>
+                    for ListNeighborSvc<T> {
+                        type Response = super::ListNeighborResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::ListNeighborRequest>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move {
+                                (*inner).list_neighbor(request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = ListNeighborSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
                 "/sart.BgpApi/GetPath" => {
                     #[allow(non_camel_case_types)]
                     struct GetPathSvc<T: BgpApi>(pub Arc<T>);
@@ -935,6 +1084,46 @@ pub mod bgp_api_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = GetPathSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/sart.BgpApi/GetNeighborPath" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetNeighborPathSvc<T: BgpApi>(pub Arc<T>);
+                    impl<
+                        T: BgpApi,
+                    > tonic::server::UnaryService<super::GetNeighborPathRequest>
+                    for GetNeighborPathSvc<T> {
+                        type Response = super::GetNeighborPathResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::GetNeighborPathRequest>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move {
+                                (*inner).get_neighbor_path(request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = GetNeighborPathSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

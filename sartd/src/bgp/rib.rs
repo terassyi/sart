@@ -149,6 +149,23 @@ impl AdjRib {
     }
 }
 
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+pub(crate) enum RibKind {
+    In = 1,
+    Out = 2,
+}
+
+impl TryFrom<u32> for RibKind {
+    type Error = Error;
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(RibKind::In),
+            2 => Ok(RibKind::Out),
+            _ => Err(Error::Rib(RibError::UnknownRibKind)),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct LocRib {
     table: HashMap<Afi, HashMap<IpNet, Vec<Path>>>,

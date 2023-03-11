@@ -39,6 +39,7 @@ pub(crate) struct RibCmd {
     pub safi: Safi,
 }
 
+
 #[derive(Debug, Clone, Subcommand)]
 pub(crate) enum Action {
     Get,
@@ -64,6 +65,12 @@ pub(crate) enum Afi {
 pub(crate) enum Safi {
     Unicast = 1,
     Multicast = 2,
+}
+
+#[derive(Debug, Clone, Parser, ValueEnum)]
+pub(crate) enum Kind {
+    In = 1,
+    Out = 2,
 }
 
 #[derive(Debug, Clone)]
@@ -163,9 +170,9 @@ fn str_to_attr_any(s: &str) -> Result<Any, Error> {
                     }
                 }
             };
-			if value > 2 {
-				return Err(Error::InvalidOriginValue);
-			}
+            if value > 2 {
+                return Err(Error::InvalidOriginValue);
+            }
             let origin = proto::sart::OriginAttribute { value };
             Ok(util::to_any(origin, "OriginAttribute"))
         }
@@ -183,7 +190,7 @@ fn str_to_attr_any(s: &str) -> Result<Any, Error> {
 }
 
 #[derive(Tabled)]
-struct DisplayedPath {
+pub(crate) struct DisplayedPath {
     best: bool,
     prefix: String,
     next_hop: String,
