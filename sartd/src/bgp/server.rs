@@ -38,7 +38,7 @@ use super::packet;
 use super::packet::attribute::Attribute;
 use super::peer::neighbor::NeighborPair;
 use super::peer::peer::{Peer, PeerInfo, PeerManager};
-use super::rib::RibManager;
+use super::rib::{RibKind, RibManager};
 
 #[derive(Debug)]
 pub(crate) struct Bgp {
@@ -236,7 +236,11 @@ impl Bgp {
             ControlEvent::Health => {}
             ControlEvent::GetBgpInfo => self.get_bgp_info().await?,
             ControlEvent::GetPeer(addr) => self.get_peer(addr).await?,
+            ControlEvent::ListPeer => self.list_peer().await?,
             ControlEvent::GetPath(family) => self.get_path(family).await?,
+            ControlEvent::GetNeighborPath(kind, peer_addr, family) => {
+                self.get_neighbor_path(kind, peer_addr, family).await?
+            }
             ControlEvent::SetAsn(asn) => self.set_asn(asn).await?,
             ControlEvent::SetRouterId(id) => self.set_router_id(id).await?,
             ControlEvent::AddPeer(neighbor) => self.add_peer(neighbor).in_current_span().await?,
@@ -277,11 +281,59 @@ impl Bgp {
     }
 
     #[tracing::instrument(skip(self))]
+    async fn list_peer(&self) -> Result<(), Error> {
+        let peers = self
+            .peer_managers
+            .values()
+            .map(|v| {
+                let info = v.info.lock().unwrap();
+                let families = info
+                    .families
+                    .iter()
+                    .map(proto::sart::AddressFamily::from)
+                    .collect();
+                proto::sart::Peer {
+                    asn: info.neighbor.get_asn(),
+                    address: info.neighbor.get_addr().to_string(),
+                    router_id: info.neighbor.get_router_id().to_string(),
+                    hold_time: info.neighbor.get_hold_time() as u32,
+                    families,
+                    keepalive_time: info.keepalive_time as u32,
+                    uptime: None,
+                    send_counter: None,
+                    recv_counter: None,
+                    state: info.state as i32,
+                    passive_open: false,
+                }
+            })
+            .collect();
+        self.api_tx
+            .send(ApiResponse::Neighbors(peers))
+            .await
+            .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))
+    }
+
+    #[tracing::instrument(skip(self))]
     async fn get_path(&self, family: AddressFamily) -> Result<(), Error> {
         self.rib_event_tx
             .send(RibEvent::GetPath(family))
             .await
             .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))
+    }
+
+    async fn get_neighbor_path(
+        &self,
+        rib_kind: RibKind,
+        peer_addr: IpAddr,
+        family: AddressFamily,
+    ) -> Result<(), Error> {
+        if let Some(manager) = self.peer_managers.get(&peer_addr) {
+            manager
+                .event_tx
+                .send(Event::Api(PeerLevelApiEvent::GetPath(rib_kind, family)))
+                .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;
+        }
+        Ok(())
     }
 
     #[tracing::instrument(skip(self))]

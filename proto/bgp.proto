@@ -11,8 +11,9 @@ service BgpApi {
 
 	rpc GetBgpInfo(GetBgpInfoRequest) returns (GetBgpInfoResponse);
 	rpc GetNeighbor(GetNeighborRequest) returns (GetNeighborResponse);
-	// rpc ListNeighbor(ListNeighborRequest) returns (ListNeighborResponse);
+	rpc ListNeighbor(ListNeighborRequest) returns (ListNeighborResponse);
 	rpc GetPath(GetPathRequest) returns (GetPathResponse);
+	rpc GetNeighborPath(GetNeighborPathRequest) returns (GetNeighborPathResponse);
 
 	rpc SetAS(SetASRequest) returns (google.protobuf.Empty);
 	rpc SetRouterId(SetRouterIdRequest) returns (google.protobuf.Empty);
@@ -40,11 +41,30 @@ message GetNeighborResponse {
 	Peer peer = 1;
 }
 
+message ListNeighborRequest {}
+
+message ListNeighborResponse {
+	repeated Peer peers = 1;
+}
+
 message GetPathRequest {
 	AddressFamily family = 1;
 }
 
 message GetPathResponse {
+	repeated Path paths = 1;
+}
+
+message GetNeighborPathRequest {
+	enum Kind {
+		UNKNOWN = 0; IN = 1; OUT = 2;
+	}
+	Kind kind = 1;
+	string addr = 2;
+	AddressFamily family = 3;
+}
+
+message GetNeighborPathResponse {
 	repeated Path paths = 1;
 }
 

@@ -53,9 +53,20 @@ async fn main() {
                 bgp::neighbor::Action::Get { addr } => {
                     bgp::neighbor::get(&endpoint, format, &addr).await.unwrap()
                 }
+                bgp::neighbor::Action::List => {
+                    bgp::neighbor::list(&endpoint, format).await.unwrap()
+                }
                 bgp::neighbor::Action::Del { addr } => {
                     bgp::neighbor::delete(&endpoint, &addr).await.unwrap()
                 }
+                bgp::neighbor::Action::Rib {
+                    addr,
+                    kind,
+                    afi,
+                    safi,
+                } => bgp::neighbor::rib(&endpoint, format, addr, kind, afi, safi)
+                    .await
+                    .unwrap(),
                 _ => unimplemented!(),
             },
         },

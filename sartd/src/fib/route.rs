@@ -456,20 +456,12 @@ fn parse_ipaddr(data: &Vec<u8>) -> Result<IpAddr, Error> {
     }
 }
 
-fn ipaddr_to_vec(addr: IpAddr) -> Vec<u8> {
-    match addr {
-        IpAddr::V4(a) => a.octets().to_vec(),
-        IpAddr::V6(a) => a.octets().to_vec(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::proto;
     use core::panic;
     use futures::TryStreamExt;
     use netlink_packet_route::route::Nla;
-    use rtnetlink::NetworkNamespace;
     use std::{
         net::{IpAddr, Ipv4Addr},
         os::fd::AsRawFd,
