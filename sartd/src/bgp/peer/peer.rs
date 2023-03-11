@@ -168,12 +168,6 @@ impl Peer {
         }
     }
 
-    // need lock of PeerInfo
-    fn is_ebgp(&self) -> bool {
-        let info = self.info.lock().unwrap();
-        info.asn != info.neighbor.get_asn()
-    }
-
     fn state(&self) -> State {
         self.fsm.lock().unwrap().get_state()
     }
@@ -1752,11 +1746,6 @@ impl MessageCounter {
         }
     }
 
-    fn sum(&self) -> usize {
-        self.open + self.update + self.keepalive + self.notification + self.route_refresh
-    }
-
-    #[tracing::instrument(skip(self))]
     fn reset(&mut self) {
         self.open = 0;
         self.update = 0;
