@@ -23,3 +23,5 @@ jobs:
       run: make unit-test 
     - name: Run integration test
       run: make integration-test
+    - name: Run controller test
+      run: make controller-test

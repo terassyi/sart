@@ -58,6 +58,10 @@ unit-test:
 integration-test:
 	sartd/test/run-integration.sh
 
+.PHONY: controller-test
+controller-test:
+	cd controller; make test
+
 .PHONY: dev-container
 dev-container:
 	docker run -it --privileged --rm --name sart-dev -p 8080:8080 -w /work/sart -v `pwd`:/work/sart ghcr.io/terassyi/terakoya:0.1.2 bash
@@ -71,12 +75,23 @@ build-image:
 	docker build -t sart:${IMAGE_VERSION} .
 
 
+BUILD ?= false
+
 .PHONY: devenv
-devenv: build-image
+devenv: 
+	if [ ${BUILD} = "daemon" ]; then \
+		make build-image; \
+	elif [ ${BUILD} = "controller" ]; then \
+		cd controller; make  docker-build; \
+	elif [ ${BUILD} = "all" ]; then \
+		make build-image; \
+		cd controller; make docker-build; \
+	fi
 	docker rm -f devenv-bgp || true
 	kind create cluster --name devenv --config ./cluster.yaml
 	docker run -d --privileged --network kind --rm --ulimit core=-1 --name devenv-bgp frrouting/frr:latest
 	kind load docker-image --name devenv sart:${IMAGE_VERSION}
+	kind load docker-image --name devenv sart-controller:${IMAGE_VERSION}
 
 .PHONY: clean-devenv
 clean-devenv:

@@ -7,4 +7,13 @@ layout:
 - go.kubebuilder.io/v3
 projectName: controller
 repo: github.com/terassyi/sart/controller
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: sart.terassyi.net
+  kind: ClusterBGP
+  path: github.com/terassyi/sart/controller/api/v1alpha1
+  version: v1alpha1
 version: "3"
