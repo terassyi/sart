@@ -76,6 +76,7 @@ build-image:
 
 
 BUILD ?= false
+REGISTORY_URL ?= localhost:5005
 
 .PHONY: devenv
 devenv: 
@@ -88,12 +89,19 @@ devenv:
 		cd controller; make docker-build; \
 	fi
 	docker rm -f devenv-bgp || true
-	kind create cluster --name devenv --config ./cluster.yaml
+	# kind create cluster --name devenv --config ./cluster.yaml
+	ctlptl apply -f ./controller/ctlptl.yaml
 	docker run -d --privileged --network kind --rm --ulimit core=-1 --name devenv-bgp frrouting/frr:latest
-	kind load docker-image --name devenv sart:${IMAGE_VERSION}
-	kind load docker-image --name devenv sart-controller:${IMAGE_VERSION}
+	$(eval REGISTORY_URL = $(ctlptl get cluster kind-devenv -o template --template '{{.status.localRegistryHosting.host}}'))
+
+.PHONY:
+push-image:
+	docker image tag sart:${IMAGE_VERSION} ${REGISTORY_URL}/sart:${IMAGE_VERSION}
+	docker image tag sart-controller:${IMAGE_VERSION} ${REGISTORY_URL}/sart-controller:${IMAGE_VERSION}
+	docker push ${REGISTORY_URL}/sart:${IMAGE_VERSION}
+	docker push ${REGISTORY_URL}/sart-controller:${IMAGE_VERSION}
 
 .PHONY: clean-devenv
 clean-devenv:
-	kind delete cluster --name devenv
+	ctlptl delete -f ./controller/ctlptl.yaml
 	docker rm -f devenv-bgp

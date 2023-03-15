@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: sart-controller
-  namespace: kube-system
+  namespace: system
   labels:
     app.kubernetes.io/name: sart-controller
 spec:
@@ -47,9 +47,7 @@ spec:
       containers:
       - command:
         - /manager
-        args:
-        - --leader-elect
-        image: sart-controller:dev
+        image: localhost:5005/sart-controller:dev
         name: sart-controller
         securityContext:
           allowPrivilegeEscalation: false

@@ -5,6 +5,7 @@ metadata:
     app: sartd
     component: bgp
   name: sartd-bgp
+  namespace: system
 spec:
   selector:
     matchLabels:
@@ -30,7 +31,7 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: status.hostIP
-        image: sart:dev
+        image: localhost:5005/sart:dev
         imagePullPolicy: IfNotPresent
         name: sartd
         securityContext:
