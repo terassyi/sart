@@ -3,3 +3,4 @@ resources:
   - clusterbgp_viewer_role.yaml
   - role.yaml
   - serviceaccount.yaml
+  - role_binding.yaml

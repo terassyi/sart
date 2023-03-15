@@ -6,11 +6,6 @@ metadata:
 spec:
   template:
     spec:
-      securityContext: null
       containers:
-        - command:
-            - /manager
-          args: null
-          name: manager
-          securityContext: null
-          resources: null
+        - name: sart-controller
+          image: localhost:5005/sart-controller:dev

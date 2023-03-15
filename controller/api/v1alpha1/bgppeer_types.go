@@ -23,15 +23,17 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-// ClusterBGPSpec defines the desired state of ClusterBGP
-type ClusterBGPSpec struct {
+// BGPPeerSpec defines the desired state of BGPPeer
+type BGPPeerSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
+	// Foo is an example field of BGPPeer. Edit bgppeer_types.go to remove/update
+	Foo string `json:"foo,omitempty"`
 }
 
-// ClusterBGPStatus defines the observed state of ClusterBGP
-type ClusterBGPStatus struct {
+// BGPPeerStatus defines the observed state of BGPPeer
+type BGPPeerStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 }
@@ -39,24 +41,24 @@ type ClusterBGPStatus struct {
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 
-// ClusterBGP is the Schema for the clusterbgps API
-type ClusterBGP struct {
+// BGPPeer is the Schema for the bgppeers API
+type BGPPeer struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   ClusterBGPSpec   `json:"spec,omitempty"`
-	Status ClusterBGPStatus `json:"status,omitempty"`
+	Spec   BGPPeerSpec   `json:"spec,omitempty"`
+	Status BGPPeerStatus `json:"status,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 
-// ClusterBGPList contains a list of ClusterBGP
-type ClusterBGPList struct {
+// BGPPeerList contains a list of BGPPeer
+type BGPPeerList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []ClusterBGP `json:"items"`
+	Items           []BGPPeer `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&ClusterBGP{}, &ClusterBGPList{})
+	SchemeBuilder.Register(&BGPPeer{}, &BGPPeerList{})
 }

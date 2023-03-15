@@ -5,20 +5,20 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.11.3
   creationTimestamp: null
-  name: clusterbgps.sart.terassyi.net
+  name: bgppeers.sart.terassyi.net
 spec:
   group: sart.terassyi.net
   names:
-    kind: ClusterBGP
-    listKind: ClusterBGPList
-    plural: clusterbgps
-    singular: clusterbgp
+    kind: BGPPeer
+    listKind: BGPPeerList
+    plural: bgppeers
+    singular: bgppeer
   scope: Namespaced
   versions:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: ClusterBGP is the Schema for the clusterbgps API
+        description: BGPPeer is the Schema for the bgppeers API
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -33,10 +33,15 @@ spec:
           metadata:
             type: object
           spec:
-            description: ClusterBGPSpec defines the desired state of ClusterBGP
+            description: BGPPeerSpec defines the desired state of BGPPeer
+            properties:
+              foo:
+                description: Foo is an example field of BGPPeer. Edit bgppeer_types.go
+                  to remove/update
+                type: string
             type: object
           status:
-            description: ClusterBGPStatus defines the observed state of ClusterBGP
+            description: BGPPeerStatus defines the observed state of BGPPeer
             type: object
         type: object
     served: true

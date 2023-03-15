@@ -27,13 +27,18 @@ local_resource(
 # Deploy manager
 watch_file('./config/')
 k8s_yaml(kustomize('./config/dev'))
-# 
-# local_resource(
-#     'Watch & Compile (sart-controller)', generate() + binary(), deps=['controllers', 'api', 'main.go', 'pkg', 'hooks', 'cmd'],
-#     ignore=['*/*/zz_generated.deepcopy.go'])
-# 
+
+local_resource(
+    'Watch & Compile (sart-controller)', generate() + binary(), deps=['controllers', 'api', 'main.go', 'pkg', 'hooks', 'cmd'],
+    ignore=['*/*/zz_generated.deepcopy.go'])
+
+local_resource('controller image',
+    'DOCKER_BUILDKIT=1 docker build -t localhost:5005/sart-controller:dev -f Dockerfile .; docker push localhost:5005/sart-controller:dev',
+    deps=['Dockerfile', './bin/manager'] )
+
 # docker_build_with_restart(
-#     'sart-controller:dev', '.',
+#     # 'sart-controller:dev', '.',
+#     'localhost:5005/sart-controller:dev', '.',
 #     dockerfile_contents=DOCKERFILE,
 #     entrypoint=['/manager'],
 #     only=['./bin/manager'],
@@ -41,9 +46,9 @@ k8s_yaml(kustomize('./config/dev'))
 #         sync('./bin/manager', '/manager'),
 #     ]
 # )
-# 
-# 
-# # local_resource(
-# #     'Sample', 'kubectl apply -f ./config/samples/view_v1_markdownview.yaml',
-# #     deps=["./config/samples/view_v1_markdownview.yaml"])
-# 
+
+
+local_resource(
+    'Sample', 'kubectl apply -f ./config/samples/_v1alpha1_clusterbgp.yaml',
+    deps=["./config/samples/_v1alpha1_clusterbgp.yaml"])
+
