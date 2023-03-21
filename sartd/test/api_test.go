@@ -108,14 +108,27 @@ func testApi() {
 		}, "1m").Should(Succeed())
 
 		By("getting peer information via api")
-		out, _, _, err = execInNetns("core", "simple_rib/grpcurl_get_neighbor.sh")
-		Expect(err).NotTo(HaveOccurred())
-		var resPeer map[string]any
-		err = json.Unmarshal(out, &resPeer)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(resPeer["peer"].(map[string]any)["asn"].(float64)).To(Equal(float64(200)))
-		Expect(resPeer["peer"].(map[string]any)["routerId"].(string)).To(Equal("2.2.2.2"))
-		Expect(resPeer["peer"].(map[string]any)["state"].(string)).To(Equal("ESTABLISHED"))
+		Eventually(func(g Gomega) error {
+			out, _, _, err := execInNetns("core", "simple_rib/grpcurl_get_neighbor.sh")
+			if err != nil {
+				return err
+			}
+			var resPeer map[string]any
+			err = json.Unmarshal(out, &resPeer)
+			if err != nil {
+				return err
+			}
+			if resPeer["peer"].(map[string]any)["asn"].(float64) != float64(200) {
+				return fmt.Errorf("got invalid peer asn")
+			}
+			if resPeer["peer"].(map[string]any)["routerId"].(string) != "2.2.2.2" {
+				return fmt.Errorf("got invalid peer router id")
+			}
+			if resPeer["peer"].(map[string]any)["state"].(string) != "ESTABLISHED" {
+				return fmt.Errorf("invalid peer state %s", resPeer["peer"].(map[string]any)["state"].(string))
+			}
+			return nil
+		}, "1m").Should(Succeed())
 
 		By("adding paths by core")
 		_, _, _, err = execInNetns("core", "simple_rib/grpcurl_add_path.sh")
@@ -138,7 +151,6 @@ func testApi() {
 		By("getting path information via api")
 		out, _, _, err = execInNetns("core", "simple_rib/grpcurl_get_path.sh")
 		var resPaths map[string]any
-		fmt.Println(string(out))
 		err = json.Unmarshal(out, &resPaths)
 		Expect(err).NotTo(HaveOccurred())
 		paths := resPaths["paths"].([]any)

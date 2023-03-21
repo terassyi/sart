@@ -1,4 +1,4 @@
-const TYPE_URL_PREFACE: &str = "type.googleapis.com/sart.";
+const TYPE_URL_PREFACE: &str = "type.googleapis.com/sart.v1.";
 
 pub(crate) fn to_any<T: prost::Message>(m: T, name: &str) -> prost_types::Any {
     let mut v = Vec::new();

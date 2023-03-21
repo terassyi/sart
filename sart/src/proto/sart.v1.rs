@@ -131,6 +131,15 @@ pub mod address_family {
                 Afi::Ip6 => "AFI_IP6",
             }
         }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "AFI_UNKNOWN" => Some(Self::Unknown),
+                "AFI_IP4" => Some(Self::Ip4),
+                "AFI_IP6" => Some(Self::Ip6),
+                _ => None,
+            }
+        }
     }
     #[derive(
         Clone,
@@ -159,6 +168,15 @@ pub mod address_family {
                 Safi::Unknown => "SAFI_UNKNOWN",
                 Safi::Unicast => "SAFI_UNICAST",
                 Safi::Multicast => "SAFI_MULTICAST",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "SAFI_UNKNOWN" => Some(Self::Unknown),
+                "SAFI_UNICAST" => Some(Self::Unicast),
+                "SAFI_MULTICAST" => Some(Self::Multicast),
+                _ => None,
             }
         }
     }
@@ -226,6 +244,19 @@ pub mod peer {
                 State::OpenSent => "OPEN_SENT",
                 State::OpenConfirm => "OPEN_CONFIRM",
                 State::Established => "ESTABLISHED",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "UNKNOWN" => Some(Self::Unknown),
+                "IDLE" => Some(Self::Idle),
+                "CONNECT" => Some(Self::Connect),
+                "ACTIVE" => Some(Self::Active),
+                "OPEN_SENT" => Some(Self::OpenSent),
+                "OPEN_CONFIRM" => Some(Self::OpenConfirm),
+                "ESTABLISHED" => Some(Self::Established),
+                _ => None,
             }
         }
     }
@@ -299,6 +330,15 @@ pub mod as_segment {
                 Type::Unknown => "UNKNOWN",
                 Type::AsSet => "AS_SET",
                 Type::AsSequence => "AS_SEQUENCE",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "UNKNOWN" => Some(Self::Unknown),
+                "AS_SET" => Some(Self::AsSet),
+                "AS_SEQUENCE" => Some(Self::AsSequence),
+                _ => None,
             }
         }
     }
@@ -489,7 +529,7 @@ pub mod bgp_api_client {
                     )
                 })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/sart.BgpApi/Health");
+            let path = http::uri::PathAndQuery::from_static("/sart.v1.BgpApi/Health");
             self.inner.unary(request.into_request(), path, codec).await
         }
         pub async fn get_bgp_info(
@@ -506,7 +546,9 @@ pub mod bgp_api_client {
                     )
                 })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/sart.BgpApi/GetBgpInfo");
+            let path = http::uri::PathAndQuery::from_static(
+                "/sart.v1.BgpApi/GetBgpInfo",
+            );
             self.inner.unary(request.into_request(), path, codec).await
         }
         pub async fn get_neighbor(
@@ -523,7 +565,9 @@ pub mod bgp_api_client {
                     )
                 })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/sart.BgpApi/GetNeighbor");
+            let path = http::uri::PathAndQuery::from_static(
+                "/sart.v1.BgpApi/GetNeighbor",
+            );
             self.inner.unary(request.into_request(), path, codec).await
         }
         /// rpc ListNeighbor(ListNeighborRequest) returns (ListNeighborResponse);
@@ -541,7 +585,7 @@ pub mod bgp_api_client {
                     )
                 })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/sart.BgpApi/GetPath");
+            let path = http::uri::PathAndQuery::from_static("/sart.v1.BgpApi/GetPath");
             self.inner.unary(request.into_request(), path, codec).await
         }
         pub async fn set_as(
@@ -558,7 +602,7 @@ pub mod bgp_api_client {
                     )
                 })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/sart.BgpApi/SetAS");
+            let path = http::uri::PathAndQuery::from_static("/sart.v1.BgpApi/SetAS");
             self.inner.unary(request.into_request(), path, codec).await
         }
         pub async fn set_router_id(
@@ -575,7 +619,9 @@ pub mod bgp_api_client {
                     )
                 })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/sart.BgpApi/SetRouterId");
+            let path = http::uri::PathAndQuery::from_static(
+                "/sart.v1.BgpApi/SetRouterId",
+            );
             self.inner.unary(request.into_request(), path, codec).await
         }
         pub async fn add_peer(
@@ -592,7 +638,7 @@ pub mod bgp_api_client {
                     )
                 })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/sart.BgpApi/AddPeer");
+            let path = http::uri::PathAndQuery::from_static("/sart.v1.BgpApi/AddPeer");
             self.inner.unary(request.into_request(), path, codec).await
         }
         pub async fn delete_peer(
@@ -609,7 +655,9 @@ pub mod bgp_api_client {
                     )
                 })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/sart.BgpApi/DeletePeer");
+            let path = http::uri::PathAndQuery::from_static(
+                "/sart.v1.BgpApi/DeletePeer",
+            );
             self.inner.unary(request.into_request(), path, codec).await
         }
         pub async fn add_path(
@@ -626,7 +674,7 @@ pub mod bgp_api_client {
                     )
                 })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/sart.BgpApi/AddPath");
+            let path = http::uri::PathAndQuery::from_static("/sart.v1.BgpApi/AddPath");
             self.inner.unary(request.into_request(), path, codec).await
         }
         pub async fn delete_path(
@@ -643,7 +691,9 @@ pub mod bgp_api_client {
                     )
                 })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/sart.BgpApi/DeletePath");
+            let path = http::uri::PathAndQuery::from_static(
+                "/sart.v1.BgpApi/DeletePath",
+            );
             self.inner.unary(request.into_request(), path, codec).await
         }
     }
@@ -756,7 +806,7 @@ pub mod bgp_api_server {
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             let inner = self.inner.clone();
             match req.uri().path() {
-                "/sart.BgpApi/Health" => {
+                "/sart.v1.BgpApi/Health" => {
                     #[allow(non_camel_case_types)]
                     struct HealthSvc<T: BgpApi>(pub Arc<T>);
                     impl<T: BgpApi> tonic::server::UnaryService<super::HealthRequest>
@@ -792,7 +842,7 @@ pub mod bgp_api_server {
                     };
                     Box::pin(fut)
                 }
-                "/sart.BgpApi/GetBgpInfo" => {
+                "/sart.v1.BgpApi/GetBgpInfo" => {
                     #[allow(non_camel_case_types)]
                     struct GetBgpInfoSvc<T: BgpApi>(pub Arc<T>);
                     impl<T: BgpApi> tonic::server::UnaryService<super::GetBgpInfoRequest>
@@ -830,7 +880,7 @@ pub mod bgp_api_server {
                     };
                     Box::pin(fut)
                 }
-                "/sart.BgpApi/GetNeighbor" => {
+                "/sart.v1.BgpApi/GetNeighbor" => {
                     #[allow(non_camel_case_types)]
                     struct GetNeighborSvc<T: BgpApi>(pub Arc<T>);
                     impl<
@@ -870,7 +920,7 @@ pub mod bgp_api_server {
                     };
                     Box::pin(fut)
                 }
-                "/sart.BgpApi/GetPath" => {
+                "/sart.v1.BgpApi/GetPath" => {
                     #[allow(non_camel_case_types)]
                     struct GetPathSvc<T: BgpApi>(pub Arc<T>);
                     impl<T: BgpApi> tonic::server::UnaryService<super::GetPathRequest>
@@ -906,7 +956,7 @@ pub mod bgp_api_server {
                     };
                     Box::pin(fut)
                 }
-                "/sart.BgpApi/SetAS" => {
+                "/sart.v1.BgpApi/SetAS" => {
                     #[allow(non_camel_case_types)]
                     struct SetASSvc<T: BgpApi>(pub Arc<T>);
                     impl<T: BgpApi> tonic::server::UnaryService<super::SetAsRequest>
@@ -942,7 +992,7 @@ pub mod bgp_api_server {
                     };
                     Box::pin(fut)
                 }
-                "/sart.BgpApi/SetRouterId" => {
+                "/sart.v1.BgpApi/SetRouterId" => {
                     #[allow(non_camel_case_types)]
                     struct SetRouterIdSvc<T: BgpApi>(pub Arc<T>);
                     impl<
@@ -982,7 +1032,7 @@ pub mod bgp_api_server {
                     };
                     Box::pin(fut)
                 }
-                "/sart.BgpApi/AddPeer" => {
+                "/sart.v1.BgpApi/AddPeer" => {
                     #[allow(non_camel_case_types)]
                     struct AddPeerSvc<T: BgpApi>(pub Arc<T>);
                     impl<T: BgpApi> tonic::server::UnaryService<super::AddPeerRequest>
@@ -1018,7 +1068,7 @@ pub mod bgp_api_server {
                     };
                     Box::pin(fut)
                 }
-                "/sart.BgpApi/DeletePeer" => {
+                "/sart.v1.BgpApi/DeletePeer" => {
                     #[allow(non_camel_case_types)]
                     struct DeletePeerSvc<T: BgpApi>(pub Arc<T>);
                     impl<T: BgpApi> tonic::server::UnaryService<super::DeletePeerRequest>
@@ -1054,7 +1104,7 @@ pub mod bgp_api_server {
                     };
                     Box::pin(fut)
                 }
-                "/sart.BgpApi/AddPath" => {
+                "/sart.v1.BgpApi/AddPath" => {
                     #[allow(non_camel_case_types)]
                     struct AddPathSvc<T: BgpApi>(pub Arc<T>);
                     impl<T: BgpApi> tonic::server::UnaryService<super::AddPathRequest>
@@ -1090,7 +1140,7 @@ pub mod bgp_api_server {
                     };
                     Box::pin(fut)
                 }
-                "/sart.BgpApi/DeletePath" => {
+                "/sart.v1.BgpApi/DeletePath" => {
                     #[allow(non_camel_case_types)]
                     struct DeletePathSvc<T: BgpApi>(pub Arc<T>);
                     impl<T: BgpApi> tonic::server::UnaryService<super::DeletePathRequest>
@@ -1162,7 +1212,7 @@ pub mod bgp_api_server {
         }
     }
     impl<T: BgpApi> tonic::server::NamedService for BgpApiServer<T> {
-        const NAME: &'static str = "sart.BgpApi";
+        const NAME: &'static str = "sart.v1.BgpApi";
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -1318,6 +1368,19 @@ pub mod next_hop {
                 NextHopFlags::Unresolved => "UNRESOLVED",
             }
         }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "EMPTY" => Some(Self::Empty),
+                "DEAD" => Some(Self::Dead),
+                "PERVASIVE" => Some(Self::Pervasive),
+                "ONLINK" => Some(Self::Onlink),
+                "OFFLOAD" => Some(Self::Offload),
+                "LINKDOWN" => Some(Self::Linkdown),
+                "UNRESOLVED" => Some(Self::Unresolved),
+                _ => None,
+            }
+        }
     }
 }
 /// message
@@ -1338,6 +1401,15 @@ impl IpVersion {
             IpVersion::Unkown => "Unkown",
             IpVersion::V4 => "V4",
             IpVersion::V6 => "V6",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "Unkown" => Some(Self::Unkown),
+            "V4" => Some(Self::V4),
+            "V6" => Some(Self::V6),
+            _ => None,
         }
     }
 }
@@ -1364,6 +1436,18 @@ impl AdministrativeDistance {
             AdministrativeDistance::Adospf => "ADOSPF",
             AdministrativeDistance::Adrip => "ADRIP",
             AdministrativeDistance::Adibgp => "ADIBGP",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "ADConnected" => Some(Self::AdConnected),
+            "ADStatic" => Some(Self::AdStatic),
+            "ADEBGP" => Some(Self::Adebgp),
+            "ADOSPF" => Some(Self::Adospf),
+            "ADRIP" => Some(Self::Adrip),
+            "ADIBGP" => Some(Self::Adibgp),
+            _ => None,
         }
     }
 }
@@ -1396,6 +1480,21 @@ impl Protocol {
             Protocol::IsIs => "IsIs",
             Protocol::Ospf => "Ospf",
             Protocol::Rip => "Rip",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "Unspec" => Some(Self::Unspec),
+            "Redirect" => Some(Self::Redirect),
+            "Kernel" => Some(Self::Kernel),
+            "Boot" => Some(Self::Boot),
+            "Static" => Some(Self::Static),
+            "Bgp" => Some(Self::Bgp),
+            "IsIs" => Some(Self::IsIs),
+            "Ospf" => Some(Self::Ospf),
+            "Rip" => Some(Self::Rip),
+            _ => None,
         }
     }
 }
@@ -1434,6 +1533,23 @@ impl Type {
             Type::Nat => "Nat",
         }
     }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "UnspecType" => Some(Self::UnspecType),
+            "Unicast" => Some(Self::Unicast),
+            "Local" => Some(Self::Local),
+            "Broadcast" => Some(Self::Broadcast),
+            "Anycast" => Some(Self::Anycast),
+            "Multicast" => Some(Self::Multicast),
+            "Blackhole" => Some(Self::Blackhole),
+            "Unreachable" => Some(Self::Unreachable),
+            "Prohibit" => Some(Self::Prohibit),
+            "Throw" => Some(Self::Throw),
+            "Nat" => Some(Self::Nat),
+            _ => None,
+        }
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -1456,6 +1572,17 @@ impl Scope {
             Scope::Link => "Link",
             Scope::Host => "Host",
             Scope::Nowhere => "Nowhere",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "Universe" => Some(Self::Universe),
+            "Site" => Some(Self::Site),
+            "Link" => Some(Self::Link),
+            "Host" => Some(Self::Host),
+            "Nowhere" => Some(Self::Nowhere),
+            _ => None,
         }
     }
 }
@@ -1542,7 +1669,7 @@ pub mod fib_api_client {
                     )
                 })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/sart.FibApi/GetRoute");
+            let path = http::uri::PathAndQuery::from_static("/sart.v1.FibApi/GetRoute");
             self.inner.unary(request.into_request(), path, codec).await
         }
         pub async fn list_routes(
@@ -1559,7 +1686,9 @@ pub mod fib_api_client {
                     )
                 })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/sart.FibApi/ListRoutes");
+            let path = http::uri::PathAndQuery::from_static(
+                "/sart.v1.FibApi/ListRoutes",
+            );
             self.inner.unary(request.into_request(), path, codec).await
         }
         pub async fn add_route(
@@ -1576,7 +1705,7 @@ pub mod fib_api_client {
                     )
                 })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/sart.FibApi/AddRoute");
+            let path = http::uri::PathAndQuery::from_static("/sart.v1.FibApi/AddRoute");
             self.inner.unary(request.into_request(), path, codec).await
         }
         pub async fn delete_route(
@@ -1593,7 +1722,9 @@ pub mod fib_api_client {
                     )
                 })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/sart.FibApi/DeleteRoute");
+            let path = http::uri::PathAndQuery::from_static(
+                "/sart.v1.FibApi/DeleteRoute",
+            );
             self.inner.unary(request.into_request(), path, codec).await
         }
         pub async fn add_multi_path_route(
@@ -1611,7 +1742,7 @@ pub mod fib_api_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/sart.FibApi/AddMultiPathRoute",
+                "/sart.v1.FibApi/AddMultiPathRoute",
             );
             self.inner.unary(request.into_request(), path, codec).await
         }
@@ -1630,7 +1761,7 @@ pub mod fib_api_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/sart.FibApi/DeleteMultiPathRoute",
+                "/sart.v1.FibApi/DeleteMultiPathRoute",
             );
             self.inner.unary(request.into_request(), path, codec).await
         }
@@ -1727,7 +1858,7 @@ pub mod fib_api_server {
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             let inner = self.inner.clone();
             match req.uri().path() {
-                "/sart.FibApi/GetRoute" => {
+                "/sart.v1.FibApi/GetRoute" => {
                     #[allow(non_camel_case_types)]
                     struct GetRouteSvc<T: FibApi>(pub Arc<T>);
                     impl<T: FibApi> tonic::server::UnaryService<super::GetRouteRequest>
@@ -1763,7 +1894,7 @@ pub mod fib_api_server {
                     };
                     Box::pin(fut)
                 }
-                "/sart.FibApi/ListRoutes" => {
+                "/sart.v1.FibApi/ListRoutes" => {
                     #[allow(non_camel_case_types)]
                     struct ListRoutesSvc<T: FibApi>(pub Arc<T>);
                     impl<T: FibApi> tonic::server::UnaryService<super::ListRoutesRequest>
@@ -1799,7 +1930,7 @@ pub mod fib_api_server {
                     };
                     Box::pin(fut)
                 }
-                "/sart.FibApi/AddRoute" => {
+                "/sart.v1.FibApi/AddRoute" => {
                     #[allow(non_camel_case_types)]
                     struct AddRouteSvc<T: FibApi>(pub Arc<T>);
                     impl<T: FibApi> tonic::server::UnaryService<super::AddRouteRequest>
@@ -1835,7 +1966,7 @@ pub mod fib_api_server {
                     };
                     Box::pin(fut)
                 }
-                "/sart.FibApi/DeleteRoute" => {
+                "/sart.v1.FibApi/DeleteRoute" => {
                     #[allow(non_camel_case_types)]
                     struct DeleteRouteSvc<T: FibApi>(pub Arc<T>);
                     impl<
@@ -1875,7 +2006,7 @@ pub mod fib_api_server {
                     };
                     Box::pin(fut)
                 }
-                "/sart.FibApi/AddMultiPathRoute" => {
+                "/sart.v1.FibApi/AddMultiPathRoute" => {
                     #[allow(non_camel_case_types)]
                     struct AddMultiPathRouteSvc<T: FibApi>(pub Arc<T>);
                     impl<
@@ -1915,7 +2046,7 @@ pub mod fib_api_server {
                     };
                     Box::pin(fut)
                 }
-                "/sart.FibApi/DeleteMultiPathRoute" => {
+                "/sart.v1.FibApi/DeleteMultiPathRoute" => {
                     #[allow(non_camel_case_types)]
                     struct DeleteMultiPathRouteSvc<T: FibApi>(pub Arc<T>);
                     impl<
@@ -1991,6 +2122,6 @@ pub mod fib_api_server {
         }
     }
     impl<T: FibApi> tonic::server::NamedService for FibApiServer<T> {
-        const NAME: &'static str = "sart.FibApi";
+        const NAME: &'static str = "sart.v1.FibApi";
     }
 }

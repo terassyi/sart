@@ -59,8 +59,6 @@ func testIntegrateFib() {
 			Expect(err).NotTo(HaveOccurred())
 		}(ctx)
 
-		time.Sleep(time.Second)
-
 		By("checking configurations")
 		Eventually(func(g Gomega) error {
 			if err := checkGobgpConfig("node2", 65010); err != nil {
@@ -80,6 +78,8 @@ func testIntegrateFib() {
 			_, _, _, err := execInNetns("node1", "../target/debug/sartd", "fib")
 			Expect(err).NotTo(HaveOccurred())
 		}(ctx)
+
+		time.Sleep(time.Second)
 
 		By("starting sartd-bgp")
 		go func(context.Context) {

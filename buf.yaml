@@ -1,9 +1,0 @@
-version: v1
-name: sart
-plugins:
-  - name: go
-    out: gen
-    opt: paths=source_relative
-  - name: connect-go
-    out: controller/pkg/proto
-    opt: paths=source_relative
