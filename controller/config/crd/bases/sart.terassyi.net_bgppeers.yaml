@@ -35,14 +35,26 @@ spec:
           spec:
             description: BGPPeerSpec defines the desired state of BGPPeer
             properties:
-              foo:
-                description: Foo is an example field of BGPPeer. Edit bgppeer_types.go
-                  to remove/update
+              asn:
+                format: int32
+                maximum: 4294967295
+                minimum: 0
+                type: integer
+              routerId:
                 type: string
+            required:
+            - asn
+            - routerId
             type: object
           status:
-            description: BGPPeerStatus defines the observed state of BGPPeer
-            type: object
+            enum:
+            - Idle
+            - Connect
+            - Active
+            - OpenSent
+            - OpenConfirm
+            - Established
+            type: string
         type: object
     served: true
     storage: true

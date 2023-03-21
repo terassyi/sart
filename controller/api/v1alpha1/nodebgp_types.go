@@ -23,55 +23,50 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-// BGPPeerSpec defines the desired state of BGPPeer
-type BGPPeerSpec struct {
+// NodeBGPSpec defines the desired state of NodeBGP
+type NodeBGPSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=4294967295
-	Asn uint32 `json:"asn"`
+	Asn uint32 `json:"Asn"`
 
 	RouterId string `json:"routerId"`
+
+	Endpoint string `json:"endpoint,omitempty"`
+
+	Peers []BGPPeer `json:"peers,omitempty"`
 }
 
-// BGPPeerStatus defines the observed state of BGPPeer
-
-//+kubebuilder:validation:Enum=Idle;Connect;Active;OpenSent;OpenConfirm;Established
-
-type BGPPeerStatus string
-
-var (
-	BGPPeerStatusIdle        = BGPPeerStatus("Idle")
-	BGPPeerStatusConnect     = BGPPeerStatus("Connect")
-	BGPPeerStatusActive      = BGPPeerStatus("Active")
-	BGPPeerStatusOpenSent    = BGPPeerStatus("OpenSent")
-	BGPPeerStatusOpenConfirm = BGPPeerStatus("OpenConfirm")
-	BGPPeerStatusEstablished = BGPPeerStatus("Established")
-)
+// NodeBGPStatus defines the observed state of NodeBGP
+type NodeBGPStatus struct {
+	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
+	// Important: Run "make" to regenerate code after modifying this file
+}
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 
-// BGPPeer is the Schema for the bgppeers API
-type BGPPeer struct {
+// NodeBGP is the Schema for the nodebgps API
+type NodeBGP struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   BGPPeerSpec   `json:"spec,omitempty"`
-	Status BGPPeerStatus `json:"status,omitempty"`
+	Spec   NodeBGPSpec   `json:"spec,omitempty"`
+	Status NodeBGPStatus `json:"status,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 
-// BGPPeerList contains a list of BGPPeer
-type BGPPeerList struct {
+// NodeBGPList contains a list of NodeBGP
+type NodeBGPList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []BGPPeer `json:"items"`
+	Items           []NodeBGP `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&BGPPeer{}, &BGPPeerList{})
+	SchemeBuilder.Register(&NodeBGP{}, &NodeBGPList{})
 }

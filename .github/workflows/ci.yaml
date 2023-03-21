@@ -11,16 +11,16 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
-    - name: Setup protoc
-      run: make setup-protoc
+    - name: Setup grpc
+      run: make setup-grpc
     - name: Build
-      run: make build 
+      run: make build
     - name: Fmt
       run: make fmt
     - name: setup-dev
       run: make setup-dev
     - name: Run unit tests
-      run: make unit-test 
+      run: make unit-test
     - name: Run integration test
       run: make integration-test
     - name: Run controller test

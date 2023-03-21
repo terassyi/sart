@@ -33,7 +33,7 @@ local_resource(
     ignore=['*/*/zz_generated.deepcopy.go'])
 
 local_resource('controller image',
-    'DOCKER_BUILDKIT=1 docker build -t localhost:5005/sart-controller:dev -f Dockerfile .; docker push localhost:5005/sart-controller:dev',
+    'DOCKER_BUILDKIT=1 docker build -t localhost:5005/sart-controller:dev -f Dockerfile.dev .; docker push localhost:5005/sart-controller:dev',
     deps=['Dockerfile', './bin/manager'] )
 
 # docker_build_with_restart(

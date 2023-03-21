@@ -19,40 +19,35 @@ package controllers
 import (
 	"context"
 
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	sartv1alpha1 "github.com/terassyi/sart/controller/api/v1alpha1"
+	sartterassyinetv1alpha1 "github.com/terassyi/sart/controller/api/v1alpha1"
 )
 
-// ClusterBGPReconciler reconciles a ClusterBGP object
-type ClusterBGPReconciler struct {
+// NodeBGPReconciler reconciles a NodeBGP object
+type NodeBGPReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }
 
-//+kubebuilder:rbac:groups=sart.terassyi.net,resources=clusterbgps,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=sart.terassyi.net,resources=clusterbgps/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=sart.terassyi.net,resources=clusterbgps/finalizers,verbs=update
+//+kubebuilder:rbac:groups=sart.terassyi.net,resources=nodebgps,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=sart.terassyi.net,resources=nodebgps/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=sart.terassyi.net,resources=nodebgps/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 // TODO(user): Modify the Reconcile function to compare the state specified by
-// the ClusterBGP object against the actual cluster state, and then
+// the NodeBGP object against the actual cluster state, and then
 // perform operations to make the cluster state reflect the state specified by
 // the user.
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
-func (r *ClusterBGPReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
-
-	logger.Info("reconcile", "controller", "cluster_bgp")
+func (r *NodeBGPReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	_ = log.FromContext(ctx)
 
 	// TODO(user): your logic here
 
@@ -60,10 +55,8 @@ func (r *ClusterBGPReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *ClusterBGPReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *NodeBGPReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&sartv1alpha1.ClusterBGP{}).
-		Watches(&source.Kind{Type: &v1.Node{}}, &handler.EnqueueRequestForObject{}).
-		Watches(&source.Kind{Type: &sartv1alpha1.NodeBGP{}}, &handler.EnqueueRequestForObject{}).
+		For(&sartterassyinetv1alpha1.NodeBGP{}).
 		Complete(r)
 }

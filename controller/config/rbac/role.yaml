@@ -6,6 +6,22 @@ metadata:
   name: sart-controller
 rules:
 - apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - nodes/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - sart.terassyi.net
   resources:
   - bgppeers
@@ -53,6 +69,32 @@ rules:
   - sart.terassyi.net
   resources:
   - clusterbgps/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - sart.terassyi.net
+  resources:
+  - nodebgps
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - sart.terassyi.net
+  resources:
+  - nodebgps/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - sart.terassyi.net
+  resources:
+  - nodebgps/status
   verbs:
   - get
   - patch

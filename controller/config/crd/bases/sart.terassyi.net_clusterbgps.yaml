@@ -34,6 +34,102 @@ spec:
             type: object
           spec:
             description: ClusterBGPSpec defines the desired state of ClusterBGP
+            properties:
+              nodes:
+                items:
+                  description: NodeBGP is the Schema for the nodebgps API
+                  properties:
+                    apiVersion:
+                      description: 'APIVersion defines the versioned schema of this
+                        representation of an object. Servers should convert recognized
+                        schemas to the latest internal value, and may reject unrecognized
+                        values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+                      type: string
+                    kind:
+                      description: 'Kind is a string value representing the REST resource
+                        this object represents. Servers may infer this from the endpoint
+                        the client submits requests to. Cannot be updated. In CamelCase.
+                        More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+                      type: string
+                    metadata:
+                      type: object
+                    spec:
+                      description: NodeBGPSpec defines the desired state of NodeBGP
+                      properties:
+                        Asn:
+                          format: int32
+                          maximum: 4294967295
+                          minimum: 0
+                          type: integer
+                        endpoint:
+                          type: string
+                        peers:
+                          items:
+                            description: BGPPeer is the Schema for the bgppeers API
+                            properties:
+                              apiVersion:
+                                description: 'APIVersion defines the versioned schema
+                                  of this representation of an object. Servers should
+                                  convert recognized schemas to the latest internal
+                                  value, and may reject unrecognized values. More
+                                  info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+                                type: string
+                              kind:
+                                description: 'Kind is a string value representing
+                                  the REST resource this object represents. Servers
+                                  may infer this from the endpoint the client submits
+                                  requests to. Cannot be updated. In CamelCase. More
+                                  info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+                                type: string
+                              metadata:
+                                type: object
+                              spec:
+                                description: BGPPeerSpec defines the desired state
+                                  of BGPPeer
+                                properties:
+                                  asn:
+                                    format: int32
+                                    maximum: 4294967295
+                                    minimum: 0
+                                    type: integer
+                                  routerId:
+                                    type: string
+                                required:
+                                - asn
+                                - routerId
+                                type: object
+                              status:
+                                enum:
+                                - Idle
+                                - Connect
+                                - Active
+                                - OpenSent
+                                - OpenConfirm
+                                - Established
+                                type: string
+                            type: object
+                          type: array
+                        routerId:
+                          type: string
+                      required:
+                      - Asn
+                      - routerId
+                      type: object
+                    status:
+                      description: NodeBGPStatus defines the observed state of NodeBGP
+                      type: object
+                  type: object
+                type: array
+              peeringPolicy:
+                description: 'INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
+                  Important: Run "make" to regenerate code after modifying this file'
+                properties:
+                  policy:
+                    default: none
+                    type: string
+                type: object
+            required:
+            - nodes
             type: object
           status:
             description: ClusterBGPStatus defines the observed state of ClusterBGP

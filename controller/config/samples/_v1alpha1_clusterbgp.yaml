@@ -3,4 +3,3 @@ kind: ClusterBGP
 metadata:
   name: clusterbgp-sample
 spec:
-  foo: bar

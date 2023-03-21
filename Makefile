@@ -5,7 +5,7 @@ GRPCURL_VERSION := 1.8.7
 IMAGE_VERSION := dev
 
 .PHONY: setup
-setup: setup-rust-tools setup-protoc
+setup: setup-rust-tools setup-grpc
 
 .PHONY: setup-rust-tools
 setup-rust-tools:
@@ -13,9 +13,12 @@ setup-rust-tools:
 	$(RUSTUP) component add rustfmt
 	$(CARGO) install rustfilt
 
-.PHONY: setup-protoc
-setup-protoc:
+.PHONY: setup-grpc
+setup-grpc:
 	sudo apt install -y protobuf-compiler libprotobuf-dev
+	go install github.com/bufbuild/buf/cmd/buf@latest
+	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+	go install github.com/bufbuild/connect-go/cmd/protoc-gen-connect-go@latest
 
 .PHONY: setup-dev
 setup-dev:
@@ -79,7 +82,7 @@ BUILD ?= false
 REGISTORY_URL ?= localhost:5005
 
 .PHONY: devenv
-devenv: 
+devenv:
 	if [ ${BUILD} = "daemon" ]; then \
 		make build-image; \
 	elif [ ${BUILD} = "controller" ]; then \

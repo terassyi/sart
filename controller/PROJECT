@@ -24,4 +24,12 @@ resources:
   kind: BGPPeer
   path: github.com/terassyi/sart/controller/api/v1alpha1
   version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: sart.terassyi.net
+  kind: NodeBGP
+  path: github.com/terassyi/sart/controller/api/v1alpha1
+  version: v1alpha1
 version: "3"
