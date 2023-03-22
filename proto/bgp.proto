@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package sart.v1;
 
+option go_package = ".";
+
 import "google/protobuf/empty.proto";
 import "google/protobuf/any.proto";
 import "google/protobuf/timestamp.proto";

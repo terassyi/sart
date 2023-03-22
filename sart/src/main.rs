@@ -40,6 +40,7 @@ async fn main() {
                         .await
                         .unwrap(),
                 },
+                bgp::global::Action::Health => bgp::global::health(&endpoint).await.unwrap(),
                 _ => unimplemented!(),
             },
             Scope::Neighbor(n) => match n.action {

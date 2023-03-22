@@ -56,7 +56,7 @@ spec:
                     spec:
                       description: NodeBGPSpec defines the desired state of NodeBGP
                       properties:
-                        Asn:
+                        asn:
                           format: int32
                           maximum: 4294967295
                           minimum: 0
@@ -112,12 +112,12 @@ spec:
                         routerId:
                           type: string
                       required:
-                      - Asn
+                      - asn
                       - routerId
                       type: object
                     status:
                       description: NodeBGPStatus defines the observed state of NodeBGP
-                      type: object
+                      type: string
                   type: object
                 type: array
               peeringPolicy:

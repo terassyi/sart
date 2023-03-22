@@ -31,7 +31,7 @@ type NodeBGPSpec struct {
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=4294967295
-	Asn uint32 `json:"Asn"`
+	Asn uint32 `json:"asn"`
 
 	RouterId string `json:"routerId"`
 
@@ -41,13 +41,17 @@ type NodeBGPSpec struct {
 }
 
 // NodeBGPStatus defines the observed state of NodeBGP
-type NodeBGPStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-}
+type NodeBGPStatus string
+
+var (
+	NodeBGPStatusAvailable   = NodeBGPStatus("Available")
+	NodeBGPStatusUnavailable = NodeBGPStatus("Unavailable")
+)
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="ASN",type="integer",JSONPath=".spec.asn",description="AS Number"
+// +kubebuilder:printcolumn:name="RouterId",type="string",JSONPath=".spec.routerId",description="Router Id"
 
 // NodeBGP is the Schema for the nodebgps API
 type NodeBGP struct {

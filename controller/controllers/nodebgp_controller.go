@@ -25,12 +25,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	sartterassyinetv1alpha1 "github.com/terassyi/sart/controller/api/v1alpha1"
+	"github.com/terassyi/sart/controller/pkg/speaker"
 )
 
 // NodeBGPReconciler reconciles a NodeBGP object
 type NodeBGPReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme              *runtime.Scheme
+	SpeakerEndpointPort uint32
+	SpeakerType         speaker.SpeakerType
 }
 
 //+kubebuilder:rbac:groups=sart.terassyi.net,resources=nodebgps,verbs=get;list;watch;create;update;patch;delete
@@ -47,9 +50,36 @@ type NodeBGPReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 func (r *NodeBGPReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
+	logger := log.FromContext(ctx)
 
-	// TODO(user): your logic here
+	// get NodeBGP resources
+	nodeBgpList := &sartterassyinetv1alpha1.NodeBGPList{}
+	if err := r.Client.List(ctx, nodeBgpList); err != nil {
+		logger.Error(err, "failed to list NodeBGP")
+		return ctrl.Result{}, err
+	}
+
+	for _, nodeBgp := range nodeBgpList.Items {
+		speakerEndpoint := speaker.New(r.SpeakerType, nodeBgp.Spec.RouterId, r.SpeakerEndpointPort)
+		info, err := speakerEndpoint.GetInfo(ctx)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if nodeBgp.Spec.Asn != info.Asn {
+			logger.Info("don't match ASN", "desired", nodeBgp.Spec.Asn, "actual", info.Asn)
+		}
+		if nodeBgp.Spec.RouterId != info.RouterId {
+			logger.Info("don't match Router id", "desired", nodeBgp.Spec.RouterId, "actual", info.RouterId)
+		}
+
+		if err := speakerEndpoint.SetInfo(ctx, speaker.SpeakerInfo{
+			Asn:      nodeBgp.Spec.Asn,
+			RouterId: nodeBgp.Spec.RouterId,
+		}); err != nil {
+			logger.Error(err, "failed to set NodeBGP information", "NodeBGP", nodeBgp.Name)
+			return ctrl.Result{}, err
+		}
+	}
 
 	return ctrl.Result{}, nil
 }

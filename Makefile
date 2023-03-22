@@ -3,6 +3,7 @@ CARGO := cargo
 GOBGP_VERSION := 3.10.0
 GRPCURL_VERSION := 1.8.7
 IMAGE_VERSION := dev
+PROJECT := github.com/terassyi/sart
 
 .PHONY: setup
 setup: setup-rust-tools setup-grpc
@@ -19,6 +20,7 @@ setup-grpc:
 	go install github.com/bufbuild/buf/cmd/buf@latest
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 	go install github.com/bufbuild/connect-go/cmd/protoc-gen-connect-go@latest
+	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 
 .PHONY: setup-dev
 setup-dev:
@@ -44,6 +46,13 @@ build-daemon:
 .PHONY: build-cli
 build-cli:
 	cd sart; $(CARGO) build --verbose
+
+.PHONY: build-proto
+build-proto:
+	protoc -Iproto --go_out=./controller/pkg/proto bgp.proto
+	protoc -Iproto --go-grpc_out=./controller/pkg/proto bgp.proto
+	protoc -Iproto --go_out=./controller/pkg/proto fib.proto
+	protoc -Iproto --go-grpc_out=./controller/pkg/proto fib.proto
 
 
 .PHONY: fmt
@@ -96,6 +105,10 @@ devenv:
 	ctlptl apply -f ./controller/ctlptl.yaml
 	docker run -d --privileged --network kind --rm --ulimit core=-1 --name devenv-bgp frrouting/frr:latest
 	$(eval REGISTORY_URL = $(ctlptl get cluster kind-devenv -o template --template '{{.status.localRegistryHosting.host}}'))
+	make push-image
+	kubectl label nodes devenv-control-plane sart.terassyi.net/asn=65010
+	kubectl label nodes devenv-worker sart.terassyi.net/asn=65020
+	kubectl label nodes devenv-worker2 sart.terassyi.net/asn=65030
 
 .PHONY:
 push-image:

@@ -2,7 +2,7 @@ load('ext://restart_process', 'docker_build_with_restart')
 
 DOCKERFILE = '''FROM golang:alpine
 WORKDIR /
-COPY ./bin/manager /
+COPY bin/manager /
 CMD ["/manager"]
 '''
 
@@ -36,19 +36,18 @@ local_resource('controller image',
     'DOCKER_BUILDKIT=1 docker build -t localhost:5005/sart-controller:dev -f Dockerfile.dev .; docker push localhost:5005/sart-controller:dev',
     deps=['Dockerfile', './bin/manager'] )
 
-# docker_build_with_restart(
-#     # 'sart-controller:dev', '.',
-#     'localhost:5005/sart-controller:dev', '.',
-#     dockerfile_contents=DOCKERFILE,
-#     entrypoint=['/manager'],
-#     only=['./bin/manager'],
-#     live_update=[
-#         sync('./bin/manager', '/manager'),
-#     ]
-# )
+docker_build_with_restart(
+    'sart-controller:dev', '.',
+    # 'localhost:5005/sart-controller:dev', '.',
+    dockerfile_contents=DOCKERFILE,
+    entrypoint=['/manager'],
+    only=['./bin/manager'],
+    live_update=[
+        sync('./bin/manager', '/manager'),
+    ]
+)
 
 
 local_resource(
     'Sample', 'kubectl apply -f ./config/samples/_v1alpha1_clusterbgp.yaml',
     deps=["./config/samples/_v1alpha1_clusterbgp.yaml"])
-

@@ -33,6 +33,7 @@ import (
 
 	sartterassyinetv1alpha1 "github.com/terassyi/sart/controller/api/v1alpha1"
 	"github.com/terassyi/sart/controller/controllers"
+	"github.com/terassyi/sart/controller/pkg/speaker"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -52,11 +53,17 @@ func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
 	var probeAddr string
+
+	var speakerTypeStr string
+	var speakerEndpointPort uint64
+
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
+	flag.StringVar(&speakerTypeStr, "speaker", "sart", "BGP speaker type. support (sart) default is sart")
+	flag.Uint64Var(&speakerEndpointPort, "speaker-endpoint-port", uint64(speaker.SartDefaultEndpointPort), "Endpoint port to communicate BGP Speaker on each node")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -64,6 +71,12 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	speakerType, err := speaker.ParseSpeakerType(speakerTypeStr)
+	if err != nil {
+		setupLog.Error(err, "failed to parse speaker type", "controller", "ClusterBGP")
+		os.Exit(1)
+	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
@@ -104,15 +117,19 @@ func main() {
 		os.Exit(1)
 	}
 	if err = (&controllers.NodeBGPReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:              mgr.GetClient(),
+		Scheme:              mgr.GetScheme(),
+		SpeakerEndpointPort: uint32(speakerEndpointPort),
+		SpeakerType:         speakerType,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NodeBGP")
 		os.Exit(1)
 	}
 
 	if err = (&controllers.NodeWatcher{
-		Client: mgr.GetClient(),
+		Client:              mgr.GetClient(),
+		SpeakerEndpointPort: uint32(speakerEndpointPort),
+		SpeakerType:         speakerType,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create watcher", "watcher", "Node")
 		os.Exit(1)

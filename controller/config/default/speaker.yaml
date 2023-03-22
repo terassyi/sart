@@ -23,15 +23,13 @@ spec:
       - command: ["sartd"]
         args:
         - bgp
-        - --as=65000
-        - --router-id=$(SARTD_BGP_NODE_IP)
         env:
         - name: SARTD_BGP_NODE_IP
           valueFrom:
             fieldRef:
               fieldPath: status.hostIP
         image: localhost:5005/sart:dev
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Always
         name: sartd
         securityContext:
           allowPrivilegeEscalation: false

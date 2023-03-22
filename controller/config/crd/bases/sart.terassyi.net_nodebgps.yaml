@@ -15,7 +15,16 @@ spec:
     singular: nodebgp
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: AS Number
+      jsonPath: .spec.asn
+      name: ASN
+      type: integer
+    - description: Router Id
+      jsonPath: .spec.routerId
+      name: RouterId
+      type: string
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: NodeBGP is the Schema for the nodebgps API
@@ -35,7 +44,7 @@ spec:
           spec:
             description: NodeBGPSpec defines the desired state of NodeBGP
             properties:
-              Asn:
+              asn:
                 format: int32
                 maximum: 4294967295
                 minimum: 0
@@ -88,12 +97,12 @@ spec:
               routerId:
                 type: string
             required:
-            - Asn
+            - asn
             - routerId
             type: object
           status:
             description: NodeBGPStatus defines the observed state of NodeBGP
-            type: object
+            type: string
         type: object
     served: true
     storage: true
