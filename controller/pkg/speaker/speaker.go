@@ -15,7 +15,7 @@ type SpeakerType string
 
 var (
 	SpeakerTypeUnknown SpeakerType = SpeakerType("unknown")
-	SpeakerTypeSart SpeakerType = SpeakerType("sart")
+	SpeakerTypeSart    SpeakerType = SpeakerType("sart")
 )
 
 func New(typ SpeakerType, endpointAddr string, endpointPort uint32) Speaker {
@@ -37,6 +37,6 @@ func ParseSpeakerType(t string) (SpeakerType, error) {
 }
 
 type SpeakerInfo struct {
-	Asn uint32
+	Asn      uint32
 	RouterId string
 }

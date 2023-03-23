@@ -31,9 +31,18 @@ type BGPPeerSpec struct {
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=4294967295
-	Asn uint32 `json:"asn"`
+	PeerAsn uint32 `json:"peerAsn"`
 
-	RouterId string `json:"routerId"`
+	PeerRouterId string `json:"peerRouterId"`
+
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=4294967295
+	LocalAsn uint32 `json:"localAsn"`
+
+	LocalRouterId string `json:"localRouterId"`
+
+	Family AddressFamily `json:"family,omitempty"`
 }
 
 // BGPPeerStatus defines the observed state of BGPPeer
@@ -74,4 +83,14 @@ type BGPPeerList struct {
 
 func init() {
 	SchemeBuilder.Register(&BGPPeer{}, &BGPPeerList{})
+}
+
+type AddressFamily struct {
+	//+kubebuilder:validation:Enum=Ipv4;Ipv6
+	//+kubebuilder:default:=Ipv4
+	Afi string `json:"afi"`
+
+	//+kubebuilder:validation:Enum=Unicast;Multicast
+	//+kubebuilder:default:=Unicast
+	Safi string `json:"safi"`
 }

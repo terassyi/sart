@@ -47,9 +47,14 @@ type BGPPeerReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 func (r *BGPPeerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
+	logger := log.FromContext(ctx)
+	logger.Info("reconcile", "reconciler", "BGPPeer")
 
-	// TODO(user): your logic here
+	peer := &sartterassyinetv1alpha1.BGPPeer{}
+	if err := r.Client.Get(ctx, req.NamespacedName, peer); err != nil {
+		logger.Error(err, "failed to get BGPPeer", "Object", req.NamespacedName)
+		return ctrl.Result{}, err
+	}
 
 	return ctrl.Result{}, nil
 }

@@ -87,16 +87,43 @@ spec:
                                 description: BGPPeerSpec defines the desired state
                                   of BGPPeer
                                 properties:
-                                  asn:
+                                  family:
+                                    properties:
+                                      afi:
+                                        default: Ipv4
+                                        enum:
+                                        - Ipv4
+                                        - Ipv6
+                                        type: string
+                                      safi:
+                                        default: Unicast
+                                        enum:
+                                        - Unicast
+                                        - Multicast
+                                        type: string
+                                    required:
+                                    - afi
+                                    - safi
+                                    type: object
+                                  localAsn:
                                     format: int32
                                     maximum: 4294967295
                                     minimum: 0
                                     type: integer
-                                  routerId:
+                                  localRouterId:
+                                    type: string
+                                  peerAsn:
+                                    format: int32
+                                    maximum: 4294967295
+                                    minimum: 0
+                                    type: integer
+                                  peerRouterId:
                                     type: string
                                 required:
-                                - asn
-                                - routerId
+                                - localAsn
+                                - localRouterId
+                                - peerAsn
+                                - peerRouterId
                                 type: object
                               status:
                                 enum:
