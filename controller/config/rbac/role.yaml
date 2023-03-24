@@ -24,6 +24,32 @@ rules:
 - apiGroups:
   - sart.terassyi.net
   resources:
+  - bgpadvertisements
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - sart.terassyi.net
+  resources:
+  - bgpadvertisements/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - sart.terassyi.net
+  resources:
+  - bgpadvertisements/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - sart.terassyi.net
+  resources:
   - bgppeers
   verbs:
   - create

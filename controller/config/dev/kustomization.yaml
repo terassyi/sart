@@ -2,3 +2,4 @@ resources:
   - ../default
 patchesStrategicMerge:
   - ./manager.yaml
+  - ./speaker.yaml

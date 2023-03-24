@@ -1,0 +1,11 @@
+ARG RUST_VERSION=1.68.0
+
+FROM rust:${RUST_VERSION}
+
+WORKDIR /home
+
+RUN apt update -y && \
+	apt install -y tcpdump iproute2 iputils-ping net-tools
+
+COPY ./sartd/target/debug/sartd /usr/local/bin
+COPY ./sart/target/debug/sart /usr/local/bin

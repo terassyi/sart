@@ -49,5 +49,22 @@ docker_build_with_restart(
 
 
 local_resource(
-    'Sample', 'kubectl apply -f ./config/samples/_v1alpha1_clusterbgp.yaml',
-    deps=["./config/samples/_v1alpha1_clusterbgp.yaml"])
+    'Sample ClusterBGP Manifests', 
+    'kubectl apply -f ./config/samples/_v1alpha1_clusterbgp.yaml',
+    deps=[
+        "./config/samples/_v1alpha1_clusterbgp.yaml",
+        ])
+
+local_resource(
+    'Sample BGPPeer Manifests', 
+    'kubectl apply -f ./config/samples/_v1alpha1_bgppeer.yaml',
+    deps=[
+        "./config/samples/_v1alpha1_bgppeer.yaml"
+        ])
+
+local_resource(
+    'Sample BGPAdvertisement Manifests', 
+    'kubectl apply -f ./config/samples/_v1alpha1_bgpadvertisement.yaml',
+    deps=[
+        "./config/samples/_v1alpha1_bgpadvertisement.yaml"
+        ])

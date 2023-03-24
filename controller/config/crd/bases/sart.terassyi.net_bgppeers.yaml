@@ -15,7 +15,26 @@ spec:
     singular: bgppeer
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: Local speaker
+      jsonPath: .spec.node
+      name: Node
+      type: string
+    - description: AS Number
+      jsonPath: .spec.peerAsn
+      name: PeerASN
+      type: integer
+    - description: Router Id
+      jsonPath: .spec.peerRouterId
+      name: PeerRouterId
+      type: string
+    - jsonPath: .status
+      name: Status
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: BGPPeer is the Schema for the bgppeers API
@@ -36,18 +55,21 @@ spec:
             description: BGPPeerSpec defines the desired state of BGPPeer
             properties:
               family:
+                default:
+                  afi: ipv4
+                  safi: unicast
                 properties:
                   afi:
-                    default: Ipv4
+                    default: ipv4
                     enum:
-                    - Ipv4
-                    - Ipv6
+                    - ipv4
+                    - ipv6
                     type: string
                   safi:
-                    default: Unicast
+                    default: unicast
                     enum:
-                    - Unicast
-                    - Multicast
+                    - unicast
+                    - multicast
                     type: string
                 required:
                 - afi
@@ -60,6 +82,8 @@ spec:
                 type: integer
               localRouterId:
                 type: string
+              node:
+                type: string
               peerAsn:
                 format: int32
                 maximum: 4294967295
@@ -67,9 +91,11 @@ spec:
                 type: integer
               peerRouterId:
                 type: string
+              prefixes:
+                items:
+                  type: string
+                type: array
             required:
-            - localAsn
-            - localRouterId
             - peerAsn
             - peerRouterId
             type: object

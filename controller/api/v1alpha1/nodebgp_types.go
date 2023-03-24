@@ -37,7 +37,7 @@ type NodeBGPSpec struct {
 
 	Endpoint string `json:"endpoint,omitempty"`
 
-	Peers []BGPPeer `json:"peers,omitempty"`
+	Peers []Peer `json:"peers,omitempty"`
 }
 
 // NodeBGPStatus defines the observed state of NodeBGP

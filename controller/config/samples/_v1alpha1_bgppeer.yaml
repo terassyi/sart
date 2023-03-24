@@ -1,12 +1,29 @@
 apiVersion: sart.terassyi.net/v1alpha1
 kind: BGPPeer
 metadata:
-  labels:
-    app.kubernetes.io/name: bgppeer
-    app.kubernetes.io/instance: bgppeer-sample
-    app.kubernetes.io/part-of: controller
-    app.kubernetes.io/managed-by: kustomize
-    app.kubernetes.io/created-by: controller
-  name: bgppeer-sample
+  name: worker-peer
+  namespace: kube-system
 spec:
-  # TODO(user): Add fields here
+  node: devenv-worker
+  peerAsn: 65000
+  peerRouterId: 172.18.0.6
+---
+apiVersion: sart.terassyi.net/v1alpha1
+kind: BGPPeer
+metadata:
+  name: worker2-peer
+  namespace: kube-system
+spec:
+  node: devenv-worker2
+  peerAsn: 65000
+  peerRouterId: 172.18.0.6
+---
+apiVersion: sart.terassyi.net/v1alpha1
+kind: BGPPeer
+metadata:
+  name: cp-peer
+  namespace: kube-system
+spec:
+  node: devenv-control-plane
+  peerAsn: 65000
+  peerRouterId: 172.18.0.6

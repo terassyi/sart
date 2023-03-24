@@ -65,66 +65,16 @@ spec:
                           type: string
                         peers:
                           items:
-                            description: BGPPeer is the Schema for the bgppeers API
                             properties:
-                              apiVersion:
-                                description: 'APIVersion defines the versioned schema
-                                  of this representation of an object. Servers should
-                                  convert recognized schemas to the latest internal
-                                  value, and may reject unrecognized values. More
-                                  info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+                              asn:
+                                format: int32
+                                type: integer
+                              name:
                                 type: string
-                              kind:
-                                description: 'Kind is a string value representing
-                                  the REST resource this object represents. Servers
-                                  may infer this from the endpoint the client submits
-                                  requests to. Cannot be updated. In CamelCase. More
-                                  info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+                              namespace:
                                 type: string
-                              metadata:
-                                type: object
-                              spec:
-                                description: BGPPeerSpec defines the desired state
-                                  of BGPPeer
-                                properties:
-                                  family:
-                                    properties:
-                                      afi:
-                                        default: Ipv4
-                                        enum:
-                                        - Ipv4
-                                        - Ipv6
-                                        type: string
-                                      safi:
-                                        default: Unicast
-                                        enum:
-                                        - Unicast
-                                        - Multicast
-                                        type: string
-                                    required:
-                                    - afi
-                                    - safi
-                                    type: object
-                                  localAsn:
-                                    format: int32
-                                    maximum: 4294967295
-                                    minimum: 0
-                                    type: integer
-                                  localRouterId:
-                                    type: string
-                                  peerAsn:
-                                    format: int32
-                                    maximum: 4294967295
-                                    minimum: 0
-                                    type: integer
-                                  peerRouterId:
-                                    type: string
-                                required:
-                                - localAsn
-                                - localRouterId
-                                - peerAsn
-                                - peerRouterId
-                                type: object
+                              routerId:
+                                type: string
                               status:
                                 enum:
                                 - Idle
@@ -134,6 +84,12 @@ spec:
                                 - OpenConfirm
                                 - Established
                                 type: string
+                            required:
+                            - asn
+                            - name
+                            - namespace
+                            - routerId
+                            - status
                             type: object
                           type: array
                         routerId:

@@ -38,11 +38,16 @@ type BGPPeerSpec struct {
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=4294967295
-	LocalAsn uint32 `json:"localAsn"`
+	LocalAsn uint32 `json:"localAsn,omitempty"`
 
-	LocalRouterId string `json:"localRouterId"`
+	LocalRouterId string `json:"localRouterId,omitempty"`
 
+	Node string `json:"node,omitempty"`
+
+	// +kubebuilder:default:={afi:ipv4,safi:unicast}
 	Family AddressFamily `json:"family,omitempty"`
+
+	Prefixes []string `json:"prefixes,omitempty"`
 }
 
 // BGPPeerStatus defines the observed state of BGPPeer
@@ -62,6 +67,11 @@ var (
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Node",type="string",JSONPath=".spec.node",description="Local speaker"
+// +kubebuilder:printcolumn:name="PeerASN",type="integer",JSONPath=".spec.peerAsn",description="AS Number"
+// +kubebuilder:printcolumn:name="PeerRouterId",type="string",JSONPath=".spec.peerRouterId",description="Router Id"
+// +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status"
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // BGPPeer is the Schema for the bgppeers API
 type BGPPeer struct {
@@ -86,11 +96,29 @@ func init() {
 }
 
 type AddressFamily struct {
-	//+kubebuilder:validation:Enum=Ipv4;Ipv6
-	//+kubebuilder:default:=Ipv4
+	//+kubebuilder:validation:Enum=ipv4;ipv6
+	//+kubebuilder:default:=ipv4
 	Afi string `json:"afi"`
 
-	//+kubebuilder:validation:Enum=Unicast;Multicast
-	//+kubebuilder:default:=Unicast
+	//+kubebuilder:validation:Enum=unicast;multicast
+	//+kubebuilder:default:=unicast
 	Safi string `json:"safi"`
+}
+
+type Peer struct {
+	Name      string        `json:"name"`
+	Namespace string        `json:"namespace"`
+	Asn       uint32        `json:"asn"`
+	RouterId  string        `json:"routerId"`
+	Status    BGPPeerStatus `json:"status"`
+}
+
+func (p *Peer) DeepCopy() *Peer {
+	return &Peer{
+		Name:      p.Name,
+		Namespace: p.Namespace,
+		Asn:       p.Asn,
+		RouterId:  p.RouterId,
+		Status:    p.Status,
+	}
 }

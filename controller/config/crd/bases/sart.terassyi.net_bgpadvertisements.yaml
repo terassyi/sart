@@ -5,29 +5,33 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.11.3
   creationTimestamp: null
-  name: nodebgps.sart.terassyi.net
+  name: bgpadvertisements.sart.terassyi.net
 spec:
   group: sart.terassyi.net
   names:
-    kind: NodeBGP
-    listKind: NodeBGPList
-    plural: nodebgps
-    singular: nodebgp
+    kind: BGPAdvertisement
+    listKind: BGPAdvertisementList
+    plural: bgpadvertisements
+    singular: bgpadvertisement
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - description: AS Number
-      jsonPath: .spec.asn
-      name: ASN
-      type: integer
-    - description: Router Id
-      jsonPath: .spec.routerId
-      name: RouterId
+    - jsonPath: .spec.network
+      name: Network
       type: string
+    - jsonPath: .spec.serviceType
+      name: Type
+      type: string
+    - jsonPath: .status
+      name: Status
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: NodeBGP is the Schema for the nodebgps API
+        description: BGPAdvertisement is the Schema for the bgpadvertisements API
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -42,52 +46,43 @@ spec:
           metadata:
             type: object
           spec:
-            description: NodeBGPSpec defines the desired state of NodeBGP
+            description: BGPAdvertisementSpec defines the desired state of BGPAdvertisement
             properties:
-              asn:
+              localPref:
                 format: int32
-                maximum: 4294967295
-                minimum: 0
                 type: integer
-              endpoint:
+              network:
                 type: string
-              peers:
+              nodes:
                 items:
-                  properties:
-                    asn:
-                      format: int32
-                      type: integer
-                    name:
-                      type: string
-                    namespace:
-                      type: string
-                    routerId:
-                      type: string
-                    status:
-                      enum:
-                      - Idle
-                      - Connect
-                      - Active
-                      - OpenSent
-                      - OpenConfirm
-                      - Established
-                      type: string
-                  required:
-                  - asn
-                  - name
-                  - namespace
-                  - routerId
-                  - status
-                  type: object
+                  type: string
                 type: array
-              routerId:
+              origin:
+                default: igp
+                enum:
+                - egp
+                - igp
+                - incomplete
+                type: string
+              protocol:
+                default: ipv4
+                enum:
+                - ipv4
+                - ipv6
+                type: string
+              serviceType:
+                default: Cluster
+                description: ServiceExternalTrafficPolicyType describes how nodes
+                  distribute service traffic they receive on one of the Service's
+                  "externally-facing" addresses (NodePorts, ExternalIPs, and LoadBalancer
+                  IPs).
                 type: string
             required:
-            - asn
-            - routerId
+            - network
             type: object
           status:
-            description: NodeBGPStatus defines the observed state of NodeBGP
+            default: NotAdvertised
+            description: BGPAdvertisementStatus defines the observed state of BGPAdvertisement
             type: string
         type: object
     served: true

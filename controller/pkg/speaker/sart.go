@@ -7,6 +7,7 @@ import (
 	"github.com/terassyi/sart/controller/pkg/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/types/known/anypb"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -68,6 +69,120 @@ func (s *sartSpeaker) SetInfo(ctx context.Context, info SpeakerInfo) error {
 		return err
 	}
 
+	return nil
+}
+
+func (s *sartSpeaker) AddPeer(ctx context.Context, peer PeerInfo) error {
+	conn, err := s.connect()
+	if err != nil {
+		return err
+	}
+	family, err := protocolToFamily(peer.Protocol)
+	if err != nil {
+		return err
+	}
+
+	if _, err := conn.AddPeer(ctx, &proto.AddPeerRequest{
+		Peer: &proto.Peer{
+			Asn:      peer.PeerAsn,
+			Address:  peer.PeerRouterId,
+			RouterId: peer.PeerRouterId,
+			Families: []*proto.AddressFamily{
+				family,
+			},
+		},
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *sartSpeaker) DeletePeer(ctx context.Context, addr string) error {
+	conn, err := s.connect()
+	if err != nil {
+		return err
+	}
+
+	if _, err := conn.DeletePeer(ctx, &proto.DeletePeerRequest{
+		Addr: addr,
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *sartSpeaker) GetPeer(ctx context.Context, addr string) (*PeerInfo, error) {
+	conn, err := s.connect()
+	if err != nil {
+		return nil, err
+	}
+
+	res, err := conn.GetNeighbor(ctx, &proto.GetNeighborRequest{
+		Addr: addr,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return peerFromProtoPeer(res.GetPeer())
+}
+
+func (s *sartSpeaker) AddPath(ctx context.Context, path PathInfo) error {
+	conn, err := s.connect()
+	if err != nil {
+		return err
+	}
+
+	family, err := protocolToFamily(path.Protocol)
+	if err != nil {
+		return err
+	}
+
+	// build attributes
+	attrs := make([]*anypb.Any, 0)
+	if path.Origin != "" {
+		anyAttr, err := anypb.New(&proto.OriginAttribute{
+			Value: parseOrigin(path.Origin),
+		})
+		if err != nil {
+			return err
+		}
+		attrs = append(attrs, anyAttr)
+	}
+	if path.LocalPref != 0 {
+		anyAttr, err := anypb.New(&proto.LocalPrefAttribute{
+			Value: path.LocalPref,
+		})
+		if err != nil {
+			return err
+		}
+		attrs = append(attrs, anyAttr)
+	}
+
+	if _, err := conn.AddPath(ctx, &proto.AddPathRequest{
+		Family:     family,
+		Prefixes:   []string{path.Prefix},
+		Attributes: attrs,
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *sartSpeaker) DeletePath(ctx context.Context, path PathInfo) error {
+	conn, err := s.connect()
+	if err != nil {
+		return err
+	}
+	family, err := protocolToFamily(path.Protocol)
+	if err != nil {
+		return err
+	}
+	if _, err := conn.DeletePath(ctx, &proto.DeletePathRequest{
+		Family:   family,
+		Prefixes: []string{path.Prefix},
+	}); err != nil {
+		return err
+	}
 	return nil
 }
 

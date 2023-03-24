@@ -24,7 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	sartterassyinetv1alpha1 "github.com/terassyi/sart/controller/api/v1alpha1"
+	sartv1alpha1 "github.com/terassyi/sart/controller/api/v1alpha1"
 	"github.com/terassyi/sart/controller/pkg/speaker"
 )
 
@@ -53,7 +53,7 @@ func (r *NodeBGPReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	logger := log.FromContext(ctx)
 
 	// get NodeBGP resources
-	nodeBgpList := &sartterassyinetv1alpha1.NodeBGPList{}
+	nodeBgpList := &sartv1alpha1.NodeBGPList{}
 	if err := r.Client.List(ctx, nodeBgpList); err != nil {
 		logger.Error(err, "failed to list NodeBGP")
 		return ctrl.Result{}, err
@@ -87,6 +87,23 @@ func (r *NodeBGPReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 // SetupWithManager sets up the controller with the Manager.
 func (r *NodeBGPReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&sartterassyinetv1alpha1.NodeBGP{}).
+		For(&sartv1alpha1.NodeBGP{}).
 		Complete(r)
+}
+
+func isPeerRegistered(ctx context.Context, nodeBgp *sartv1alpha1.NodeBGP, peer *sartv1alpha1.BGPPeer) (int, bool, bool) {
+	logger := log.FromContext(ctx)
+	index := 0
+	for i, p := range nodeBgp.Spec.Peers {
+		index = i
+		logger.Info("compare peer", "a_name", peer.Name, "b_name", p.Name, "a_namespace", peer.Namespace, "b_namespace", p.Namespace)
+		if peer.Name == p.Name && peer.Namespace == p.Namespace {
+			logger.Info("compare peer information", "a_asn", peer.Spec.PeerAsn, "b_ans", p.Asn, "a_routerId", peer.Spec.PeerRouterId, "b_routerId", p.RouterId, "a_status", peer.Status, "b_status", p.Status)
+			if p.Asn == peer.Spec.PeerAsn && p.RouterId == peer.Spec.PeerRouterId && p.Status == peer.Status {
+				return index, true, true
+			}
+			return index, true, false
+		}
+	}
+	return index, false, false
 }

@@ -110,8 +110,10 @@ func main() {
 		os.Exit(1)
 	}
 	if err = (&controllers.BGPPeerReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:              mgr.GetClient(),
+		Scheme:              mgr.GetScheme(),
+		SpeakerEndpointPort: uint32(speakerEndpointPort),
+		SpeakerType:         speakerType,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "BGPPeer")
 		os.Exit(1)
@@ -123,6 +125,15 @@ func main() {
 		SpeakerType:         speakerType,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NodeBGP")
+		os.Exit(1)
+	}
+	if err = (&controllers.BGPAdvertisementReconciler{
+		Client:              mgr.GetClient(),
+		Scheme:              mgr.GetScheme(),
+		SpeakerEndpointPort: uint32(speakerEndpointPort),
+		SpeakerType:         speakerType,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "BGPAdvertisement")
 		os.Exit(1)
 	}
 
