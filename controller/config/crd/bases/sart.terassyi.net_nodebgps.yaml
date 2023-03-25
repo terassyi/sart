@@ -24,6 +24,12 @@ spec:
       jsonPath: .spec.routerId
       name: RouterId
       type: string
+    - jsonPath: .status
+      name: Status
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
     name: v1alpha1
     schema:
       openAPIV3Schema:

@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -26,9 +27,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/source"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	sartv1alpha1 "github.com/terassyi/sart/controller/api/v1alpha1"
 	"github.com/terassyi/sart/controller/pkg/constants"
@@ -74,6 +75,9 @@ func (r *BGPPeerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	nodeBGP := &sartv1alpha1.NodeBGP{}
 	if peer.Spec.Node != "" {
 		if err := r.Client.Get(ctx, types.NamespacedName{Namespace: constants.Namespace, Name: peer.Spec.Node}, nodeBGP); err != nil {
+			if apierrors.IsNotFound(err) {
+				return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 5}, nil
+			}
 			logger.Error(err, "failed to get resource", "NodeBGP", types.NamespacedName{Namespace: constants.Namespace, Name: peer.Spec.Node})
 			return ctrl.Result{}, err
 		}
@@ -98,6 +102,12 @@ func (r *BGPPeerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			logger.Error(err, "failed to find wanted the NodeBGP resource", "ASN", peer.Spec.LocalAsn, "RouterId", peer.Spec.LocalRouterId)
 			return ctrl.Result{}, err
 		}
+	}
+
+	// confirm NodeBGP is available
+	if nodeBGP.Status == sartv1alpha1.NodeBGPStatusUnavailable {
+		logger.Info("NodeBGP is unavailable", "NodeBGP", nodeBGP.Spec)
+		return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 5}, nil
 	}
 
 	// create peer
@@ -158,15 +168,15 @@ func (r *BGPPeerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	// if a peer doesn't exist
 	// update missing fields
-	needUpdate := false
+	needUpdatePeer := false
 	if peer.Spec.LocalAsn != nodeBGP.Spec.Asn || peer.Spec.LocalRouterId != nodeBGP.Spec.RouterId {
 		peer.Spec.LocalAsn = nodeBGP.Spec.Asn
 		peer.Spec.LocalRouterId = nodeBGP.Spec.RouterId
-		needUpdate = true
+		needUpdatePeer = true
 	}
 	if peer.Spec.Node != nodeBGP.Name {
 		peer.Spec.Node = nodeBGP.Name
-		needUpdate = true
+		needUpdatePeer = true
 	}
 
 	// add peer to speaker
@@ -202,11 +212,12 @@ func (r *BGPPeerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
-	if needUpdate {
+	if needUpdatePeer {
 		if err := r.Client.Update(ctx, peer); err != nil {
 			logger.Error(err, "failed to update BGPPeer")
 			return ctrl.Result{}, err
 		}
+		logger.Info("complete BGPPeer information", "Peer", peer.Spec)
 	}
 
 	return ctrl.Result{Requeue: true}, nil
@@ -216,7 +227,16 @@ func (r *BGPPeerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 func (r *BGPPeerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&sartv1alpha1.BGPPeer{}).
-		Watches(&source.Kind{Type: &sartv1alpha1.BGPAdvertisement{}}, &handler.EnqueueRequestForObject{}).
+		WithEventFilter(predicate.Funcs{
+			UpdateFunc: func(ue event.UpdateEvent) bool {
+				oldPeer := ue.ObjectOld.(*sartv1alpha1.BGPPeer).DeepCopy()
+				newPeer := ue.ObjectNew.(*sartv1alpha1.BGPPeer).DeepCopy()
+				// check advertisements
+				oldPeer.Spec.Advertisements = nil
+				newPeer.Spec.Advertisements = nil
+				return !reflect.DeepEqual(oldPeer, newPeer)
+			},
+		}).
 		Complete(r)
 }
 

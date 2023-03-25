@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -63,7 +64,13 @@ func (r *NodeBGPReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		speakerEndpoint := speaker.New(r.SpeakerType, nodeBgp.Spec.RouterId, r.SpeakerEndpointPort)
 		info, err := speakerEndpoint.GetInfo(ctx)
 		if err != nil {
-			return ctrl.Result{}, err
+			logger.Error(err, "failed to get speaker info", "NodeBGP", nodeBgp.Spec.RouterId)
+			nodeBgp.Status = sartv1alpha1.NodeBGPStatusUnavailable
+			if err := r.Client.Status().Update(ctx, &nodeBgp); err != nil {
+				logger.Error(err, "failed to update status", "NodeBGP", nodeBgp.Spec.RouterId)
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 5}, nil
 		}
 		if nodeBgp.Spec.Asn != info.Asn {
 			logger.Info("don't match ASN", "desired", nodeBgp.Spec.Asn, "actual", info.Asn)
@@ -79,6 +86,14 @@ func (r *NodeBGPReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			logger.Error(err, "failed to set NodeBGP information", "NodeBGP", nodeBgp.Name)
 			return ctrl.Result{}, err
 		}
+
+		if nodeBgp.Status != sartv1alpha1.NodeBGPStatusAvailable {
+			nodeBgp.Status = sartv1alpha1.NodeBGPStatusAvailable
+			if err := r.Client.Status().Update(ctx, &nodeBgp); err != nil {
+				logger.Error(err, "failed to update status", "NodeBGP", nodeBgp.Spec.RouterId)
+				return ctrl.Result{}, err
+			}
+		}
 	}
 
 	return ctrl.Result{}, nil
@@ -88,6 +103,12 @@ func (r *NodeBGPReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 func (r *NodeBGPReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&sartv1alpha1.NodeBGP{}).
+		// WithEventFilter(predicate.Funcs{
+		// 	UpdateFunc: func(ue event.UpdateEvent) bool {
+		// 		// ignore peer changes
+		// 		return true
+		// 	},
+		// }).
 		Complete(r)
 }
 
@@ -100,9 +121,9 @@ func isPeerRegistered(ctx context.Context, nodeBgp *sartv1alpha1.NodeBGP, peer *
 		if peer.Name == p.Name && peer.Namespace == p.Namespace {
 			logger.Info("compare peer information", "a_asn", peer.Spec.PeerAsn, "b_ans", p.Asn, "a_routerId", peer.Spec.PeerRouterId, "b_routerId", p.RouterId, "a_status", peer.Status, "b_status", p.Status)
 			if p.Asn == peer.Spec.PeerAsn && p.RouterId == peer.Spec.PeerRouterId && p.Status == peer.Status {
-				return index, true, true
+				return index, true, false
 			}
-			return index, true, false
+			return index, true, true
 		}
 	}
 	return index, false, false

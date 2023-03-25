@@ -52,6 +52,8 @@ var (
 //+kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="ASN",type="integer",JSONPath=".spec.asn",description="AS Number"
 // +kubebuilder:printcolumn:name="RouterId",type="string",JSONPath=".spec.routerId",description="Router Id"
+// +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status"
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // NodeBGP is the Schema for the nodebgps API
 type NodeBGP struct {

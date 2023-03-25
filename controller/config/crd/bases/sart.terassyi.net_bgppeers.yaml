@@ -54,6 +54,21 @@ spec:
           spec:
             description: BGPPeerSpec defines the desired state of BGPPeer
             properties:
+              advertisements:
+                items:
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                    prefix:
+                      type: string
+                  required:
+                  - name
+                  - namespace
+                  - prefix
+                  type: object
+                type: array
               family:
                 default:
                   afi: ipv4
@@ -91,10 +106,6 @@ spec:
                 type: integer
               peerRouterId:
                 type: string
-              prefixes:
-                items:
-                  type: string
-                type: array
             required:
             - peerAsn
             - peerRouterId

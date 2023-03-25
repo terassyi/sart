@@ -96,3 +96,9 @@ func (a *BGPAdvertisement) ToPathInfo() speaker.PathInfo {
 		LocalPref: a.Spec.LocalPref,
 	}
 }
+
+type Advertisement struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+	Prefix    string `json:"prefix"`
+}

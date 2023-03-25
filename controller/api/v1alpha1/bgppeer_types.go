@@ -47,7 +47,7 @@ type BGPPeerSpec struct {
 	// +kubebuilder:default:={afi:ipv4,safi:unicast}
 	Family AddressFamily `json:"family,omitempty"`
 
-	Prefixes []string `json:"prefixes,omitempty"`
+	Advertisements []Advertisement `json:"advertisements,omitempty"`
 }
 
 // BGPPeerStatus defines the observed state of BGPPeer
