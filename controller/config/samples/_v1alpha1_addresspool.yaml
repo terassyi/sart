@@ -1,0 +1,7 @@
+apiVersion: sart.terassyi.net/v1alpha1
+kind: AddressPool
+metadata:
+  name: addresspool-sample
+spec:
+  type: lb
+  cidr: 10.68.0.0/24
