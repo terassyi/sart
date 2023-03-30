@@ -152,6 +152,13 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "AddressPool")
 		os.Exit(1)
 	}
+	if err = (&controllers.AddressRequestReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "AddressRequest")
+		os.Exit(1)
+	}
 	//+kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
