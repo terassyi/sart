@@ -3,6 +3,7 @@ module github.com/terassyi/sart/controller
 go 1.20
 
 require (
+	github.com/bits-and-blooms/bitset v1.5.0
 	github.com/golang/protobuf v1.5.2
 	github.com/onsi/ginkgo/v2 v2.6.0
 	github.com/onsi/gomega v1.24.1
