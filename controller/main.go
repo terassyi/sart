@@ -33,6 +33,7 @@ import (
 
 	sartterassyinetv1alpha1 "github.com/terassyi/sart/controller/api/v1alpha1"
 	"github.com/terassyi/sart/controller/controllers"
+	"github.com/terassyi/sart/controller/pkg/allocator"
 	"github.com/terassyi/sart/controller/pkg/speaker"
 	//+kubebuilder:scaffold:imports
 )
@@ -142,14 +143,14 @@ func main() {
 		SpeakerEndpointPort: uint32(speakerEndpointPort),
 		SpeakerType:         speakerType,
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create watcher", "watcher", "Node")
+		setupLog.Error(err, "unable to create watcher", "watcher", "node")
 		os.Exit(1)
 	}
-	if err = (&controllers.AddressPoolReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+	if err = (&controllers.LBAllocationReconciler{
+		Client:     mgr.GetClient(),
+		Allocators: make(map[string]allocator.Allocator),
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "AddressPool")
+		setupLog.Error(err, "unable to create watcher", "watcher", "LBAllocation")
 		os.Exit(1)
 	}
 	if err = (&controllers.AddressRequestReconciler{

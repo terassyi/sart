@@ -34,8 +34,8 @@ type AddressPoolSpec struct {
 	// +kubebuilder:validation:Required
 	Cidr string `json:"cidr"`
 
-	// +kubebuilder:default=false
-	Disable bool `json:"disable,omitempty"`
+	// +kubebuilder:default:=false
+	Disable bool `json:"disable,omitempty" +kubebuilder:"default=false"`
 }
 
 // AddressPoolStatus defines the observed state of AddressPool
@@ -47,6 +47,11 @@ type AddressPoolStatus struct {
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:resource:scope=Cluster
+// +kubebuilder:printcolumn:name="CIDR",type="string",JSONPath=".spec.cidr"
+// +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.type"
+// +kubebuilder:printcolumn:name="Disabled",type="boolean",JSONPath=".spec.disable"
+// +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status"
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // AddressPool is the Schema for the addresspools API
 type AddressPool struct {

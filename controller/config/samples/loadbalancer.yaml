@@ -1,0 +1,89 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: test
+  labels:
+    name: test
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-cluster
+  namespace: test
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nginx-cluster
+  template:
+    metadata:
+      labels:
+        app: nginx-cluster
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:latest
+          ports:
+            - containerPort: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-local
+  namespace: test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx-local
+  template:
+    metadata:
+      labels:
+        app: nginx-local
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:latest
+          ports:
+            - containerPort: 80
+---
+# LoadBalancer Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-lb-svc-cluster
+  namespace: test
+spec:
+  type: LoadBalancer
+  selector:
+    app: nginx-cluster
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+---
+# LoadBalancer Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-lb-svc-local
+  namespace: test
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    app: nginx-local
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: curl
+spec:
+  containers:
+    - name: curl
+      image: curlimages/curl
+      command: ["sleep", "infinity"]

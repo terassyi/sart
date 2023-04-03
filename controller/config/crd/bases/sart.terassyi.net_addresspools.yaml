@@ -15,7 +15,23 @@ spec:
     singular: addresspool
   scope: Cluster
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .spec.cidr
+      name: CIDR
+      type: string
+    - jsonPath: .spec.type
+      name: Type
+      type: string
+    - jsonPath: .spec.disable
+      name: Disabled
+      type: boolean
+    - jsonPath: .status
+      name: Status
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: AddressPool is the Schema for the addresspools API

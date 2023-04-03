@@ -75,3 +75,10 @@ local_resource(
     deps=[
         "./config/samples/_v1alpha1_addresspool.yaml"
         ])
+
+local_resource(
+    'Sample LoadBalancer Manifests',
+    'kubectl apply -f ./config/samples/loadbalancer.yaml',
+    deps=[
+        "./config/samples/loadbalancer.yaml"
+        ])

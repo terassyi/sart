@@ -35,13 +35,27 @@ spec:
           spec:
             description: AddressRequestSpec defines the desired state of AddressRequest
             properties:
-              foo:
-                description: Foo is an example field of AddressRequest. Edit addressrequest_types.go
-                  to remove/update
+              kind:
                 type: string
+              protocol:
+                default: ipv4
+                enum:
+                - ipv4
+                - ipv6
+                type: string
+            required:
+            - kind
             type: object
           status:
             description: AddressRequestStatus defines the observed state of AddressRequest
+            properties:
+              conditions:
+                description: 'INSERT ADDITIONAL STATUS FIELD - define observed state
+                  of cluster Important: Run "make" to regenerate code after modifying
+                  this file'
+                items:
+                  type: string
+                type: array
             type: object
         type: object
     served: true
