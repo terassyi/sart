@@ -18,7 +18,6 @@ package v1alpha1
 
 import (
 	"github.com/terassyi/sart/controller/pkg/speaker"
-	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -41,9 +40,6 @@ type BGPAdvertisementSpec struct {
 	Origin string `json:"origin,omitempty"`
 
 	LocalPref uint32 `json:"localPref,omitempty"`
-
-	//+kubebuilder:default:=Cluster
-	ServiceType v1.ServiceExternalTrafficPolicyType `json:"serviceType,omitempty"`
 
 	Nodes []string `json:"nodes,omitempty"` // list of node names
 }

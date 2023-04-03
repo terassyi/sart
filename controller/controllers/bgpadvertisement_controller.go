@@ -9,7 +9,6 @@ import (
 
 	sartv1alpha1 "github.com/terassyi/sart/controller/api/v1alpha1"
 	"github.com/terassyi/sart/controller/pkg/speaker"
-	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -48,71 +47,36 @@ func (r *BGPAdvertisementReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, err
 	}
 
-	logger.Info("advertise based on ServiceType", "ServiceType", advertisement.Spec.ServiceType)
 	notComplete := false
-	switch advertisement.Spec.ServiceType {
-	case v1.ServiceExternalTrafficPolicyTypeCluster:
-		for _, p := range peerList.Items {
-			if p.Status != sartv1alpha1.BGPPeerStatusEstablished {
-				logger.Info("BGPPeer is unavailable", "BGPPeer", p.Spec)
-				return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 5}, nil
-			}
-			if err := r.advertise(ctx, &p, advertisement); err != nil {
-				if errors.Is(err, ErrPeerIsNotEstablished) {
-					notComplete = true
-					continue
+	for _, p := range peerList.Items {
+		for _, target := range advertisement.Spec.Nodes {
+			if p.Spec.Node == target {
+				if p.Status != sartv1alpha1.BGPPeerStatusEstablished {
+					logger.Info("BGPPeer is unavailable", "BGPPeer", p.Spec)
+					return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 5}, nil
 				}
-				return ctrl.Result{}, err
-			}
-			contain := false
-			for _, adv := range p.Spec.Advertisements {
-				if adv.Name == advertisement.Name {
-					contain = true
-					break
-				}
-			}
-			if !contain {
-				p.Spec.Advertisements = append(p.Spec.Advertisements, sartv1alpha1.Advertisement{
-					Name:      advertisement.Name,
-					Namespace: advertisement.Namespace,
-					Prefix:    advertisement.Spec.Network,
-				})
-				if err := r.Client.Update(ctx, &p); err != nil {
+				if err := r.advertise(ctx, &p, advertisement); err != nil {
+					if errors.Is(err, ErrPeerIsNotEstablished) {
+						notComplete = true
+						continue
+					}
 					return ctrl.Result{}, err
 				}
-			}
-		}
-	case v1.ServiceExternalTrafficPolicyTypeLocal:
-		for _, p := range peerList.Items {
-			for _, target := range advertisement.Spec.Nodes {
-				if p.Spec.Node == target {
-					if p.Status != sartv1alpha1.BGPPeerStatusEstablished {
-						logger.Info("BGPPeer is unavailable", "BGPPeer", p.Spec)
-						return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 5}, nil
+				contain := false
+				for _, adv := range p.Spec.Advertisements {
+					if adv.Name == advertisement.Name {
+						contain = true
+						break
 					}
-					if err := r.advertise(ctx, &p, advertisement); err != nil {
-						if errors.Is(err, ErrPeerIsNotEstablished) {
-							notComplete = true
-							continue
-						}
+				}
+				if !contain {
+					p.Spec.Advertisements = append(p.Spec.Advertisements, sartv1alpha1.Advertisement{
+						Name:      advertisement.Name,
+						Namespace: advertisement.Namespace,
+						Prefix:    advertisement.Spec.Network,
+					})
+					if err := r.Client.Update(ctx, &p); err != nil {
 						return ctrl.Result{}, err
-					}
-					contain := false
-					for _, adv := range p.Spec.Advertisements {
-						if adv.Name == advertisement.Name {
-							contain = true
-							break
-						}
-					}
-					if !contain {
-						p.Spec.Advertisements = append(p.Spec.Advertisements, sartv1alpha1.Advertisement{
-							Name:      advertisement.Name,
-							Namespace: advertisement.Namespace,
-							Prefix:    advertisement.Spec.Network,
-						})
-						if err := r.Client.Update(ctx, &p); err != nil {
-							return ctrl.Result{}, err
-						}
 					}
 				}
 			}

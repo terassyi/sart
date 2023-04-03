@@ -5,6 +5,9 @@ metadata:
   namespace: kube-system
 spec:
   network: 192.168.1.1/32
+  nodes:
+    - devenv-worker
+    - devenv-worker2
 ---
 apiVersion: sart.terassyi.net/v1alpha1
 kind: BGPAdvertisement
@@ -13,6 +16,5 @@ metadata:
   namespace: kube-system
 spec:
   network: 192.168.1.2/32
-  serviceType: Local
   nodes:
     - devenv-worker

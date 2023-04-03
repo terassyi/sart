@@ -7,8 +7,9 @@ import (
 )
 
 const (
-	MetaPrefix string = "sart.terassyi.net/"
-	Namespace  string = "kube-system"
+	MetaPrefix                 string = "sart.terassyi.net/"
+	Namespace                  string = "kube-system"
+	KubernetesServiceNameLabel string = "kubernetes.io/service-name"
 )
 
 const (
