@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"strings"
 
+	"github.com/go-logr/logr"
 	sartv1alpha1 "github.com/terassyi/sart/controller/api/v1alpha1"
 	"github.com/terassyi/sart/controller/pkg/allocator"
 	"github.com/terassyi/sart/controller/pkg/constants"
@@ -32,9 +34,9 @@ type LBAllocationReconciler struct {
 // +kubebuilder:rbac:groups="",resources=endpoints/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=get;list;watch
 // +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=sart.terassyi.net,resources=addresspools,verbs=get;list;watch;update;patch;delete
-//+kubebuilder:rbac:groups=sart.terassyi.net,resources=addresspools/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=sart.terassyi.net,resources=addresspools/finalizers,verbs=update
+// +kubebuilder:rbac:groups=sart.terassyi.net,resources=addresspools,verbs=get;list;watch;update;patch;delete
+// +kubebuilder:rbac:groups=sart.terassyi.net,resources=addresspools/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=sart.terassyi.net,resources=addresspools/finalizers,verbs=update
 
 func (r *LBAllocationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
@@ -163,7 +165,90 @@ func (r *LBAllocationReconciler) reconcileService(ctx context.Context, req ctrl.
 	}
 	logger.Info("endpoint slice list", "EndpointSlice", epNames)
 
+	// allocation
+	if err := r.allocate(ctx, svc, epSliceList); err != nil {
+		logger.Error(err, "failed to allocate a LB address", "Name", req.NamespacedName)
+		return ctrl.Result{}, err
+	}
+
 	return ctrl.Result{}, nil
+}
+
+func (r *LBAllocationReconciler) allocate(ctx context.Context, svc *v1.Service, eps discoveryv1.EndpointSliceList) error {
+	logger := log.FromContext(ctx)
+
+	// check protocol by clusterIP
+	if len(svc.Spec.ClusterIP) == 0 && svc.Spec.ClusterIP == "" {
+		return fmt.Errorf("Service doesn't have ClusterIP")
+	}
+
+	lbIPs := []netip.Addr{}
+	// check allocated LB IP
+	for _, ingress := range svc.Status.LoadBalancer.Ingress {
+		addr, err := netip.ParseAddr(ingress.IP)
+		if err != nil {
+			return err
+		}
+		lbIPs = append(lbIPs, addr)
+	}
+
+	desiredIPs := make(map[string]netip.Addr)
+	if len(lbIPs) > 0 {
+		logger.Info("LB address is already allocated", "Name", svc.Name, "Addresses", lbIPs)
+		poolName, ok := svc.Annotations[constants.AnnotationAddressPool]
+		if !ok {
+			return fmt.Errorf("required annotation %s is not found to address allocated load balancer", constants.AnnotationAddressPool)
+		}
+		from, ok := svc.Annotations[constants.AnnotationAllocatedFromPool]
+		if !ok {
+			return fmt.Errorf("required annotation %s is not found to address allocated load balancer", constants.AnnotationAllocatedFromPool)
+		}
+		if poolName != from {
+			return fmt.Errorf("required pool is %s, actual allocating pool is %s", poolName, from)
+		}
+
+		a, ok := r.Allocators[poolName]
+		if !ok {
+			return fmt.Errorf("Allocator is not registered: %s", poolName)
+		}
+		for _, ip := range lbIPs {
+			if a.IsAllocated(ip) {
+				// already allocated, nothing to do
+				return nil
+			}
+			// specified lb address, but not allocated
+			if ip.Is4() {
+				desiredIPs[constants.ProtocolIpv4] = ip
+			} else {
+				desiredIPs[constants.ProtocolIpv6] = ip
+			}
+		}
+	}
+
+	// get desired address from service spec
+	// I'm not sure when dual stack
+	if svc.Spec.LoadBalancerIP != "" {
+		ipStrs := strings.Split(svc.Spec.LoadBalancerIP, ",")
+		for _, is := range ipStrs {
+			ip, err := netip.ParseAddr(is)
+			if err != nil {
+				return err
+			}
+			if ip.Is4() {
+				desiredIPs[constants.ProtocolIpv4] = ip
+			} else {
+				desiredIPs[constants.ProtocolIpv6] = ip
+			}
+		}
+	}
+
+	// auto allocation
+
+	return nil
+}
+
+func (r *LBAllocationReconciler) release(logger logr.Logger, svc *v1.Service) error {
+	return nil
 }
 
 func serviceNameFromEndpointSlice(epSlice *discoveryv1.EndpointSlice) (types.NamespacedName, error) {

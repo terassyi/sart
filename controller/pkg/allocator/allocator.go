@@ -20,6 +20,7 @@ type Allocator interface {
 	Allocate(netip.Addr) (bool, error)
 	AllocateNext() (bool, error)
 	Release(netip.Addr) (bool, error)
+	IsAllocated(netip.Addr) bool
 	IsEnabled() bool
 	Enable()
 	Disable()
@@ -92,6 +93,10 @@ func (a *allocator) Release(addr netip.Addr) (bool, error) {
 		return false, ErrNotAllocated
 	}
 	return a.release(addr)
+}
+
+func (a *allocator) IsAllocated(addr netip.Addr) bool {
+	return a.isAllocated(addr)
 }
 
 func (a *allocator) allocate(addr netip.Addr) (bool, error) {

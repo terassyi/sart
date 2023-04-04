@@ -17,6 +17,16 @@ const (
 	Finalizer   = MetaPrefix + "finalizer"
 )
 
+const (
+	AnnotationAddressPool       string = MetaPrefix + "address-pool"
+	AnnotationAllocatedFromPool string = MetaPrefix + "allocated-from-pool"
+)
+
+const (
+	ProtocolIpv4 string = "ipv4"
+	ProtocolIpv6 string = "ipv6"
+)
+
 func GetFinalizerName(obj metav1.TypeMeta) string {
 	return strings.ToLower(obj.Kind) + "." + Finalizer
 }
