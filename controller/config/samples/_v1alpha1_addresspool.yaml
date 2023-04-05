@@ -4,6 +4,6 @@ metadata:
   name: default-lb-pool
 spec:
   type: lb
-  cidr:
+  cidrs:
     - protocol: ipv4
       prefix: 10.69.0.0/24

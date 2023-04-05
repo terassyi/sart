@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"reflect"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -170,21 +171,42 @@ func (r *LBAllocationReconciler) reconcileService(ctx context.Context, req ctrl.
 	logger.Info("endpoint slice list", "EndpointSlice", epNames)
 
 	// allocation
-	poolName, allocatedAddrs, err := r.allocate(logger, svc, epSliceList)
+	newSvc := svc.DeepCopy()
+
+	poolName, allocatedAddrs, err := r.allocate(logger, newSvc, epSliceList)
 	if err != nil {
 		logger.Error(err, "failed to allocate a LB address", "Name", req.NamespacedName)
 		// clear allocation information from svc
-		if err := r.release(logger, svc); err != nil {
+		if err := r.release(logger, newSvc); err != nil {
 			logger.Error(err, "failed to release", "Name", req.NamespacedName)
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, err
 	}
-	if err := r.setAllocationInfo(svc, poolName, allocatedAddrs); err != nil {
+	if err := r.setAllocationInfo(newSvc, poolName, allocatedAddrs); err != nil {
 		logger.Error(err, "failed to set allocation information", "Name", req.NamespacedName)
 		return ctrl.Result{}, err
 	}
 
+	if !reflect.DeepEqual(svc.Annotations, newSvc.Annotations) {
+		// update all
+		if err := r.Client.Update(ctx, newSvc); err != nil {
+			logger.Error(err, "failed to update service", "Name", req.NamespacedName)
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+	if !reflect.DeepEqual(svc.Status, newSvc.Status) {
+		// update status
+		if err := r.Client.Status().Update(ctx, newSvc); err != nil {
+			logger.Error(err, "failed to update service status", "Name", req.NamespacedName)
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// nothing to update
+	logger.Info("nothing to update service", "Name", req.NamespacedName)
 	return ctrl.Result{}, nil
 }
 

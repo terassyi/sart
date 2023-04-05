@@ -53,6 +53,8 @@ kind: Service
 metadata:
   name: nginx-lb-svc-cluster
   namespace: test
+  annotations:
+    sart.terassyi.net/address-pool: default-lb-pool
 spec:
   type: LoadBalancer
   selector:
@@ -68,6 +70,8 @@ kind: Service
 metadata:
   name: nginx-lb-svc-local
   namespace: test
+  annotations:
+    sart.terassyi.net/address-pool: default-lb-pool
 spec:
   type: LoadBalancer
   externalTrafficPolicy: Local

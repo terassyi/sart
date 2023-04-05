@@ -5,8 +5,8 @@ metadata:
   namespace: kube-system
 spec:
   node: devenv-worker
-  peerAsn: 65000
-  peerRouterId: 172.18.0.7
+  peerAsn: DEVENV_BGP_ASN
+  peerRouterId: DEVENV_BGP_ADDR
 ---
 apiVersion: sart.terassyi.net/v1alpha1
 kind: BGPPeer
@@ -15,8 +15,8 @@ metadata:
   namespace: kube-system
 spec:
   node: devenv-worker2
-  peerAsn: 65000
-  peerRouterId: 172.18.0.7
+  peerAsn: DEVENV_BGP_ASN
+  peerRouterId: DEVENV_BGP_ADDR
 ---
 apiVersion: sart.terassyi.net/v1alpha1
 kind: BGPPeer
@@ -25,5 +25,5 @@ metadata:
   namespace: kube-system
 spec:
   node: devenv-control-plane
-  peerAsn: 65000
-  peerRouterId: 172.18.0.7
+  peerAsn: DEVENV_BGP_ASN
+  peerRouterId: DEVENV_BGP_ADDR

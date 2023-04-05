@@ -130,10 +130,6 @@ devenv:
 	$(eval NODE1_ADDR = $(shell kubectl get nodes devenv-worker -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'))
 	$(eval NODE2_ADDR = $(shell kubectl get nodes devenv-worker2 -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'))
 
-	sed -e s/NODE0_ASN/${NODE0_ASN}/g -e s/NODE1_ASN/${NODE1_ASN}/g -e s/NODE2_ASN/${NODE2_ASN}/g \
-		-e s/DEVENV_BGP_ASN/${DEVENV_BGP_ASN}/g \
-		-e s/NODE0_ADDR/${NODE0_ADDR}/g -e s/NODE1_ADDR/${NODE1_ADDR}/g -e s/NODE2_ADDR/${NODE2_ADDR}/g \
-		./devenv/frr/bgpd.conf.tmpl > ./devenv/frr/bgpd.conf
 	docker run -d --privileged --network kind  --rm --ulimit core=-1 --name devenv-bgp --volume `pwd`/devenv/frr:/etc/frr/ ghcr.io/terassyi/terakoya:0.1.2 tail -f /dev/null
 
 	make configure-bgp
@@ -141,18 +137,7 @@ devenv:
 .PHONY: configure-bgp
 configure-bgp:
 
-	# $(eval DEVENV_BGP_ADDR = $(shell docker inspect devenv-bgp | jq '.[0].NetworkSettings.Networks.kind.IPAddress' | tr -d '"'))
-	# $(eval NODE0_ADDR = $(shell kubectl get nodes devenv-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'))
-	# $(eval NODE1_ADDR = $(shell kubectl get nodes devenv-worker -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'))
-	# $(eval NODE2_ADDR = $(shell kubectl get nodes devenv-worker2 -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'))
-
 	docker exec devenv-bgp /usr/lib/frr/frrinit.sh start
-
-	# docker exec devenv-bgp vtysh -c "conf t" -c "router bgp ${DEVENV_BGP_ASN}" -c "bgp router-id ${DEVENV_BGP_ADDR}" \
-	# 	-c "neighbor ${NODE0_ADDR} remote-as ${NODE0_ASN}" \
-	# 	-c "neighbor ${NODE1_ADDR} remote-as ${NODE1_ASN}" \
-	# 	-c "neighbor ${NODE2_ADDR} remote-as ${NODE2_ASN}"
-
 
 	$(eval DEVENV_BGP_ADDR = $(shell docker inspect devenv-bgp | jq '.[0].NetworkSettings.Networks.kind.IPAddress' | tr -d '"'))
 	$(eval NODE0_ADDR = $(shell kubectl get nodes devenv-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'))
@@ -163,6 +148,9 @@ configure-bgp:
 		-e s/DEVENV_BGP_ADDR/${DEVENV_BGP_ADDR}/g \
 		-e s/NODE0_ADDR/${NODE0_ADDR}/g -e s/NODE1_ADDR/${NODE1_ADDR}/g -e s/NODE2_ADDR/${NODE2_ADDR}/g \
 		./devenv/frr/gobgp.conf.tmpl > ./devenv/frr/gobgp.conf
+
+	sed -e s/DEVENV_BGP_ASN/${DEVENV_BGP_ASN}/g -e s/DEVENV_BGP_ADDR/${DEVENV_BGP_ADDR}/g \
+		./controller/config/sample_templates/_v1alpha1_bgppeer.yaml.tmpl > ./controller/config/samples/_v1alpha1_bgppeer.yaml
 
 	docker exec -d devenv-bgp gobgpd -f /etc/frr/gobgp.conf
 

@@ -148,7 +148,7 @@ func main() {
 	}
 	if err = (&controllers.LBAllocationReconciler{
 		Client:     mgr.GetClient(),
-		Allocators: make(map[string]allocator.Allocator),
+		Allocators: make(map[string]map[string]allocator.Allocator),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create watcher", "watcher", "LBAllocation")
 		os.Exit(1)
