@@ -61,7 +61,7 @@ func TestAllocator_allocate_release(t *testing.T) {
 			a := newAllocator(&tt.cidr)
 			r, err := a.allocate(tt.addr)
 			require.NoError(t, err)
-			assert.True(t, r)
+			assert.Equal(t, tt.addr, r)
 			assert.True(t, a.isAllocated(tt.addr))
 
 			rr, err := a.release(tt.addr)
@@ -151,13 +151,13 @@ func TestAllocator_AllocateNext(t *testing.T) {
 			for _, addr := range tt.addrs {
 				r, err := a.allocate(addr)
 				require.NoError(t, err)
-				assert.True(t, r)
+				assert.Equal(t, addr, r)
 			}
 
 			r, err := a.AllocateNext()
 			if tt.wantErr == nil {
 				require.NoError(t, err)
-				assert.True(t, r)
+				assert.Equal(t, tt.next, r)
 				assert.True(t, a.isAllocated(tt.next))
 			} else {
 				require.Error(t, err, ErrRangeFull)

@@ -17,8 +17,8 @@ var (
 )
 
 type Allocator interface {
-	Allocate(netip.Addr) (bool, error)
-	AllocateNext() (bool, error)
+	Allocate(netip.Addr) (netip.Addr, error)
+	AllocateNext() (netip.Addr, error)
 	Release(netip.Addr) (bool, error)
 	IsAllocated(netip.Addr) bool
 	IsEnabled() bool
@@ -63,26 +63,26 @@ func (a *allocator) Disable() {
 	a.enabled = false
 }
 
-func (a *allocator) Allocate(addr netip.Addr) (bool, error) {
+func (a *allocator) Allocate(addr netip.Addr) (netip.Addr, error) {
 	if !a.cidr.Contains(addr) {
-		return false, ErrNotCIDRRange
+		return netip.Addr{}, ErrNotCIDRRange
 	}
 	if a.isFull() {
-		return false, ErrRangeFull
+		return netip.Addr{}, ErrRangeFull
 	}
 	return a.allocate(addr)
 }
 
-func (a *allocator) AllocateNext() (bool, error) {
+func (a *allocator) AllocateNext() (netip.Addr, error) {
 	if a.isFull() {
-		return false, ErrRangeFull
+		return netip.Addr{}, ErrRangeFull
 	}
 	offset, ok := a.bits.NextClear(0)
 	if !ok {
-		return false, fmt.Errorf("failed to allocate")
+		return netip.Addr{}, fmt.Errorf("failed to allocate")
 	}
 	a.bits.Set(offset)
-	return true, nil
+	return fromOffset(*a.cidr, offset)
 }
 
 func (a *allocator) Release(addr netip.Addr) (bool, error) {
@@ -99,13 +99,13 @@ func (a *allocator) IsAllocated(addr netip.Addr) bool {
 	return a.isAllocated(addr)
 }
 
-func (a *allocator) allocate(addr netip.Addr) (bool, error) {
+func (a *allocator) allocate(addr netip.Addr) (netip.Addr, error) {
 	if a.isAllocated(addr) {
-		return false, ErrAlreadyAllocated
+		return netip.Addr{}, ErrAlreadyAllocated
 	}
 	offset := diffAddr(addr, a.cidr.Addr())
 	a.bits.Set(uint(offset))
-	return true, nil
+	return addr, nil
 }
 
 func (a *allocator) release(addr netip.Addr) (bool, error) {
@@ -139,4 +139,16 @@ func diffAddr(a, b netip.Addr) int64 {
 	aa.SetBytes(a.AsSlice())
 	bb.SetBytes(b.AsSlice())
 	return aa.Sub(aa, bb).Int64()
+}
+
+func fromOffset(cidr netip.Prefix, offset uint) (netip.Addr, error) {
+	base := cidr.Addr()
+	b := new(big.Int)
+	b.SetBytes(base.AsSlice())
+	bb := b.Add(b, big.NewInt(int64(offset))).Bytes()
+	addr, ok := netip.AddrFromSlice(bb)
+	if !ok {
+		return netip.Addr{}, fmt.Errorf("invalid offset to CIDR: %s", cidr.String())
+	}
+	return addr, nil
 }

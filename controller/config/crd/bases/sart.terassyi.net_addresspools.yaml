@@ -51,8 +51,21 @@ spec:
           spec:
             description: AddressPoolSpec defines the desired state of AddressPool
             properties:
-              cidr:
-                type: string
+              cidrs:
+                items:
+                  properties:
+                    prefix:
+                      type: string
+                    protocol:
+                      enum:
+                      - ipv4
+                      - ipv6
+                      type: string
+                  required:
+                  - prefix
+                  type: object
+                minItems: 1
+                type: array
               disable:
                 default: false
                 type: boolean
@@ -63,7 +76,7 @@ spec:
                 - lb
                 type: string
             required:
-            - cidr
+            - cidrs
             - type
             type: object
           status:

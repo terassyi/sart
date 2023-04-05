@@ -32,7 +32,8 @@ type AddressPoolSpec struct {
 	Type string `json:"type"`
 
 	// +kubebuilder:validation:Required
-	Cidr string `json:"cidr"`
+	// +kubebuilder:validation:MinItems=1
+	Cidrs []Cdir `json:"cidrs"`
 
 	// +kubebuilder:default:=false
 	Disable bool `json:"disable,omitempty" +kubebuilder:"default=false"`
@@ -73,4 +74,12 @@ type AddressPoolList struct {
 
 func init() {
 	SchemeBuilder.Register(&AddressPool{}, &AddressPoolList{})
+}
+
+type Cdir struct {
+
+	//+kubebuilder:validation:Enum=ipv4;ipv6
+	Protocol string `json:"protocol,omitempty"`
+
+	Prefix string `json:"prefix"`
 }

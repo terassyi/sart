@@ -25,7 +25,7 @@ import (
 
 type LBAllocationReconciler struct {
 	client.Client
-	Allocators map[string]allocator.Allocator
+	Allocators map[string]map[string]allocator.Allocator
 }
 
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;update;patch
@@ -115,22 +115,26 @@ func (r *LBAllocationReconciler) reconcileAddressPool(ctx context.Context, req c
 	p, ok := r.Allocators[addressPool.Name]
 	if !ok {
 		// create AddressaddressPool
-		cidr, err := netip.ParsePrefix(addressPool.Spec.Cidr)
-		if err != nil {
-			logger.Error(err, "failed to parse CIDR", "AddressaddressPool.Spec.Cidr", addressPool.Spec.Cidr)
-			return ctrl.Result{}, err
+		protocolAllocator := make(map[string]allocator.Allocator)
+		for _, cidr := range addressPool.Spec.Cidrs {
+			prefix, err := netip.ParsePrefix(cidr.Prefix)
+			if err != nil {
+				logger.Error(err, "failed to parse CIDR", "AddressaddressPool.Spec.Cidr", cidr)
+				return ctrl.Result{}, err
+			}
+			protocolAllocator[cidr.Protocol] = allocator.New(&prefix)
 		}
-		logger.Info("create an allocator", "CIDR", addressPool.Spec.Cidr, "Disabled", addressPool.Spec.Disable)
-		r.Allocators[addressPool.Name] = allocator.New(&cidr)
+		logger.Info("create an allocator", "CIDRs", addressPool.Spec.Cidrs, "Disabled", addressPool.Spec.Disable)
+		r.Allocators[addressPool.Name] = protocolAllocator
 		return ctrl.Result{}, nil
 	}
 
 	logger.Info("AddressaddressPool is already created", "AddressaddressPool", addressPool.Name, "allocator", p)
-	if p.IsEnabled() == addressPool.Spec.Disable {
-		if p.IsEnabled() {
-			p.Disable()
+	for _, a := range p {
+		if addressPool.Spec.Disable {
+			a.Disable()
 		} else {
-			p.Enable()
+			a.Enable()
 		}
 	}
 	return ctrl.Result{}, nil
@@ -166,20 +170,34 @@ func (r *LBAllocationReconciler) reconcileService(ctx context.Context, req ctrl.
 	logger.Info("endpoint slice list", "EndpointSlice", epNames)
 
 	// allocation
-	if err := r.allocate(ctx, svc, epSliceList); err != nil {
+	poolName, allocatedAddrs, err := r.allocate(logger, svc, epSliceList)
+	if err != nil {
 		logger.Error(err, "failed to allocate a LB address", "Name", req.NamespacedName)
+		// clear allocation information from svc
+		if err := r.release(logger, svc); err != nil {
+			logger.Error(err, "failed to release", "Name", req.NamespacedName)
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, err
+	}
+	if err := r.setAllocationInfo(svc, poolName, allocatedAddrs); err != nil {
+		logger.Error(err, "failed to set allocation information", "Name", req.NamespacedName)
 		return ctrl.Result{}, err
 	}
 
 	return ctrl.Result{}, nil
 }
 
-func (r *LBAllocationReconciler) allocate(ctx context.Context, svc *v1.Service, eps discoveryv1.EndpointSliceList) error {
-	logger := log.FromContext(ctx)
+func (r *LBAllocationReconciler) allocate(logger logr.Logger, svc *v1.Service, eps discoveryv1.EndpointSliceList) (string, []netip.Addr, error) {
 
 	// check protocol by clusterIP
 	if len(svc.Spec.ClusterIP) == 0 && svc.Spec.ClusterIP == "" {
-		return fmt.Errorf("Service doesn't have ClusterIP")
+		return "", nil, fmt.Errorf("Service doesn't have ClusterIP")
+	}
+
+	poolName, ok := svc.Annotations[constants.AnnotationAddressPool]
+	if !ok {
+		return "", nil, fmt.Errorf("required annotation %s is not found to address allocated load balancer", constants.AnnotationAddressPool)
 	}
 
 	lbIPs := []netip.Addr{}
@@ -187,7 +205,7 @@ func (r *LBAllocationReconciler) allocate(ctx context.Context, svc *v1.Service, 
 	for _, ingress := range svc.Status.LoadBalancer.Ingress {
 		addr, err := netip.ParseAddr(ingress.IP)
 		if err != nil {
-			return err
+			return "", nil, err
 		}
 		lbIPs = append(lbIPs, addr)
 	}
@@ -195,44 +213,42 @@ func (r *LBAllocationReconciler) allocate(ctx context.Context, svc *v1.Service, 
 	desiredIPs := make(map[string]netip.Addr)
 	if len(lbIPs) > 0 {
 		logger.Info("LB address is already allocated", "Name", svc.Name, "Addresses", lbIPs)
-		poolName, ok := svc.Annotations[constants.AnnotationAddressPool]
-		if !ok {
-			return fmt.Errorf("required annotation %s is not found to address allocated load balancer", constants.AnnotationAddressPool)
-		}
 		from, ok := svc.Annotations[constants.AnnotationAllocatedFromPool]
 		if !ok {
-			return fmt.Errorf("required annotation %s is not found to address allocated load balancer", constants.AnnotationAllocatedFromPool)
+			return "", nil, fmt.Errorf("required annotation %s is not found to address allocated load balancer", constants.AnnotationAllocatedFromPool)
 		}
 		if poolName != from {
-			return fmt.Errorf("required pool is %s, actual allocating pool is %s", poolName, from)
+			return "", nil, fmt.Errorf("required pool is %s, actual allocating pool is %s", poolName, from)
 		}
 
-		a, ok := r.Allocators[poolName]
+		protocolAllocator, ok := r.Allocators[poolName]
 		if !ok {
-			return fmt.Errorf("Allocator is not registered: %s", poolName)
+			return "", nil, fmt.Errorf("Allocator is not registered: %s", poolName)
 		}
 		for _, ip := range lbIPs {
-			if a.IsAllocated(ip) {
-				// already allocated, nothing to do
-				return nil
-			}
 			// specified lb address, but not allocated
 			if ip.Is4() {
+				if protocolAllocator[constants.ProtocolIpv4].IsAllocated(ip) {
+					return "", nil, nil
+				}
 				desiredIPs[constants.ProtocolIpv4] = ip
 			} else {
+				if protocolAllocator[constants.ProtocolIpv6].IsAllocated(ip) {
+					return "", nil, nil
+				}
 				desiredIPs[constants.ProtocolIpv6] = ip
 			}
 		}
 	}
 
 	// get desired address from service spec
-	// I'm not sure when dual stack
+	// TODO: I'm not sure when we handle dual stack
 	if svc.Spec.LoadBalancerIP != "" {
 		ipStrs := strings.Split(svc.Spec.LoadBalancerIP, ",")
 		for _, is := range ipStrs {
 			ip, err := netip.ParseAddr(is)
 			if err != nil {
-				return err
+				return "", nil, err
 			}
 			if ip.Is4() {
 				desiredIPs[constants.ProtocolIpv4] = ip
@@ -242,12 +258,76 @@ func (r *LBAllocationReconciler) allocate(ctx context.Context, svc *v1.Service, 
 		}
 	}
 
-	// auto allocation
+	// allocation
+	allocated := []netip.Addr{}
+	for protocol, allocator := range r.Allocators[poolName] {
+		desired, ok := desiredIPs[protocol]
+		if ok {
+			addr, err := allocator.Allocate(desired)
+			if err != nil {
+				return "", nil, err
+			}
+			logger.Info("Allocate from pool", "Pool", poolName, "Address", addr)
+			allocated = append(allocated, addr)
+		} else {
+			addr, err := allocator.AllocateNext()
+			if err != nil {
+				return "", nil, err
+			}
+			logger.Info("Allocate next from pool", "Pool", poolName, "Address", addr)
+			allocated = append(allocated, addr)
+		}
+	}
 
-	return nil
+	return poolName, allocated, nil
 }
 
 func (r *LBAllocationReconciler) release(logger logr.Logger, svc *v1.Service) error {
+	delete(svc.Annotations, constants.AnnotationAllocatedFromPool)
+	if svc.Status.LoadBalancer.Ingress == nil || len(svc.Status.LoadBalancer.Ingress) == 0 {
+		return nil
+	}
+	poolName, ok := svc.Annotations[constants.AnnotationAddressPool]
+	if !ok {
+		return fmt.Errorf("pool is not found")
+	}
+	allocator, ok := r.Allocators[poolName]
+	if !ok {
+		return fmt.Errorf("allocator is not registered")
+	}
+
+	for _, ingress := range svc.Status.LoadBalancer.Ingress {
+		addr, err := netip.ParseAddr(ingress.IP)
+		if err != nil {
+			return err
+		}
+		if addr.Is4() {
+			_, err := allocator[constants.ProtocolIpv4].Release(addr)
+			if err != nil {
+				return err
+			}
+		} else {
+			_, err := allocator[constants.ProtocolIpv6].Release(addr)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	svc.Status.LoadBalancer = v1.LoadBalancerStatus{}
+	return nil
+}
+
+func (r *LBAllocationReconciler) setAllocationInfo(svc *v1.Service, poolName string, addrs []netip.Addr) error {
+	svc.Annotations[constants.AnnotationAllocatedFromPool] = poolName
+	for _, addr := range addrs {
+		svc.Status.LoadBalancer.Ingress = append(svc.Status.LoadBalancer.Ingress, v1.LoadBalancerIngress{IP: addr.String()})
+	}
+	return nil
+}
+
+func (r *LBAllocationReconciler) clearAllocationInfo(svc *v1.Service) error {
+	delete(svc.Annotations, constants.AnnotationAllocatedFromPool)
+	svc.Status.LoadBalancer = v1.LoadBalancerStatus{}
 	return nil
 }
 
