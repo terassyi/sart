@@ -187,9 +187,11 @@ func (r *LBAllocationReconciler) reconcileService(ctx context.Context, req ctrl.
 		logger.Error(err, "failed to set allocation information", "Name", req.NamespacedName)
 		return ctrl.Result{}, err
 	}
+	logger.Info("annoations", "Annations", newSvc.Annotations)
 
 	if !reflect.DeepEqual(svc.Annotations, newSvc.Annotations) {
 		// update all
+		logger.Info("update service annotations and status")
 		if err := r.Client.Update(ctx, newSvc); err != nil {
 			logger.Error(err, "failed to update service", "Name", req.NamespacedName)
 			return ctrl.Result{}, err
@@ -198,6 +200,7 @@ func (r *LBAllocationReconciler) reconcileService(ctx context.Context, req ctrl.
 	}
 	if !reflect.DeepEqual(svc.Status, newSvc.Status) {
 		// update status
+		logger.Info("update service status")
 		if err := r.Client.Status().Update(ctx, newSvc); err != nil {
 			logger.Error(err, "failed to update service status", "Name", req.NamespacedName)
 			return ctrl.Result{}, err
@@ -251,21 +254,25 @@ func (r *LBAllocationReconciler) allocate(logger logr.Logger, svc *v1.Service, e
 			// specified lb address, but not allocated
 			if ip.Is4() {
 				if protocolAllocator[constants.ProtocolIpv4].IsAllocated(ip) {
-					return "", nil, nil
+					logger.Info("ipv4 address is allocated", "Pool", from, "Address", ip)
+					break
 				}
 				desiredIPs[constants.ProtocolIpv4] = ip
 			} else {
+				logger.Info("ipv6 address is allocated", "Pool", from, "Address", ip)
 				if protocolAllocator[constants.ProtocolIpv6].IsAllocated(ip) {
-					return "", nil, nil
+					break
 				}
 				desiredIPs[constants.ProtocolIpv6] = ip
 			}
 		}
+		return poolName, lbIPs, nil
 	}
 
 	// get desired address from service spec
 	// TODO: I'm not sure when we handle dual stack
 	if svc.Spec.LoadBalancerIP != "" {
+		logger.Info("Spec.LoadBalancer is specified", "LoadBalancerIP", svc.Spec.LoadBalancerIP)
 		ipStrs := strings.Split(svc.Spec.LoadBalancerIP, ",")
 		for _, is := range ipStrs {
 			ip, err := netip.ParseAddr(is)
@@ -281,7 +288,8 @@ func (r *LBAllocationReconciler) allocate(logger logr.Logger, svc *v1.Service, e
 	}
 
 	// allocation
-	allocated := []netip.Addr{}
+	logger.Info("allocate by each allocator", "Pool", poolName, "Address", desiredIPs)
+	allocated := make(map[string]netip.Addr)
 	for protocol, allocator := range r.Allocators[poolName] {
 		desired, ok := desiredIPs[protocol]
 		if ok {
@@ -290,18 +298,24 @@ func (r *LBAllocationReconciler) allocate(logger logr.Logger, svc *v1.Service, e
 				return "", nil, err
 			}
 			logger.Info("Allocate from pool", "Pool", poolName, "Address", addr)
-			allocated = append(allocated, addr)
+			// allocated = append(allocated, addr)
+			allocated[protocol] = addr
 		} else {
 			addr, err := allocator.AllocateNext()
 			if err != nil {
 				return "", nil, err
 			}
 			logger.Info("Allocate next from pool", "Pool", poolName, "Address", addr)
-			allocated = append(allocated, addr)
+			allocated[protocol] = addr
 		}
 	}
 
-	return poolName, allocated, nil
+	logger.Info("allocate lb address", "Pool", poolName, "Addresses", allocated)
+	a := make([]netip.Addr, 0, 2)
+	for _, v := range allocated {
+		a = append(a, v)
+	}
+	return poolName, a, nil
 }
 
 func (r *LBAllocationReconciler) release(logger logr.Logger, svc *v1.Service) error {
@@ -340,10 +354,34 @@ func (r *LBAllocationReconciler) release(logger logr.Logger, svc *v1.Service) er
 }
 
 func (r *LBAllocationReconciler) setAllocationInfo(svc *v1.Service, poolName string, addrs []netip.Addr) error {
-	svc.Annotations[constants.AnnotationAllocatedFromPool] = poolName
-	for _, addr := range addrs {
-		svc.Status.LoadBalancer.Ingress = append(svc.Status.LoadBalancer.Ingress, v1.LoadBalancerIngress{IP: addr.String()})
+	p, ok := svc.Annotations[constants.AnnotationAllocatedFromPool]
+	if !ok || p != poolName {
+		svc.Annotations[constants.AnnotationAllocatedFromPool] = poolName
 	}
+	addrMap := make(map[string]netip.Addr)
+	for _, lbAddr := range svc.Status.LoadBalancer.Ingress {
+		a, err := netip.ParseAddr(lbAddr.IP)
+		if err != nil {
+			return err
+		}
+		if a.Is4() {
+			addrMap[constants.ProtocolIpv4] = a
+		} else {
+			addrMap[constants.ProtocolIpv6] = a
+		}
+	}
+	for _, addr := range addrs {
+		if addr.Is4() {
+			addrMap[constants.ProtocolIpv4] = addr
+		} else {
+			addrMap[constants.ProtocolIpv6] = addr
+		}
+	}
+	lbAddrs := []v1.LoadBalancerIngress{}
+	for _, a := range addrMap {
+		lbAddrs = append(lbAddrs, v1.LoadBalancerIngress{IP: a.String()})
+	}
+	svc.Status.LoadBalancer.Ingress = lbAddrs
 	return nil
 }
 
