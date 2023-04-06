@@ -38,6 +38,9 @@ type LBAllocationReconciler struct {
 // +kubebuilder:rbac:groups=sart.terassyi.net,resources=addresspools,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups=sart.terassyi.net,resources=addresspools/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=sart.terassyi.net,resources=addresspools/finalizers,verbs=update
+// +kubebuilder:rbac:groups=sart.terassyi.net,resources=bgpadvertisements,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=sart.terassyi.net,resources=bgpadvertisements/status,verbs=get;create;update;patch
+// +kubebuilder:rbac:groups=sart.terassyi.net,resources=bgpadvertisements/finalizers,verbs=create;delete;update
 
 func (r *LBAllocationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
@@ -148,7 +151,7 @@ func (r *LBAllocationReconciler) reconcileService(ctx context.Context, req ctrl.
 	if err := r.Client.Get(ctx, req.NamespacedName, svc); err != nil {
 		if apierrors.IsNotFound(err) {
 			// handle deletion
-			return ctrl.Result{}, nil
+			return r.reconcileServiceWhenDelete(ctx, req)
 		}
 		logger.Error(err, "failed to get Service", "Name", req.NamespacedName)
 		return ctrl.Result{}, err
@@ -210,6 +213,14 @@ func (r *LBAllocationReconciler) reconcileService(ctx context.Context, req ctrl.
 
 	// nothing to update
 	logger.Info("nothing to update service", "Name", req.NamespacedName)
+	return ctrl.Result{}, nil
+}
+
+func (r *LBAllocationReconciler) reconcileServiceWhenDelete(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+
+	logger.Info("reconcile when deleting", "Name", req.NamespacedName)
+
 	return ctrl.Result{}, nil
 }
 
@@ -391,6 +402,64 @@ func (r *LBAllocationReconciler) clearAllocationInfo(svc *v1.Service) error {
 	return nil
 }
 
+func (r *LBAllocationReconciler) createOrUpdateAdvertisement(ctx context.Context, svcName string, lbAddr netip.Addr, epSliceList *discoveryv1.EndpointSliceList) (*sartv1alpha1.BGPAdvertisement, error) {
+	logger := log.FromContext(ctx)
+
+	prefix := netip.PrefixFrom(lbAddr, 32)
+	nodes := []string{}
+	for _, eps := range epSliceList.Items {
+		for _, ep := range eps.Endpoints {
+			if ep.NodeName == nil || *ep.NodeName == "" {
+				continue
+			}
+			nodes = append(nodes, *ep.NodeName)
+		}
+	}
+
+	needUpdate := false
+
+	advertisement := &sartv1alpha1.BGPAdvertisement{}
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: svcName, Namespace: constants.Namespace}, advertisement); err != nil {
+		if !apierrors.IsNotFound(err) {
+			// advertise is not exist
+			// create it
+
+			needUpdate = true
+
+			advertisement.Name = svcName
+			advertisement.Namespace = constants.Namespace
+
+			logger.Info("create new advertisement", "Name", svcName, "Prefix", prefix, "Nodes", nodes)
+			spec := sartv1alpha1.BGPAdvertisementSpec{
+				Network:   prefix.String(),
+				Protocol:  protocolFromAddr(lbAddr),
+				Origin:    "",
+				LocalPref: 0,
+				Nodes:     nodes,
+			}
+			advertisement.Spec = spec
+		} else {
+			logger.Error(err, "failed to get BgpAdvertisement", "Name", svcName)
+			return nil, err
+		}
+	}
+
+	if prefix.String() != advertisement.Spec.Network {
+		advertisement.Spec.Network = prefix.String()
+		needUpdate = true
+	}
+	if !reflect.DeepEqual(advertisement.Spec.Nodes, nodes) {
+		advertisement.Spec.Nodes = nodes
+		needUpdate = true
+	}
+
+	if needUpdate {
+		return advertisement, nil
+	}
+
+	return nil, nil
+}
+
 func serviceNameFromEndpointSlice(epSlice *discoveryv1.EndpointSlice) (types.NamespacedName, error) {
 	if epSlice == nil {
 		return types.NamespacedName{}, fmt.Errorf("EndpointSlice is nil")
@@ -400,4 +469,11 @@ func serviceNameFromEndpointSlice(epSlice *discoveryv1.EndpointSlice) (types.Nam
 		return types.NamespacedName{}, fmt.Errorf("ServiceName is not found in labels")
 	}
 	return types.NamespacedName{Namespace: epSlice.Namespace, Name: svcName}, nil
+}
+
+func protocolFromAddr(addr netip.Addr) string {
+	if addr.Is4() {
+		return constants.ProtocolIpv4
+	}
+	return constants.ProtocolIpv6
 }

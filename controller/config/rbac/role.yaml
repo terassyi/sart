@@ -142,12 +142,15 @@ rules:
   resources:
   - bgpadvertisements/finalizers
   verbs:
+  - create
+  - delete
   - update
 - apiGroups:
   - sart.terassyi.net
   resources:
   - bgpadvertisements/status
   verbs:
+  - create
   - get
   - patch
   - update
