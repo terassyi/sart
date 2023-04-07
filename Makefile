@@ -135,13 +135,10 @@ devenv:
 	$(eval NODE2_ADDR = $(shell kubectl get nodes devenv-worker2 -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'))
 
 	docker run -d --privileged --network kind  --rm --ulimit core=-1 --name devenv-bgp --volume `pwd`/devenv/frr:/etc/frr/ ghcr.io/terassyi/terakoya:0.1.2 tail -f /dev/null
+	docker run -d --privileged --network kind --rm --name client ghcr.io/terassyi/terakoya:0.1.2 tail -f /dev/null
 
 	make configure-bgp
 
-	docker run -d --privileged --network kind --rm --name client ghcr.io/terassyi/terakoya:0.1.2 tail -f /dev/null
-
-	$(eval CLIENT_ADDR = $(shell docker inspect client | jq '.[0].NetworkSettings.Networks.kind.IPAddress' | tr -d '"'))
-	docker exec client ip route add ${LB_CIDR} via ${CLIENT_ADDR}
 
 .PHONY: configure-bgp
 configure-bgp:
@@ -166,6 +163,7 @@ configure-bgp:
 		./controller/config/sample_templates/_v1alpha1_bgppeer.yaml.tmpl > ./controller/config/samples/_v1alpha1_bgppeer.yaml
 
 	docker exec -d devenv-bgp gobgpd -f /etc/frr/gobgp.conf
+	docker exec client ip route add ${LB_CIDR} via ${DEVENV_BGP_ADDR}
 
 .PHONY:
 push-image:

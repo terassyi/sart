@@ -16,7 +16,7 @@ spec:
   scope: Cluster
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.cidr
+    - jsonPath: .spec.cidrs[*].prefix
       name: CIDR
       type: string
     - jsonPath: .spec.type
@@ -31,6 +31,15 @@ spec:
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
+    - jsonPath: .spec.using
+      name: Using
+      type: integer
+    - jsonPath: .spec.allocated
+      name: Allocated
+      type: integer
+    - jsonPath: .spec.released
+      name: Released
+      type: integer
     name: v1alpha1
     schema:
       openAPIV3Schema:
@@ -51,6 +60,10 @@ spec:
           spec:
             description: AddressPoolSpec defines the desired state of AddressPool
             properties:
+              allocated:
+                default: 0
+                format: int64
+                type: integer
               cidrs:
                 items:
                   properties:
@@ -69,19 +82,27 @@ spec:
               disable:
                 default: false
                 type: boolean
+              released:
+                default: 0
+                format: int64
+                type: integer
               type:
                 enum:
                 - cluster
                 - namespaced
                 - lb
                 type: string
+              using:
+                default: 0
+                format: int64
+                type: integer
             required:
             - cidrs
             - type
             type: object
           status:
             description: AddressPoolStatus defines the observed state of AddressPool
-            type: object
+            type: string
         type: object
     served: true
     storage: true
