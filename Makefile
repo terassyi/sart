@@ -101,6 +101,9 @@ DEVENV_BGP_ADDR ?= ""
 NODE0_ADDR ?= ""
 NODE1_ADDR ?= ""
 NODE2_ADDR ?= ""
+CLIENT_ADDR ?= ""
+LB_CIDR ?= 10.69.0.0/24
+ESCAPED_LB_CIDR ?= "10.69.0.0\/24"
 
 .PHONY: devenv
 devenv:
@@ -113,6 +116,7 @@ devenv:
 		cd controller; make docker-build; \
 	fi
 	docker rm -f devenv-bgp || true
+	docker rm -f client || true
 
 	rm -f ./devenv/frr/bgpd.conf || true
 	rm -f ./devenv/frr/bfdd.conf || true
@@ -134,6 +138,11 @@ devenv:
 
 	make configure-bgp
 
+	docker run -d --privileged --network kind --rm --name client ghcr.io/terassyi/terakoya:0.1.2 tail -f /dev/null
+
+	$(eval CLIENT_ADDR = $(shell docker inspect client | jq '.[0].NetworkSettings.Networks.kind.IPAddress' | tr -d '"'))
+	docker exec client ip route add ${LB_CIDR} via ${CLIENT_ADDR}
+
 .PHONY: configure-bgp
 configure-bgp:
 
@@ -148,6 +157,10 @@ configure-bgp:
 		-e s/DEVENV_BGP_ADDR/${DEVENV_BGP_ADDR}/g \
 		-e s/NODE0_ADDR/${NODE0_ADDR}/g -e s/NODE1_ADDR/${NODE1_ADDR}/g -e s/NODE2_ADDR/${NODE2_ADDR}/g \
 		./devenv/frr/gobgp.conf.tmpl > ./devenv/frr/gobgp.conf
+
+
+	sed -e s/LB_CIDR/'${ESCAPED_LB_CIDR}'/g \
+		./controller/config/sample_templates/_v1alpha1_addresspool.yaml.tmpl > ./controller/config/samples/_v1alpha1_addresspool.yaml
 
 	sed -e s/DEVENV_BGP_ASN/${DEVENV_BGP_ASN}/g -e s/DEVENV_BGP_ADDR/${DEVENV_BGP_ADDR}/g \
 		./controller/config/sample_templates/_v1alpha1_bgppeer.yaml.tmpl > ./controller/config/samples/_v1alpha1_bgppeer.yaml
@@ -165,6 +178,5 @@ push-image:
 clean-devenv:
 	ctlptl delete -f ./controller/ctlptl.yaml
 	docker rm -f devenv-bgp
-	rm -f ./devenv/frr/bgpd.conf || true
-	rm -f ./devenv/frr/bfdd.conf || true
+	docker rm -f client
 	rm -f ./devenv/frr/staticd.conf || true

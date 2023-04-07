@@ -14,6 +14,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -22,6 +23,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+)
+
+const (
+	ServiceConditionTypeAdvertising string = "Advertising"
+	ServiceConditionTypeAdvertised  string = "Advertised"
+
+	ServiceConditionReasonAdvertising string = "Advertising allocated LB addresses"
+	ServiceConditionReasonAdvertised  string = "Advertised allocated LB addresses"
 )
 
 type LBAllocationReconciler struct {
@@ -44,6 +53,12 @@ type LBAllocationReconciler struct {
 
 func (r *LBAllocationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
+
+	// handle BGPAdvertisement.Status
+	if err := r.assign(ctx, req); err != nil {
+		logger.Error(err, "failed to watch BGPAdvertisement", "Name", req)
+		return ctrl.Result{}, err
+	}
 
 	if _, err := r.reconcileAddressPool(ctx, req); err != nil {
 		logger.Error(err, "failed to reconcile AddressPool")
@@ -73,6 +88,7 @@ func (r *LBAllocationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			}
 			return []reconcile.Request{{NamespacedName: serviceName}}
 		})).
+		Watches(&source.Kind{Type: &sartv1alpha1.BGPAdvertisement{}}, &handler.EnqueueRequestForObject{}).
 		Complete(r)
 }
 
@@ -192,6 +208,35 @@ func (r *LBAllocationReconciler) reconcileService(ctx context.Context, req ctrl.
 	}
 	logger.Info("annoations", "Annations", newSvc.Annotations)
 
+	// create advertisement
+	for _, ip := range allocatedAddrs {
+		advName := svcToAdvertisementName(svc, protocolFromAddr(ip))
+		adv, needUpdate, err := r.createOrUpdateAdvertisement(ctx, advName, ip, epSliceList)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if adv != nil {
+			if needUpdate {
+				if err := r.Client.Update(ctx, adv); err != nil {
+					logger.Error(err, "failed to update advertisement", "Name", adv.Name)
+					return ctrl.Result{}, err
+				}
+			} else {
+				if err := r.Client.Create(ctx, adv); err != nil {
+					logger.Error(err, "failed to create advertisement", "Name", adv.Name)
+					return ctrl.Result{}, err
+				}
+				conditionAdvertising := metav1.Condition{
+					Type:    ServiceConditionTypeAdvertising,
+					Status:  metav1.ConditionFalse,
+					Reason:  ServiceConditionReasonAdvertising,
+					Message: "LB addresses are advertising by sart",
+				}
+				newSvc.Status.Conditions = append(newSvc.Status.Conditions, conditionAdvertising)
+			}
+		}
+	}
+
 	if !reflect.DeepEqual(svc.Annotations, newSvc.Annotations) {
 		// update all
 		logger.Info("update service annotations and status")
@@ -222,6 +267,78 @@ func (r *LBAllocationReconciler) reconcileServiceWhenDelete(ctx context.Context,
 	logger.Info("reconcile when deleting", "Name", req.NamespacedName)
 
 	return ctrl.Result{}, nil
+}
+
+// handle BGPAdvertisement
+func (r *LBAllocationReconciler) assign(ctx context.Context, req ctrl.Request) error {
+	logger := log.FromContext(ctx)
+
+	logger.Info("try to assign lb address", "Name", req.NamespacedName)
+	adv := &sartv1alpha1.BGPAdvertisement{}
+	if err := r.Client.Get(ctx, req.NamespacedName, adv); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		logger.Error(err, "failed to get BGPAdvertisement", "Name", req.NamespacedName)
+		return err
+	}
+	if adv.Status != sartv1alpha1.BGPAdvertisementStatusAdvertised {
+		return nil
+	}
+
+	// update
+	svcNamespace, svcName := advertiseNameToServiceName(req.Name)
+	svc := &v1.Service{}
+	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: svcNamespace, Name: svcName}, svc); err != nil {
+		if apierrors.IsNotFound(err) {
+			logger.Error(fmt.Errorf("Service is not found"), "failed to find the Service corresponding BGPAdvertisements", "Name", types.NamespacedName{Namespace: svcNamespace, Name: svcName})
+			return nil
+		}
+		logger.Error(err, "failed to get Service", "Name", req.NamespacedName)
+		return err
+	}
+	// assign an allocated address to the load balancer service
+	allocatedIpPrefix, err := netip.ParsePrefix(adv.Spec.Network)
+	if err != nil {
+		return err
+	}
+	addrMap := make(map[string]netip.Addr)
+	for _, ingress := range svc.Status.LoadBalancer.Ingress {
+		a, err := netip.ParseAddr(ingress.IP)
+		if err != nil {
+			return err
+		}
+		addrMap[protocolFromAddr(a)] = a
+	}
+
+	addrMap[protocolFromAddr(allocatedIpPrefix.Addr())] = allocatedIpPrefix.Addr()
+
+	newSvc := svc.DeepCopy()
+
+	lbAddrs := []v1.LoadBalancerIngress{}
+	for _, a := range addrMap {
+		lbAddrs = append(lbAddrs, v1.LoadBalancerIngress{IP: a.String()})
+	}
+	newSvc.Status.LoadBalancer.Ingress = lbAddrs
+
+	newSvc.Status.Conditions = append(newSvc.Status.Conditions, metav1.Condition{
+		Type:    ServiceConditionReasonAdvertised,
+		Status:  metav1.ConditionTrue,
+		Reason:  ServiceConditionReasonAdvertised,
+		Message: "allocated addresses are advertised and assigned",
+	})
+
+	// update service status
+	if reflect.DeepEqual(svc, newSvc) {
+		return nil
+	}
+
+	logger.Info("assign allocated lb address", "Name", types.NamespacedName{Namespace: svcNamespace, Name: svcName}, "Address", lbAddrs)
+	if err := r.Client.Status().Update(ctx, newSvc); err != nil {
+		logger.Error(err, "failed to update service status", "Name", types.NamespacedName{Namespace: svcNamespace, Name: svcName})
+		return err
+	}
+	return nil
 }
 
 func (r *LBAllocationReconciler) allocate(logger logr.Logger, svc *v1.Service, eps discoveryv1.EndpointSliceList) (string, []netip.Addr, error) {
@@ -381,18 +498,6 @@ func (r *LBAllocationReconciler) setAllocationInfo(svc *v1.Service, poolName str
 			addrMap[constants.ProtocolIpv6] = a
 		}
 	}
-	for _, addr := range addrs {
-		if addr.Is4() {
-			addrMap[constants.ProtocolIpv4] = addr
-		} else {
-			addrMap[constants.ProtocolIpv6] = addr
-		}
-	}
-	lbAddrs := []v1.LoadBalancerIngress{}
-	for _, a := range addrMap {
-		lbAddrs = append(lbAddrs, v1.LoadBalancerIngress{IP: a.String()})
-	}
-	svc.Status.LoadBalancer.Ingress = lbAddrs
 	return nil
 }
 
@@ -402,7 +507,7 @@ func (r *LBAllocationReconciler) clearAllocationInfo(svc *v1.Service) error {
 	return nil
 }
 
-func (r *LBAllocationReconciler) createOrUpdateAdvertisement(ctx context.Context, svcName string, lbAddr netip.Addr, epSliceList *discoveryv1.EndpointSliceList) (*sartv1alpha1.BGPAdvertisement, error) {
+func (r *LBAllocationReconciler) createOrUpdateAdvertisement(ctx context.Context, svcName string, lbAddr netip.Addr, epSliceList discoveryv1.EndpointSliceList) (*sartv1alpha1.BGPAdvertisement, bool, error) {
 	logger := log.FromContext(ctx)
 
 	prefix := netip.PrefixFrom(lbAddr, 32)
@@ -420,10 +525,9 @@ func (r *LBAllocationReconciler) createOrUpdateAdvertisement(ctx context.Context
 
 	advertisement := &sartv1alpha1.BGPAdvertisement{}
 	if err := r.Client.Get(ctx, types.NamespacedName{Name: svcName, Namespace: constants.Namespace}, advertisement); err != nil {
-		if !apierrors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			// advertise is not exist
 			// create it
-
 			needUpdate = true
 
 			advertisement.Name = svcName
@@ -438,9 +542,10 @@ func (r *LBAllocationReconciler) createOrUpdateAdvertisement(ctx context.Context
 				Nodes:     nodes,
 			}
 			advertisement.Spec = spec
+			return advertisement, false, nil
 		} else {
 			logger.Error(err, "failed to get BgpAdvertisement", "Name", svcName)
-			return nil, err
+			return nil, false, err
 		}
 	}
 
@@ -454,10 +559,10 @@ func (r *LBAllocationReconciler) createOrUpdateAdvertisement(ctx context.Context
 	}
 
 	if needUpdate {
-		return advertisement, nil
+		return advertisement, true, nil
 	}
 
-	return nil, nil
+	return nil, false, nil
 }
 
 func serviceNameFromEndpointSlice(epSlice *discoveryv1.EndpointSlice) (types.NamespacedName, error) {
@@ -476,4 +581,21 @@ func protocolFromAddr(addr netip.Addr) string {
 		return constants.ProtocolIpv4
 	}
 	return constants.ProtocolIpv6
+}
+
+func svcToAdvertisementName(svc *v1.Service, protocol string) string {
+	return svc.Namespace + "-" + svc.Name + "-" + protocol
+}
+
+func advertiseNameToServiceName(adv string) (string, string) {
+	s := strings.SplitN(adv, "-", 2)
+	if len(s) < 2 {
+		return "", ""
+	}
+	namespace := s[0]
+
+	name := strings.TrimSuffix(s[1], "-"+constants.ProtocolIpv4)
+	name = strings.TrimSuffix(name, "-"+constants.ProtocolIpv6)
+
+	return namespace, name
 }
