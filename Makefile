@@ -97,16 +97,20 @@ DEVENV_BGP_ASN ?= 65000
 NODE0_ASN ?= 65000
 NODE1_ASN ?= 65000
 NODE2_ASN ?= 65000
+NODE3_ASN ?= 65000
 DEVENV_BGP_ADDR ?= ""
 NODE0_ADDR ?= ""
 NODE1_ADDR ?= ""
 NODE2_ADDR ?= ""
+NODE3_ADDR ?= ""
 CLIENT_ADDR ?= ""
 LB_CIDR ?= 10.69.0.0/24
 ESCAPED_LB_CIDR ?= "10.69.0.0\/24"
 
 .PHONY: devenv
 devenv:
+	${SUDO} sysctl -w fs.inotify.max_user_instances=512
+	${SUDO} sysctl -w fs.inotify.max_user_watches=65536
 	if [ ${BUILD} = "daemon" ]; then \
 		make build-dev-image; \
 	elif [ ${BUILD} = "controller" ]; then \
@@ -118,8 +122,6 @@ devenv:
 	docker rm -f devenv-bgp || true
 	docker rm -f client || true
 
-	rm -f ./devenv/frr/bgpd.conf || true
-	rm -f ./devenv/frr/bfdd.conf || true
 	rm -f ./devenv/frr/staticd.conf || true
 
 	ctlptl apply -f ./controller/ctlptl.yaml
@@ -129,10 +131,12 @@ devenv:
 	kubectl label nodes --overwrite devenv-control-plane sart.terassyi.net/asn=${NODE0_ASN}
 	kubectl label nodes --overwrite devenv-worker sart.terassyi.net/asn=${NODE1_ASN}
 	kubectl label nodes --overwrite devenv-worker2 sart.terassyi.net/asn=${NODE2_ASN}
+	kubectl label nodes --overwrite devenv-worker3 sart.terassyi.net/asn=${NODE3_ASN}
 
 	$(eval NODE0_ADDR = $(shell kubectl get nodes devenv-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'))
 	$(eval NODE1_ADDR = $(shell kubectl get nodes devenv-worker -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'))
 	$(eval NODE2_ADDR = $(shell kubectl get nodes devenv-worker2 -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'))
+	$(eval NODE3_ADDR = $(shell kubectl get nodes devenv-worker3 -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'))
 
 	docker run -d --privileged --network kind  --rm --ulimit core=-1 --name devenv-bgp --volume `pwd`/devenv/frr:/etc/frr/ ghcr.io/terassyi/terakoya:0.1.2 tail -f /dev/null
 	docker run -d --privileged --network kind --rm --name client ghcr.io/terassyi/terakoya:0.1.2 tail -f /dev/null
@@ -149,10 +153,11 @@ configure-bgp:
 	$(eval NODE0_ADDR = $(shell kubectl get nodes devenv-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'))
 	$(eval NODE1_ADDR = $(shell kubectl get nodes devenv-worker -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'))
 	$(eval NODE2_ADDR = $(shell kubectl get nodes devenv-worker2 -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'))
-	sed -e s/NODE0_ASN/${NODE0_ASN}/g -e s/NODE1_ASN/${NODE1_ASN}/g -e s/NODE2_ASN/${NODE2_ASN}/g \
+	$(eval NODE3_ADDR = $(shell kubectl get nodes devenv-worker3 -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'))
+	sed -e s/NODE0_ASN/${NODE0_ASN}/g -e s/NODE1_ASN/${NODE1_ASN}/g -e s/NODE2_ASN/${NODE2_ASN}/g -e s/NODE3_ASN/${NODE3_ASN}/g \
 		-e s/DEVENV_BGP_ASN/${DEVENV_BGP_ASN}/g \
 		-e s/DEVENV_BGP_ADDR/${DEVENV_BGP_ADDR}/g \
-		-e s/NODE0_ADDR/${NODE0_ADDR}/g -e s/NODE1_ADDR/${NODE1_ADDR}/g -e s/NODE2_ADDR/${NODE2_ADDR}/g \
+		-e s/NODE0_ADDR/${NODE0_ADDR}/g -e s/NODE1_ADDR/${NODE1_ADDR}/g -e s/NODE2_ADDR/${NODE2_ADDR}/g -e s/NODE3_ADDR/${NODE3_ADDR}/g \
 		./devenv/frr/gobgp.conf.tmpl > ./devenv/frr/gobgp.conf
 
 

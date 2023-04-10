@@ -10,6 +10,7 @@ registry: ctlptl-registry
 kindV1Alpha4Cluster:
   name: devenv
   nodes:
-  - role: control-plane
-  - role: worker
-  - role: worker
+    - role: control-plane
+    - role: worker
+    - role: worker
+    - role: worker

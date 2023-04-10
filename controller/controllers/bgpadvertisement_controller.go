@@ -11,6 +11,7 @@ import (
 	"github.com/terassyi/sart/controller/pkg/speaker"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -40,6 +41,19 @@ func (r *BGPAdvertisementReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		logger.Error(err, "failed to get resource", "BGPAdvertisement", req.NamespacedName)
 		return ctrl.Result{}, err
 	}
+
+	switch advertisement.Status {
+	case sartv1alpha1.BGPAdvertisementStatusAdvertising:
+		return r.reconcileWhenAdvertising(ctx, advertisement)
+	case sartv1alpha1.BGPAdvertisementStatusUpdated:
+	case sartv1alpha1.BGPAdvertisementStatusAdvertised:
+	case sartv1alpha1.BGPAdvertisementStatusWithdrawn:
+	}
+	return ctrl.Result{}, nil
+}
+
+func (r *BGPAdvertisementReconciler) reconcileWhenAdvertising(ctx context.Context, advertisement *sartv1alpha1.BGPAdvertisement) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
 
 	peerList := &sartv1alpha1.BGPPeerList{}
 	if err := r.Client.List(ctx, peerList); err != nil {
@@ -141,6 +155,101 @@ func (r *BGPAdvertisementReconciler) reconcileWhenDelete(ctx context.Context, re
 	return ctrl.Result{}, nil
 }
 
+func (r *BGPAdvertisementReconciler) reconcileWhenUpdated(ctx context.Context, advertisement *sartv1alpha1.BGPAdvertisement) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+
+	peerList := &sartv1alpha1.BGPPeerList{}
+	if err := r.Client.List(ctx, peerList); err != nil {
+		logger.Error(err, "failed to list BGPPeer")
+		return ctrl.Result{}, err
+	}
+	// search advertised path
+	added, removed := advDiff(*peerList, advertisement)
+
+	addedNodes, removedNodes := []string{}, []string{}
+	for _, n := range added {
+		addedNodes = append(addedNodes, n.Spec.Node)
+	}
+	for _, n := range added {
+		removedNodes = append(removedNodes, n.Spec.Node)
+	}
+	logger.Info("advertisement", "Name", types.NamespacedName{Namespace: advertisement.Namespace, Name: advertisement.Name}, "Added", addedNodes, "Removed", removedNodes)
+
+	notComplete := false
+
+	for _, p := range removed {
+		logger.Info("withdraw from", "Node", p.Spec.Node, "Advertisement", advertisement.Name, "Prefix", advertisement.Spec.Network)
+		if err := r.withdraw(ctx, &p, advertisement.Spec.Network); err != nil {
+			if errors.Is(err, ErrPeerIsNotEstablished) {
+				notComplete = true
+				continue
+			}
+			logger.Error(err, "failed to withdraw path by speaker", "Advertisement", advertisement)
+			return ctrl.Result{}, err
+		}
+		// remove from peer advertisement list
+		index := -1
+		for i, adv := range p.Spec.Advertisements {
+			if adv.Name == advertisement.Name {
+				index = i
+				break
+			}
+		}
+		if index != -1 {
+			p.Spec.Advertisements = append(p.Spec.Advertisements[:index], p.Spec.Advertisements[index+1:]...)
+			if err := r.Client.Update(ctx, &p); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+
+	}
+
+	for _, p := range added {
+		logger.Info("advertise to", "Node", p.Spec.Node, "Advertisement", advertisement.Name, "Prefix", advertisement.Spec.Network)
+		if err := r.advertise(ctx, &p, advertisement); err != nil {
+			if errors.Is(err, ErrPeerIsNotEstablished) {
+				notComplete = true
+				continue
+			}
+			return ctrl.Result{}, err
+		}
+		// append peer advertisement list
+		contain := false
+		for _, adv := range p.Spec.Advertisements {
+			if adv.Name == advertisement.Name {
+				contain = true
+				break
+			}
+		}
+		if !contain {
+			p.Spec.Advertisements = append(p.Spec.Advertisements, sartv1alpha1.Advertisement{
+				Name:      advertisement.Name,
+				Namespace: advertisement.Namespace,
+				Prefix:    advertisement.Spec.Network,
+			})
+			if err := r.Client.Update(ctx, &p); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+	}
+
+	if notComplete {
+		advertisement.Status = sartv1alpha1.BGPAdvertisementStatusAdvertising
+	} else {
+		advertisement.Status = sartv1alpha1.BGPAdvertisementStatusAdvertised
+	}
+
+	if err := r.Client.Status().Update(ctx, advertisement); err != nil {
+		logger.Error(err, "failed to update BGPAdvertisement status", "BGPAdvertisement", advertisement.Spec)
+		return ctrl.Result{}, err
+	}
+	if advertisement.Status == sartv1alpha1.BGPAdvertisementStatusAdvertising {
+		return ctrl.Result{Requeue: true}, nil // TODO: should we use RequeueAfter?
+	}
+
+	return ctrl.Result{}, nil
+}
+
 func (r *BGPAdvertisementReconciler) advertise(ctx context.Context, peer *sartv1alpha1.BGPPeer, adv *sartv1alpha1.BGPAdvertisement) error {
 	logger := log.FromContext(ctx)
 
@@ -194,4 +303,37 @@ func (r *BGPAdvertisementReconciler) withdraw(ctx context.Context, peer *sartv1a
 	}
 	logger.Info("withdraw the path", "Prefix", prefix)
 	return nil
+}
+
+func advDiff(peerList sartv1alpha1.BGPPeerList, advertisement *sartv1alpha1.BGPAdvertisement) ([]sartv1alpha1.BGPPeer, []sartv1alpha1.BGPPeer) {
+	peerMap := make(map[string]sartv1alpha1.BGPPeer)
+	oldMap := make(map[string]sartv1alpha1.BGPPeer)
+	for _, peer := range peerList.Items {
+		peerMap[peer.Spec.Node] = peer
+		for _, adv := range peer.Spec.Advertisements {
+			if adv.Namespace == advertisement.Namespace && adv.Name == advertisement.Name {
+				// advertised from this peer
+				oldMap[peer.Spec.Node] = peer
+			}
+		}
+	}
+
+	removed := []sartv1alpha1.BGPPeer{}
+	added := []sartv1alpha1.BGPPeer{}
+
+	for _, an := range advertisement.Spec.Nodes {
+		_, ok := oldMap[an]
+		if !ok {
+			added = append(added, peerMap[an])
+		} else {
+			delete(oldMap, an)
+		}
+	}
+
+	for _, p := range oldMap {
+		removed = append(removed, p)
+	}
+
+	return added, removed
+
 }

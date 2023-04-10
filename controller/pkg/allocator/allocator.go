@@ -24,6 +24,7 @@ type Allocator interface {
 	IsEnabled() bool
 	Enable()
 	Disable()
+	Allocated() string
 }
 
 func New(cidr *netip.Prefix) Allocator {
@@ -97,6 +98,10 @@ func (a *allocator) Release(addr netip.Addr) (bool, error) {
 
 func (a *allocator) IsAllocated(addr netip.Addr) bool {
 	return a.isAllocated(addr)
+}
+
+func (a *allocator) Allocated() string {
+	return a.bits.DumpAsBits()
 }
 
 func (a *allocator) allocate(addr netip.Addr) (netip.Addr, error) {

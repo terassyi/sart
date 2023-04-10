@@ -37,15 +37,6 @@ type AddressPoolSpec struct {
 
 	// +kubebuilder:default:=false
 	Disable bool `json:"disable,omitempty" +kubebuilder:"default=false"`
-
-	// +kubebuilder:default:=0
-	Using int64 `json:"using,omitempty"`
-
-	// +kubebuilder:default:=0
-	Allocated int64 `json:"allocated,omitempty"`
-
-	// +kubebuilder:default:=0
-	Released int64 `json:"released,omitempty"`
 }
 
 // AddressPoolStatus defines the observed state of AddressPool
@@ -64,9 +55,6 @@ var (
 // +kubebuilder:printcolumn:name="Disabled",type="boolean",JSONPath=".spec.disable"
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
-// +kubebuilder:printcolumn:name="Using",type="integer",JSONPath=".spec.using"
-// +kubebuilder:printcolumn:name="Allocated",type="integer",JSONPath=".spec.allocated"
-// +kubebuilder:printcolumn:name="Released",type="integer",JSONPath=".spec.released"
 
 // AddressPool is the Schema for the addresspools API
 type AddressPool struct {

@@ -70,11 +70,14 @@ spec:
                 - ipv4
                 - ipv6
                 type: string
+              type:
+                type: string
             required:
             - network
+            - type
             type: object
           status:
-            default: NotAdvertised
+            default: Advertising
             description: BGPAdvertisementStatus defines the observed state of BGPAdvertisement
             type: string
         type: object

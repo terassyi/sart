@@ -78,7 +78,8 @@ type BGPPeer struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   BGPPeerSpec   `json:"spec,omitempty"`
+	Spec BGPPeerSpec `json:"spec,omitempty"`
+	// +kubebuilder:default:=Idle
 	Status BGPPeerStatus `json:"status,omitempty"`
 }
 

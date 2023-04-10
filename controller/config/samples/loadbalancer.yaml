@@ -32,7 +32,7 @@ metadata:
   name: nginx-local
   namespace: test
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: nginx-local
@@ -57,6 +57,7 @@ metadata:
     sart.terassyi.net/address-pool: default-lb-pool
 spec:
   type: LoadBalancer
+  externalTrafficPolicy: Cluster
   selector:
     app: nginx-cluster
   ports:

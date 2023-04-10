@@ -21,6 +21,16 @@ spec:
 apiVersion: sart.terassyi.net/v1alpha1
 kind: BGPPeer
 metadata:
+  name: worker3-peer
+  namespace: kube-system
+spec:
+  node: devenv-worker3
+  peerAsn: 65000
+  peerRouterId: 172.18.0.7
+---
+apiVersion: sart.terassyi.net/v1alpha1
+kind: BGPPeer
+metadata:
   name: cp-peer
   namespace: kube-system
 spec:

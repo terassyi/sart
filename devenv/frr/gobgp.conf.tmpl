@@ -26,6 +26,13 @@ router-id = "DEVENV_BGP_ADDR"
   [[neighbors.afi-safis]]
     [neighbors.afi-safis.config]
       afi-safi-name = "ipv4-unicast"
+[[neighbors]]
+  [neighbors.config]
+    neighbor-address = "NODE3_ADDR"
+    peer-as = NODE3_ASN
+  [[neighbors.afi-safis]]
+    [neighbors.afi-safis.config]
+      afi-safi-name = "ipv4-unicast"
 
 [zebra]
  [zebra.config]

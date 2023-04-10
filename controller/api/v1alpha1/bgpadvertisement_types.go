@@ -31,6 +31,10 @@ type BGPAdvertisementSpec struct {
 
 	Network string `json:"network"`
 
+	// +kubebuilder:validation:Enum=service,pod
+	// +kubebuilder:default=pod
+	Type string `json:"type"`
+
 	//+kubebuilder:validation:Enum=ipv4;ipv6
 	//+kubebuilder:default:=ipv4
 	Protocol string `json:"protocol,omitempty"`
@@ -48,10 +52,10 @@ type BGPAdvertisementSpec struct {
 type BGPAdvertisementStatus string
 
 var (
-	BGPAdvertisementStatusAdvertising   = BGPAdvertisementStatus("Advertising")
-	BGPAdvertisementStatusAdvertised    = BGPAdvertisementStatus("Advertised")
-	BGPAdvertisementStatusWithdrawn     = BGPAdvertisementStatus("Withdrawn")
-	BGPAdvertisementStatusNotAdvertised = BGPAdvertisementStatus("NotAdvertised")
+	BGPAdvertisementStatusAdvertising = BGPAdvertisementStatus("Advertising")
+	BGPAdvertisementStatusAdvertised  = BGPAdvertisementStatus("Advertised")
+	BGPAdvertisementStatusUpdated     = BGPAdvertisementStatus("Updated")
+	BGPAdvertisementStatusWithdrawn   = BGPAdvertisementStatus("Withdrawn")
 )
 
 //+kubebuilder:object:root=true
@@ -67,7 +71,7 @@ type BGPAdvertisement struct {
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	Spec BGPAdvertisementSpec `json:"spec,omitempty"`
-	//+kubebuilder:default:=NotAdvertised
+	//+kubebuilder:default:=Advertising
 	Status BGPAdvertisementStatus `json:"status,omitempty"`
 }
 

@@ -111,6 +111,7 @@ spec:
             - peerRouterId
             type: object
           status:
+            default: Idle
             enum:
             - Idle
             - Connect
