@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/netip"
 	"reflect"
@@ -36,9 +37,26 @@ const (
 	AdvertisementTypeService string = "service"
 )
 
+var (
+	ErrPoolAnnotationIsNotFound   error = errors.New("Pool name annotation is not found")
+	ErrFromPoolAnnotationIsNotSet error = errors.New("Pool name allocated from is not set")
+	ErrAllocatorIsNotFound        error = errors.New("Allocator is not found")
+)
+
 type LBAllocationReconciler struct {
 	client.Client
 	Allocators map[string]map[string]allocator.Allocator
+	allocMap   map[string][]alloc
+}
+
+type alloc struct {
+	name     string     // namespaced name of sartv1alpha1.BGPAdvertisement
+	protocol string     // ipv4 or ipv6
+	addr     netip.Addr // allocated address
+}
+
+func (a alloc) String() string {
+	return fmt.Sprintf("%s/%s/%s", a.name, a.protocol, a.addr)
 }
 
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;update;patch
@@ -175,6 +193,7 @@ func (r *LBAllocationReconciler) reconcileAddressPool(ctx context.Context, req c
 	return ctrl.Result{}, nil
 }
 
+// reconcileService is handle v1.Service and discoveryv1.EndpointSlice
 func (r *LBAllocationReconciler) reconcileService(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
@@ -195,9 +214,15 @@ func (r *LBAllocationReconciler) reconcileService(ctx context.Context, req ctrl.
 
 	switch svc.Spec.ExternalTrafficPolicy {
 	case v1.ServiceExternalTrafficPolicyTypeCluster:
+		if err := r.handleLocal(ctx, svc); err != nil {
+			return ctrl.Result{}, err
+		}
 	case v1.ServiceExternalTrafficPolicyTypeLocal:
-
+		if err := r.handleLocal(ctx, svc); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
+
 	// list endpoint slices
 	epSliceList := discoveryv1.EndpointSliceList{}
 	if err := r.Client.List(ctx, &epSliceList, client.MatchingLabels{constants.KubernetesServiceNameLabel: req.Name}); err != nil {
@@ -579,6 +604,111 @@ func (r *LBAllocationReconciler) setAllocationInfo(svc *v1.Service, poolName str
 		}
 	}
 	return nil
+}
+
+func (r *LBAllocationReconciler) isAssigned(svc *v1.Service) (string, map[string]netip.Addr, error) {
+	// check protocol by clusterIP
+	if len(svc.Spec.ClusterIP) == 0 && svc.Spec.ClusterIP == "" {
+		return "", nil, fmt.Errorf("Service doesn't have ClusterIP")
+	}
+
+	poolName, ok := svc.Annotations[constants.AnnotationAddressPool]
+	if !ok {
+		return "", nil, fmt.Errorf("required annotation %s is not found to address allocated load balancer", constants.AnnotationAddressPool)
+	}
+
+	lbIPs := make(map[string]netip.Addr)
+	// check allocated LB IP
+	for _, ingress := range svc.Status.LoadBalancer.Ingress {
+		addr, err := netip.ParseAddr(ingress.IP)
+		if err != nil {
+			return "", nil, err
+		}
+		lbIPs[protocolFromAddr(addr)] = addr
+	}
+
+	if len(lbIPs) == 0 {
+		// not allocated yet
+		return poolName, nil, nil
+	}
+
+	from, ok := svc.Annotations[constants.AnnotationAllocatedFromPool]
+	if !ok {
+		return "", nil, fmt.Errorf("required annotation %s is not found to address allocated load balancer", constants.AnnotationAllocatedFromPool)
+	}
+	if poolName != from {
+		return "", nil, fmt.Errorf("required pool is %s, actual allocating pool is %s", poolName, from)
+	}
+
+	protocolAllocator, ok := r.Allocators[poolName]
+	if !ok {
+		return "", nil, fmt.Errorf("Allocator is not registered: %s", poolName)
+	}
+	for proto, addr := range lbIPs {
+		if !protocolAllocator[proto].IsAllocated(addr) {
+			return poolName, nil, fmt.Errorf("allocated addresses and stored addresses is not matched")
+		}
+	}
+
+	return poolName, lbIPs, nil
+}
+
+func (r *LBAllocationReconciler) isAllocated(svc *v1.Service) (bool, error) {
+	poolName, ok := svc.Annotations[constants.AnnotationAddressPool]
+	if !ok {
+		return false, ErrPoolAnnotationIsNotFound
+	}
+	from, ok := svc.Annotations[constants.AnnotationAllocatedFromPool]
+	if !ok {
+		// not allocated yet
+		return false, nil
+	}
+	if poolName != from {
+		return false, fmt.Errorf("pool name is not matched")
+	}
+
+	allocs, ok := r.allocMap[types.NamespacedName{Namespace: svc.Namespace, Name: svc.Name}.String()]
+	if !ok {
+		return false, nil
+	}
+
+	for _, alloc := range allocs {
+		allocators, ok := r.Allocators[poolName]
+		if !ok {
+			return false, ErrAllocatorIsNotFound
+		}
+		allocator, ok := allocators[alloc.protocol]
+		if !ok {
+			return false, ErrAllocatorIsNotFound
+		}
+		if !allocator.IsAllocated(alloc.addr) {
+			return false, fmt.Errorf("expected allocation is not satisfied %s", alloc)
+		}
+	}
+
+	return true, nil
+}
+
+func desiredAddr(svc *v1.Service) (map[string]netip.Addr, error) {
+	desired := make(map[string]netip.Addr)
+	if svc.Spec.LoadBalancerIP == "" {
+		// no desired addresses
+		return nil, nil
+	}
+
+	ipStrs := strings.Split(svc.Spec.LoadBalancerIP, ",")
+	for _, is := range ipStrs {
+		ip, err := netip.ParseAddr(is)
+		if err != nil {
+			return nil, err
+		}
+		if ip.Is4() {
+			desired[constants.ProtocolIpv4] = ip
+		} else {
+			desired[constants.ProtocolIpv6] = ip
+		}
+	}
+	return desired, nil
 }
 
 func (r *LBAllocationReconciler) clearAllocationInfo(svc *v1.Service) error {
