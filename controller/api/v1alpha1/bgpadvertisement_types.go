@@ -31,7 +31,7 @@ type BGPAdvertisementSpec struct {
 
 	Network string `json:"network"`
 
-	// +kubebuilder:validation:Enum=service,pod
+	// +kubebuilder:validation:Enum=service;pod
 	// +kubebuilder:default=pod
 	Type string `json:"type"`
 
