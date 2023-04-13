@@ -71,6 +71,10 @@ spec:
                 - ipv6
                 type: string
               type:
+                default: pod
+                enum:
+                - service
+                - pod
                 type: string
             required:
             - network
