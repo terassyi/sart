@@ -85,6 +85,13 @@ func (a alloc) String() string {
 func (r *LBAllocationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
+	if r.recover {
+		logger.Info("recover allocator information")
+		if err := r.recoverAllocation(ctx); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
 	if _, err := r.reconcileAddressPool(ctx, req); err != nil {
 		logger.Error(err, "failed to reconcile AddressPool")
 		return ctrl.Result{}, err
@@ -92,14 +99,6 @@ func (r *LBAllocationReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	if _, err := r.reconcileService(ctx, req); err != nil {
 		logger.Error(err, "failed to reconcile Service")
-		return ctrl.Result{}, err
-	}
-	// handle BGPAdvertisement.Status
-	if err := r.assign(ctx, req); err != nil {
-		if apierrors.IsNotFound(err) {
-			return ctrl.Result{}, nil
-		}
-		logger.Error(err, "failed to watch BGPAdvertisement", "Name", req)
 		return ctrl.Result{}, err
 	}
 
@@ -227,90 +226,6 @@ func (r *LBAllocationReconciler) reconcileService(ctx context.Context, req ctrl.
 		return ctrl.Result{}, err
 	}
 
-	// switch svc.Spec.ExternalTrafficPolicy {
-	// case v1.ServiceExternalTrafficPolicyTypeCluster:
-	// 	if err := r.handleCluster(ctx, svc); err != nil {
-	// 		return ctrl.Result{}, err
-	// 	}
-	// case v1.ServiceExternalTrafficPolicyTypeLocal:
-	// 	if err := r.handleLocal(ctx, svc); err != nil {
-	// 		return ctrl.Result{}, err
-	// 	}
-	// }
-
-	// // list endpoint slices
-	// epSliceList := discoveryv1.EndpointSliceList{}
-	// if err := r.Client.List(ctx, &epSliceList, client.MatchingLabels{constants.KubernetesServiceNameLabel: req.Name}); err != nil {
-	// 	logger.Error(err, "failed to list EndpointSlice by Service", "ServiceName", req.NamespacedName.String())
-	// 	return ctrl.Result{}, err
-	// }
-
-	// // allocation
-	// newSvc := svc.DeepCopy()
-
-	// poolName, allocatedAddrs, err := r.allocate(ctx, newSvc, epSliceList)
-	// if err != nil {
-	// 	logger.Error(err, "failed to allocate a LB address", "Name", req.NamespacedName)
-	// 	// clear allocation information from svc
-	// 	if err := r.release(logger, newSvc); err != nil {
-	// 		logger.Error(err, "failed to release", "Name", req.NamespacedName)
-	// 		return ctrl.Result{}, err
-	// 	}
-	// 	return ctrl.Result{}, err
-	// }
-	// if err := r.setAllocationInfo(newSvc, poolName, allocatedAddrs); err != nil {
-	// 	logger.Error(err, "failed to set allocation information", "Name", req.NamespacedName)
-	// 	return ctrl.Result{}, err
-	// }
-
-	// // create advertisement
-	// for _, ip := range allocatedAddrs {
-	// 	advName := svcToAdvertisementName(svc, protocolFromAddr(ip))
-	// 	adv, needUpdate, err := r.createOrUpdateAdvertisement(ctx, advName, ip, epSliceList)
-	// 	if err != nil {
-	// 		return ctrl.Result{}, err
-	// 	}
-	// 	if adv != nil {
-	// 		if needUpdate {
-	// 			if err := r.Client.Update(ctx, adv); err != nil {
-	// 				logger.Error(err, "failed to update advertisement", "Name", adv.Name)
-	// 				return ctrl.Result{}, err
-	// 			}
-	// 		} else {
-	// 			if err := r.Client.Create(ctx, adv); err != nil {
-	// 				logger.Error(err, "failed to create advertisement", "Name", adv.Name)
-	// 				return ctrl.Result{}, err
-	// 			}
-	// 			conditionAdvertising := metav1.Condition{
-	// 				Type:    ServiceConditionTypeAdvertising,
-	// 				Status:  metav1.ConditionFalse,
-	// 				Reason:  ServiceConditionReasonAdvertising,
-	// 				Message: "LB addresses are advertising by sart",
-	// 			}
-	// 			newSvc.Status.Conditions = append(newSvc.Status.Conditions, conditionAdvertising)
-	// 		}
-	// 	}
-	// }
-
-	// if !reflect.DeepEqual(svc.Annotations, newSvc.Annotations) {
-	// 	// update all
-	// 	if err := r.Client.Update(ctx, newSvc); err != nil {
-	// 		logger.Error(err, "failed to update service", "Name", req.NamespacedName)
-	// 		return ctrl.Result{}, err
-	// 	}
-	// 	return ctrl.Result{}, nil
-	// }
-	// if !reflect.DeepEqual(svc.Status, newSvc.Status) {
-	// 	// update status
-	// 	if err := r.Client.Status().Update(ctx, newSvc); err != nil {
-	// 		logger.Error(err, "failed to update service status", "Name", req.NamespacedName)
-	// 		return ctrl.Result{}, err
-	// 	}
-	// 	return ctrl.Result{}, nil
-	// }
-
-	// // nothing to update
-	// logger.Info("nothing to update service", "Name", req.NamespacedName)
 	return ctrl.Result{}, nil
 }
 
@@ -320,38 +235,6 @@ func (r *LBAllocationReconciler) reconcileServiceWhenDelete(ctx context.Context,
 	logger.Info("reconcile when deleting", "Name", req.NamespacedName)
 
 	return ctrl.Result{}, nil
-}
-
-func (r *LBAllocationReconciler) handleLocal(ctx context.Context, svc *v1.Service) error {
-	logger := log.FromContext(ctx)
-	nsName := types.NamespacedName{Namespace: svc.Namespace, Name: svc.Name}
-
-	r.isAssigned(svc)
-
-	// list endpoint slices
-	epSliceList := discoveryv1.EndpointSliceList{}
-	if err := r.Client.List(ctx, &epSliceList, client.MatchingLabels{constants.KubernetesServiceNameLabel: svc.Name}); err != nil {
-		logger.Error(err, "failed to list EndpointSlice by Service", "ServiceName", nsName)
-		return err
-	}
-
-	// allocation
-	newSvc := svc.DeepCopy()
-	poolName, allocatedAddrs, err := r.allocate(ctx, newSvc, epSliceList)
-	if err != nil {
-		logger.Error(err, "failed to allocate a LB address", "Name", nsName)
-		// clear allocation information from svc
-		if err := r.release(logger, newSvc); err != nil {
-			logger.Error(err, "failed to release", "Name", nsName)
-			return err
-		}
-		return err
-	}
-	if err := r.setAllocationInfo(newSvc, poolName, allocatedAddrs); err != nil {
-		logger.Error(err, "failed to set allocation information", "Name", nsName)
-		return err
-	}
-	return nil
 }
 
 func (r *LBAllocationReconciler) handleService(ctx context.Context, svc *v1.Service) error {
@@ -364,7 +247,8 @@ func (r *LBAllocationReconciler) handleService(ctx context.Context, svc *v1.Serv
 	if addrs != nil {
 		// already assigned
 		logger.Info("LB address is already allocated", "Policy", svc.Spec.ExternalTrafficPolicy, "Pool", pool, "Address", addrs)
-		return nil
+		// handle advertising endpoints changes
+		return r.handleEndpointUpdate(ctx, svc)
 	}
 
 	res, err := r.isAllocated(svc)
@@ -375,13 +259,13 @@ func (r *LBAllocationReconciler) handleService(ctx context.Context, svc *v1.Serv
 		// allocated but not assigned yet
 		logger.Info("LB address is allocated but not assigned", "Policy", svc.Spec.ExternalTrafficPolicy, "Pool", pool)
 		// assign
-		return r.assign2(ctx, svc)
+		return r.assign(ctx, svc)
 	}
 
 	// not allocated
 	logger.Info("new allocation", "Policy", svc.Spec.ExternalTrafficPolicy, "Pool", pool)
 
-	allocated, err := r.allocate2(svc, pool)
+	allocated, err := r.allocate(svc, pool)
 	if err != nil {
 		return err
 	}
@@ -434,7 +318,44 @@ func (r *LBAllocationReconciler) handleService(ctx context.Context, svc *v1.Serv
 	return nil
 }
 
-func (r *LBAllocationReconciler) allocate2(svc *v1.Service, pool string) ([]alloc, error) {
+func (r *LBAllocationReconciler) handleEndpointUpdate(ctx context.Context, svc *v1.Service) error {
+	logger := log.FromContext(ctx)
+
+	nodes, err := r.getEndpoints(ctx, svc)
+	if err != nil {
+		return err
+	}
+
+	advertisements := []*sartv1alpha1.BGPAdvertisement{}
+	for _, ingress := range svc.Status.LoadBalancer.Ingress {
+		addr, err := netip.ParseAddr(ingress.IP)
+		if err != nil {
+			return err
+		}
+		advName := svcToAdvertisementName(svc, protocolFromAddr(addr))
+		adv := &sartv1alpha1.BGPAdvertisement{}
+		if err := r.Client.Get(ctx, types.NamespacedName{Namespace: constants.Namespace, Name: advName}, adv); err != nil {
+			return err
+		}
+		advertisements = append(advertisements, adv)
+	}
+
+	for _, adv := range advertisements {
+		if reflect.DeepEqual(adv.Spec.Nodes, nodes) {
+			return nil
+		}
+		logger.Info("need to update endpoints")
+		newAdv := adv.DeepCopy()
+		newAdv.Spec.Nodes = nodes
+		newAdv.Status = sartv1alpha1.BGPAdvertisementStatusUpdated
+		if err := r.Client.Update(ctx, newAdv); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *LBAllocationReconciler) allocate(svc *v1.Service, pool string) ([]alloc, error) {
 	allocators, ok := r.Allocators[pool]
 	if !ok {
 		return nil, ErrAllocatorIsNotFound
@@ -474,7 +395,7 @@ func (r *LBAllocationReconciler) allocate2(svc *v1.Service, pool string) ([]allo
 	return allocInfo, nil
 }
 
-func (r *LBAllocationReconciler) assign2(ctx context.Context, svc *v1.Service) error {
+func (r *LBAllocationReconciler) assign(ctx context.Context, svc *v1.Service) error {
 	logger := log.FromContext(ctx)
 	svcName := types.NamespacedName{Namespace: svc.Namespace, Name: svc.Name}
 
@@ -541,216 +462,6 @@ func (r *LBAllocationReconciler) assign2(ctx context.Context, svc *v1.Service) e
 	return nil
 }
 
-// handle BGPAdvertisement
-func (r *LBAllocationReconciler) assign(ctx context.Context, req ctrl.Request) error {
-	logger := log.FromContext(ctx)
-
-	logger.Info("try to assign lb address", "Name", req.NamespacedName)
-	adv := &sartv1alpha1.BGPAdvertisement{}
-	if err := r.Client.Get(ctx, req.NamespacedName, adv); err != nil {
-		if apierrors.IsNotFound(err) {
-			return err
-		}
-		logger.Error(err, "failed to get BGPAdvertisement", "Name", req.NamespacedName)
-		return err
-	}
-	if adv.Status != sartv1alpha1.BGPAdvertisementStatusAdvertised {
-		return nil
-	}
-
-	// update
-	svcNamespace, svcName := advertiseNameToServiceName(req.Name)
-	svc := &v1.Service{}
-	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: svcNamespace, Name: svcName}, svc); err != nil {
-		if apierrors.IsNotFound(err) {
-			logger.Info("failed to find the Service corresponding BGPAdvertisements", "Name", types.NamespacedName{Namespace: svcNamespace, Name: svcName})
-			return nil
-		}
-		logger.Error(err, "failed to get Service", "Name", req.NamespacedName)
-		return err
-	}
-	// assign an allocated address to the load balancer service
-	allocatedIpPrefix, err := netip.ParsePrefix(adv.Spec.Network)
-	if err != nil {
-		return err
-	}
-	addrMap := make(map[string]netip.Addr)
-	for _, ingress := range svc.Status.LoadBalancer.Ingress {
-		a, err := netip.ParseAddr(ingress.IP)
-		if err != nil {
-			return err
-		}
-		addrMap[protocolFromAddr(a)] = a
-	}
-
-	addrMap[protocolFromAddr(allocatedIpPrefix.Addr())] = allocatedIpPrefix.Addr()
-
-	newSvc := svc.DeepCopy()
-
-	lbAddrs := []v1.LoadBalancerIngress{}
-	for _, a := range addrMap {
-		lbAddrs = append(lbAddrs, v1.LoadBalancerIngress{IP: a.String()})
-	}
-	newSvc.Status.LoadBalancer.Ingress = lbAddrs
-
-	newSvc.Status.Conditions = append(newSvc.Status.Conditions, metav1.Condition{
-		Type:    ServiceConditionReasonAdvertised,
-		Status:  metav1.ConditionTrue,
-		Reason:  ServiceConditionReasonAdvertised,
-		Message: "allocated addresses are advertised and assigned",
-	})
-
-	// update service status
-	if reflect.DeepEqual(svc, newSvc) {
-		return nil
-	}
-
-	logger.Info("assign lb address", "Name", types.NamespacedName{Namespace: svcNamespace, Name: svcName}, "Address", lbAddrs)
-	if err := r.Client.Status().Update(ctx, newSvc); err != nil {
-		logger.Error(err, "failed to update service status", "Name", types.NamespacedName{Namespace: svcNamespace, Name: svcName})
-		return err
-	}
-	return nil
-}
-
-func (r *LBAllocationReconciler) allocate(ctx context.Context, svc *v1.Service, eps discoveryv1.EndpointSliceList) (string, []netip.Addr, error) {
-	logger := log.FromContext(ctx)
-
-	// check protocol by clusterIP
-	if len(svc.Spec.ClusterIP) == 0 && svc.Spec.ClusterIP == "" {
-		return "", nil, fmt.Errorf("Service doesn't have ClusterIP")
-	}
-
-	poolName, ok := svc.Annotations[constants.AnnotationAddressPool]
-	if !ok {
-		return "", nil, fmt.Errorf("required annotation %s is not found to address allocated load balancer", constants.AnnotationAddressPool)
-	}
-
-	lbIPs := []netip.Addr{}
-	// check allocated LB IP
-	for _, ingress := range svc.Status.LoadBalancer.Ingress {
-		addr, err := netip.ParseAddr(ingress.IP)
-		if err != nil {
-			return "", nil, err
-		}
-		lbIPs = append(lbIPs, addr)
-	}
-
-	desiredIPs := make(map[string]netip.Addr)
-	if len(lbIPs) > 0 {
-		logger.Info("LB address is already allocated", "Name", svc.Name, "Addresses", lbIPs)
-		from, ok := svc.Annotations[constants.AnnotationAllocatedFromPool]
-		if !ok {
-			return "", nil, fmt.Errorf("required annotation %s is not found to address allocated load balancer", constants.AnnotationAllocatedFromPool)
-		}
-		if poolName != from {
-			return "", nil, fmt.Errorf("required pool is %s, actual allocating pool is %s", poolName, from)
-		}
-
-		protocolAllocator, ok := r.Allocators[poolName]
-		if !ok {
-			return "", nil, fmt.Errorf("Allocator is not registered: %s", poolName)
-		}
-		for _, ip := range lbIPs {
-			// specified lb address, but not allocated
-			if ip.Is4() {
-				if protocolAllocator[constants.ProtocolIpv4].IsAllocated(ip) {
-					logger.Info("ipv4 address is allocated", "Pool", from, "Address", ip)
-					break
-				}
-				desiredIPs[constants.ProtocolIpv4] = ip
-			} else {
-				logger.Info("ipv6 address is allocated", "Pool", from, "Address", ip)
-				if protocolAllocator[constants.ProtocolIpv6].IsAllocated(ip) {
-					break
-				}
-				desiredIPs[constants.ProtocolIpv6] = ip
-			}
-		}
-		return poolName, lbIPs, nil
-	}
-
-	// get desired address from service spec
-	// TODO: I'm not sure when we handle dual stack
-	if svc.Spec.LoadBalancerIP != "" {
-		logger.Info("Spec.LoadBalancer is specified", "LoadBalancerIP", svc.Spec.LoadBalancerIP)
-		ipStrs := strings.Split(svc.Spec.LoadBalancerIP, ",")
-		for _, is := range ipStrs {
-			ip, err := netip.ParseAddr(is)
-			if err != nil {
-				return "", nil, err
-			}
-			if ip.Is4() {
-				desiredIPs[constants.ProtocolIpv4] = ip
-			} else {
-				desiredIPs[constants.ProtocolIpv6] = ip
-			}
-		}
-	}
-
-	// check if already allocated
-	needAllocation := false
-	adv := &sartv1alpha1.BGPAdvertisement{}
-	for protocol, _ := range r.Allocators[poolName] {
-		advName := svcToAdvertisementName(svc, protocol)
-		if err := r.Client.Get(ctx, types.NamespacedName{Namespace: constants.Namespace, Name: advName}, adv); err != nil {
-			if apierrors.IsNotFound(err) {
-				logger.Info("need to allocate lb addresses", "Name", types.NamespacedName{Namespace: svc.Namespace, Name: svc.Name}, "Pool", poolName)
-				needAllocation = true
-				break
-			}
-			return poolName, nil, err
-		}
-		logger.Info("already allocated", "Name", types.NamespacedName{Namespace: svc.Namespace, Name: svc.Name}, "Pool", poolName, "Address")
-		// select backends
-		newAdv, needReAdvertise, err := r.selectBackend(svc, eps, adv)
-		if err != nil {
-			logger.Error(err, "failed to select backends", "Name", types.NamespacedName{Namespace: svc.Namespace, Name: svc.Name})
-			return poolName, nil, err
-		}
-		if needReAdvertise {
-			if err := r.Client.Update(ctx, newAdv); err != nil {
-				logger.Error(err, "failed to udpate advertisement", "Name", types.NamespacedName{Namespace: svc.Namespace, Name: svc.Name}, "Advertisement", newAdv.Name)
-				return poolName, nil, err
-			}
-		}
-	}
-
-	if !needAllocation {
-		return poolName, nil, nil
-	}
-	// allocation
-	logger.Info("allocate by each allocator", "Pool", poolName, "Desired", desiredIPs)
-	allocated := make(map[string]netip.Addr)
-	for protocol, allocator := range r.Allocators[poolName] {
-		desired, ok := desiredIPs[protocol]
-		if ok {
-			addr, err := allocator.Allocate(desired)
-			if err != nil {
-				return "", nil, err
-			}
-			logger.Info("Allocate from pool", "Pool", poolName, "Protocol", protocol, "Address", addr)
-			allocated[protocol] = addr
-			logger.Info("used addresses", "Bits", allocator.Allocated())
-		} else {
-			addr, err := allocator.AllocateNext()
-			if err != nil {
-				return "", nil, err
-			}
-			logger.Info("Allocate next from pool", "Pool", poolName, "Protocol", protocol, "Address", addr)
-			allocated[protocol] = addr
-			logger.Info("used addresses", "Bits", allocator.Allocated())
-		}
-	}
-
-	logger.Info("allocate lb address", "Pool", poolName, "Addresses", allocated)
-	a := make([]netip.Addr, 0, 2)
-	for _, v := range allocated {
-		a = append(a, v)
-	}
-	return poolName, a, nil
-}
-
 func (r *LBAllocationReconciler) release(logger logr.Logger, svc *v1.Service) error {
 	delete(svc.Annotations, constants.AnnotationAllocatedFromPool)
 	if svc.Status.LoadBalancer.Ingress == nil || len(svc.Status.LoadBalancer.Ingress) == 0 {
@@ -783,26 +494,6 @@ func (r *LBAllocationReconciler) release(logger logr.Logger, svc *v1.Service) er
 		}
 	}
 	svc.Status.LoadBalancer = v1.LoadBalancerStatus{}
-	return nil
-}
-
-func (r *LBAllocationReconciler) setAllocationInfo(svc *v1.Service, poolName string, addrs []netip.Addr) error {
-	p, ok := svc.Annotations[constants.AnnotationAllocatedFromPool]
-	if !ok || p != poolName {
-		svc.Annotations[constants.AnnotationAllocatedFromPool] = poolName
-	}
-	addrMap := make(map[string]netip.Addr)
-	for _, lbAddr := range svc.Status.LoadBalancer.Ingress {
-		a, err := netip.ParseAddr(lbAddr.IP)
-		if err != nil {
-			return err
-		}
-		if a.Is4() {
-			addrMap[constants.ProtocolIpv4] = a
-		} else {
-			addrMap[constants.ProtocolIpv6] = a
-		}
-	}
 	return nil
 }
 
@@ -951,6 +642,7 @@ func (r *LBAllocationReconciler) createOrUpdateAdvertisement(ctx context.Context
 			nodes = append(nodes, n)
 		}
 	}
+	sort.Strings(nodes)
 
 	needUpdate := false
 
@@ -997,6 +689,61 @@ func (r *LBAllocationReconciler) createOrUpdateAdvertisement(ctx context.Context
 	return nil, false, nil
 }
 
+func (r *LBAllocationReconciler) getEndpoints(ctx context.Context, svc *v1.Service) ([]string, error) {
+	switch svc.Spec.ExternalTrafficPolicy {
+	case v1.ServiceExternalTrafficPolicyTypeCluster:
+		return r.getClusterEndpoints(ctx, svc)
+	case v1.ServiceExternalTrafficPolicyTypeLocal:
+		return r.getLocalEndpoints(ctx, svc)
+	}
+	return nil, nil
+}
+
+func (r *LBAllocationReconciler) getLocalEndpoints(ctx context.Context, svc *v1.Service) ([]string, error) {
+
+	epsList := &discoveryv1.EndpointSliceList{}
+	if svc.Spec.ExternalTrafficPolicy == v1.ServiceExternalTrafficPolicyTypeLocal {
+		if err := r.Client.List(ctx, epsList, client.MatchingLabels{constants.KubernetesServiceNameLabel: svc.Name}); err != nil {
+			return nil, err
+		}
+	}
+
+	endpointNodes := []string{}
+
+	for _, eps := range epsList.Items {
+		for _, ep := range eps.Endpoints {
+			if ep.NodeName == nil {
+				continue
+			}
+			if *ep.NodeName == "" {
+				continue
+			}
+			endpointNodes = append(endpointNodes, *ep.NodeName)
+		}
+	}
+	sort.Strings(endpointNodes)
+	return endpointNodes, nil
+}
+
+func (r *LBAllocationReconciler) getClusterEndpoints(ctx context.Context, svc *v1.Service) ([]string, error) {
+
+	peerList := &sartv1alpha1.BGPPeerList{}
+	if err := r.Client.List(ctx, peerList); err != nil {
+		return nil, err
+	}
+
+	peerNodes := make(map[string]struct{})
+	endpointNodes := []string{}
+	for _, p := range peerList.Items {
+		peerNodes[p.Spec.Node] = struct{}{}
+	}
+	for k, _ := range peerNodes {
+		endpointNodes = append(endpointNodes, k)
+	}
+	sort.Strings(endpointNodes)
+	return endpointNodes, nil
+}
+
 func (r *LBAllocationReconciler) selectBackend(svc *v1.Service, epsList discoveryv1.EndpointSliceList, adv *sartv1alpha1.BGPAdvertisement) (*sartv1alpha1.BGPAdvertisement, bool, error) {
 
 	_, ok := svc.Annotations[constants.AnnotationAllocatedFromPool]
@@ -1027,16 +774,77 @@ func (r *LBAllocationReconciler) selectBackend(svc *v1.Service, epsList discover
 func (r *LBAllocationReconciler) recoverAllocation(ctx context.Context) error {
 	// logger := log.FromContext(ctx)
 
+	poolList := &sartv1alpha1.AddressPoolList{}
+	if err := r.Client.List(ctx, poolList); err != nil {
+		return err
+	}
+	for _, p := range poolList.Items {
+		if p.Spec.Type != "lb" {
+			continue
+		}
+		if _, ok := r.Allocators[p.Name]; ok {
+			continue
+		}
+		allocators := make(map[string]allocator.Allocator)
+		for _, cidr := range p.Spec.Cidrs {
+			prefix, err := netip.ParsePrefix(cidr.Prefix)
+			if err != nil {
+				return err
+			}
+			allocators[cidr.Protocol] = allocator.New(&prefix)
+		}
+		r.Allocators[p.Name] = allocators
+	}
+
 	svcList := &v1.ServiceList{}
 	if err := r.Client.List(ctx, svcList); err != nil {
 		return err
 	}
+	advList := &sartv1alpha1.BGPAdvertisementList{}
+	if err := r.Client.List(ctx, advList); err != nil {
+		return err
+	}
+	advMap := make(map[string]sartv1alpha1.BGPAdvertisement)
+	for _, a := range advList.Items {
+		advMap[a.Name] = a
+	}
+
 	for _, svc := range svcList.Items {
-		pool, ok := svc.Annotations[constants.AnnotationAllocatedFromPool]
+		if svc.Spec.Type != v1.ServiceTypeLoadBalancer {
+			continue
+		}
+		poolName, ok := svc.Annotations[constants.AnnotationAllocatedFromPool]
 		if !ok {
 			continue
 		}
+		allocators, ok := r.Allocators[poolName]
+		if !ok {
+			continue
+		}
+		alloInfo := make([]alloc, 0, 2)
+		for proto, a := range allocators {
+			adv, ok := advMap[svcToAdvertisementName(&svc, proto)]
+			if !ok {
+				continue
+			}
+			prefix, err := netip.ParsePrefix(adv.Spec.Network)
+			if err != nil {
+				return err
+			}
+			if !a.IsAllocated(prefix.Addr()) {
+				if _, err := a.Allocate(prefix.Addr()); err != nil {
+					return err
+				}
+			}
+			alloInfo = append(alloInfo, alloc{
+				name:     adv.Name,
+				protocol: proto,
+				addr:     prefix.Addr(),
+			})
+		}
+		r.allocMap[types.NamespacedName{Namespace: svc.Namespace, Name: svc.Name}.String()] = alloInfo
 	}
+	r.recover = false
 	return nil
 }
 
