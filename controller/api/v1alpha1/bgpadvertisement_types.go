@@ -44,18 +44,22 @@ type BGPAdvertisementSpec struct {
 	Origin string `json:"origin,omitempty"`
 
 	LocalPref uint32 `json:"localPref,omitempty"`
-
-	Nodes []string `json:"nodes,omitempty"` // list of node names
 }
 
 // BGPAdvertisementStatus defines the observed state of BGPAdvertisement
-type BGPAdvertisementStatus string
+type BGPAdvertisementStatus struct {
+	Nodes []string `json:"nodes,omitempty"` // list of node names
+	// +kubebuilder:default=Advertising
+	Condition BGPAdvertisementCondition `json:"condition"`
+}
+
+type BGPAdvertisementCondition string
 
 var (
-	BGPAdvertisementStatusAdvertising = BGPAdvertisementStatus("Advertising")
-	BGPAdvertisementStatusAdvertised  = BGPAdvertisementStatus("Advertised")
-	BGPAdvertisementStatusUpdated     = BGPAdvertisementStatus("Updated")
-	BGPAdvertisementStatusWithdrawn   = BGPAdvertisementStatus("Withdrawn")
+	BGPAdvertisementConditionAdvertising = BGPAdvertisementCondition("Advertising")
+	BGPAdvertisementConditionAdvertised  = BGPAdvertisementCondition("Advertised")
+	BGPAdvertisementConditionUpdated     = BGPAdvertisementCondition("Updated")
+	BGPAdvertisementConditionWithdrawn   = BGPAdvertisementCondition("Withdrawn")
 )
 
 //+kubebuilder:object:root=true
@@ -70,8 +74,7 @@ type BGPAdvertisement struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec BGPAdvertisementSpec `json:"spec,omitempty"`
-	//+kubebuilder:default:=Advertising
+	Spec   BGPAdvertisementSpec   `json:"spec,omitempty"`
 	Status BGPAdvertisementStatus `json:"status,omitempty"`
 }
 

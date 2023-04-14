@@ -296,6 +296,9 @@ func (r *LBAllocationReconciler) handleService(ctx context.Context, svc *v1.Serv
 				if err := r.Client.Create(ctx, adv); err != nil {
 					return err
 				}
+				if err := r.Client.Status().Update(ctx, adv); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -341,14 +344,14 @@ func (r *LBAllocationReconciler) handleEndpointUpdate(ctx context.Context, svc *
 	}
 
 	for _, adv := range advertisements {
-		if reflect.DeepEqual(adv.Spec.Nodes, nodes) {
+		if reflect.DeepEqual(adv.Status.Nodes, nodes) {
 			return nil
 		}
 		logger.Info("need to update endpoints")
 		newAdv := adv.DeepCopy()
-		newAdv.Spec.Nodes = nodes
-		newAdv.Status = sartv1alpha1.BGPAdvertisementStatusUpdated
-		if err := r.Client.Update(ctx, newAdv); err != nil {
+		newAdv.Status.Nodes = nodes
+		newAdv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionUpdated
+		if err := r.Client.Status().Patch(ctx, newAdv, client.MergeFrom(adv)); err != nil {
 			return err
 		}
 	}
@@ -420,7 +423,7 @@ func (r *LBAllocationReconciler) assign(ctx context.Context, svc *v1.Service) er
 			logger.Error(err, "failed to get BGPAdvertisement")
 			return err
 		}
-		if adv.Status != sartv1alpha1.BGPAdvertisementStatusAdvertised {
+		if adv.Status.Condition != sartv1alpha1.BGPAdvertisementConditionAdvertised {
 			logger.Info("LB address is not advertised")
 			return nil
 		}
@@ -656,16 +659,19 @@ func (r *LBAllocationReconciler) createOrUpdateAdvertisement(ctx context.Context
 			advertisement.Name = svcName
 			advertisement.Namespace = constants.Namespace
 
-			logger.Info("create new advertisement", "Name", svcName, "Prefix", prefix, "Nodes", nodes)
 			spec := sartv1alpha1.BGPAdvertisementSpec{
 				Network:   prefix.String(),
 				Type:      AdvertisementTypeService,
 				Protocol:  protocolFromAddr(lbAddr),
 				Origin:    "",
 				LocalPref: 0,
-				Nodes:     nodes,
 			}
 			advertisement.Spec = spec
+			advertisement.Status = sartv1alpha1.BGPAdvertisementStatus{
+				Nodes:     nodes,
+				Condition: sartv1alpha1.BGPAdvertisementConditionAdvertising,
+			}
+			logger.Info("create new advertisement", "Name", svcName, "Prefix", prefix, "Nodes", nodes, "Condition", advertisement.Status.Condition)
 			return advertisement, false, nil
 		} else {
 			logger.Error(err, "failed to get BgpAdvertisement", "Name", svcName)
@@ -677,8 +683,8 @@ func (r *LBAllocationReconciler) createOrUpdateAdvertisement(ctx context.Context
 		advertisement.Spec.Network = prefix.String()
 		needUpdate = true
 	}
-	if !reflect.DeepEqual(advertisement.Spec.Nodes, nodes) {
-		advertisement.Spec.Nodes = nodes
+	if !reflect.DeepEqual(advertisement.Status.Nodes, nodes) {
+		advertisement.Status.Nodes = nodes
 		needUpdate = true
 	}
 
@@ -760,12 +766,12 @@ func (r *LBAllocationReconciler) selectBackend(svc *v1.Service, epsList discover
 		}
 	}
 	newAdv := adv.DeepCopy()
-	sort.Strings(newAdv.Spec.Nodes)
+	sort.Strings(newAdv.Status.Nodes)
 	sort.Strings(nodes)
 
-	if !reflect.DeepEqual(newAdv.Spec.Nodes, nodes) {
-		newAdv.Spec.Nodes = nodes
-		newAdv.Status = sartv1alpha1.BGPAdvertisementStatusUpdated
+	if !reflect.DeepEqual(newAdv.Status.Nodes, nodes) {
+		newAdv.Status.Nodes = nodes
+		newAdv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionUpdated
 		return newAdv, true, nil
 	}
 	return nil, false, nil

@@ -42,14 +42,16 @@ func (r *BGPAdvertisementReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, err
 	}
 
-	switch advertisement.Status {
-	case sartv1alpha1.BGPAdvertisementStatusAdvertising:
+	logger.Info("handle advertisement", "Status", advertisement.Status)
+	switch advertisement.Status.Condition {
+	case sartv1alpha1.BGPAdvertisementConditionAdvertising:
 		return r.reconcileWhenAdvertising(ctx, advertisement)
-	case sartv1alpha1.BGPAdvertisementStatusUpdated:
-	case sartv1alpha1.BGPAdvertisementStatusAdvertised:
-	case sartv1alpha1.BGPAdvertisementStatusWithdrawn:
+	case sartv1alpha1.BGPAdvertisementConditionUpdated:
+		return r.reconcileWhenUpdated(ctx, advertisement)
+	default:
+		// nothing to do
+		return ctrl.Result{}, nil
 	}
-	return ctrl.Result{}, nil
 }
 
 func (r *BGPAdvertisementReconciler) reconcileWhenAdvertising(ctx context.Context, advertisement *sartv1alpha1.BGPAdvertisement) (ctrl.Result, error) {
@@ -63,7 +65,8 @@ func (r *BGPAdvertisementReconciler) reconcileWhenAdvertising(ctx context.Contex
 
 	notComplete := false
 	for _, p := range peerList.Items {
-		for _, target := range advertisement.Spec.Nodes {
+		logger.Info("decide advertising node", "Status", advertisement.Status.Nodes)
+		for _, target := range advertisement.Status.Nodes {
 			if p.Spec.Node == target {
 				if p.Status != sartv1alpha1.BGPPeerStatusEstablished {
 					logger.Info("BGPPeer is unavailable", "BGPPeer", p.Spec)
@@ -97,17 +100,19 @@ func (r *BGPAdvertisementReconciler) reconcileWhenAdvertising(ctx context.Contex
 		}
 	}
 
+	newAdv := advertisement.DeepCopy()
+
 	if notComplete {
-		advertisement.Status = sartv1alpha1.BGPAdvertisementStatusAdvertising
+		newAdv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionAdvertising
 	} else {
-		advertisement.Status = sartv1alpha1.BGPAdvertisementStatusAdvertised
+		newAdv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionAdvertised
 	}
 
-	if err := r.Client.Status().Update(ctx, advertisement); err != nil {
+	if err := r.Client.Status().Patch(ctx, newAdv, client.MergeFrom(advertisement)); err != nil {
 		logger.Error(err, "failed to update BGPAdvertisement status", "BGPAdvertisement", advertisement.Spec)
 		return ctrl.Result{}, err
 	}
-	if advertisement.Status == sartv1alpha1.BGPAdvertisementStatusAdvertising {
+	if newAdv.Status.Condition == sartv1alpha1.BGPAdvertisementConditionAdvertising {
 		return ctrl.Result{Requeue: true}, nil // TODO: should we use RequeueAfter?
 	}
 
@@ -170,7 +175,7 @@ func (r *BGPAdvertisementReconciler) reconcileWhenUpdated(ctx context.Context, a
 	for _, n := range added {
 		addedNodes = append(addedNodes, n.Spec.Node)
 	}
-	for _, n := range added {
+	for _, n := range removed {
 		removedNodes = append(removedNodes, n.Spec.Node)
 	}
 	logger.Info("advertisement", "Name", types.NamespacedName{Namespace: advertisement.Namespace, Name: advertisement.Name}, "Added", addedNodes, "Removed", removedNodes)
@@ -233,17 +238,19 @@ func (r *BGPAdvertisementReconciler) reconcileWhenUpdated(ctx context.Context, a
 		}
 	}
 
+	newAdv := advertisement.DeepCopy()
+
 	if notComplete {
-		advertisement.Status = sartv1alpha1.BGPAdvertisementStatusAdvertising
+		newAdv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionAdvertising
 	} else {
-		advertisement.Status = sartv1alpha1.BGPAdvertisementStatusAdvertised
+		newAdv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionAdvertised
 	}
 
-	if err := r.Client.Status().Update(ctx, advertisement); err != nil {
+	if err := r.Client.Status().Patch(ctx, newAdv, client.MergeFrom(advertisement)); err != nil {
 		logger.Error(err, "failed to update BGPAdvertisement status", "BGPAdvertisement", advertisement.Spec)
 		return ctrl.Result{}, err
 	}
-	if advertisement.Status == sartv1alpha1.BGPAdvertisementStatusAdvertising {
+	if newAdv.Status.Condition == sartv1alpha1.BGPAdvertisementConditionAdvertising {
 		return ctrl.Result{Requeue: true}, nil // TODO: should we use RequeueAfter?
 	}
 
@@ -321,7 +328,7 @@ func advDiff(peerList sartv1alpha1.BGPPeerList, advertisement *sartv1alpha1.BGPA
 	removed := []sartv1alpha1.BGPPeer{}
 	added := []sartv1alpha1.BGPPeer{}
 
-	for _, an := range advertisement.Spec.Nodes {
+	for _, an := range advertisement.Status.Nodes {
 		_, ok := oldMap[an]
 		if !ok {
 			added = append(added, peerMap[an])
