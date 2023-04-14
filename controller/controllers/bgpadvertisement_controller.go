@@ -65,8 +65,8 @@ func (r *BGPAdvertisementReconciler) reconcileWhenAdvertising(ctx context.Contex
 
 	notComplete := false
 	for _, p := range peerList.Items {
-		logger.Info("decide advertising node", "Status", advertisement.Status.Nodes)
-		for _, target := range advertisement.Status.Nodes {
+		logger.Info("decide advertising node", "Status", advertisement.Spec.Nodes)
+		for _, target := range advertisement.Spec.Nodes {
 			if p.Spec.Node == target {
 				if p.Status != sartv1alpha1.BGPPeerStatusEstablished {
 					logger.Info("BGPPeer is unavailable", "BGPPeer", p.Spec)
@@ -328,7 +328,7 @@ func advDiff(peerList sartv1alpha1.BGPPeerList, advertisement *sartv1alpha1.BGPA
 	removed := []sartv1alpha1.BGPPeer{}
 	added := []sartv1alpha1.BGPPeer{}
 
-	for _, an := range advertisement.Status.Nodes {
+	for _, an := range advertisement.Spec.Nodes {
 		_, ok := oldMap[an]
 		if !ok {
 			added = append(added, peerMap[an])

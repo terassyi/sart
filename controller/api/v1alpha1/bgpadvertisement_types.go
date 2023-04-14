@@ -43,13 +43,13 @@ type BGPAdvertisementSpec struct {
 	//+kubebuilder:default:=igp
 	Origin string `json:"origin,omitempty"`
 
-	LocalPref uint32 `json:"localPref,omitempty"`
+	LocalPref uint32   `json:"localPref,omitempty"`
+	Nodes     []string `json:"nodes,omitempty"` // list of node names
 }
 
 // BGPAdvertisementStatus defines the observed state of BGPAdvertisement
 type BGPAdvertisementStatus struct {
-	Nodes []string `json:"nodes,omitempty"` // list of node names
-	// +kubebuilder:default=Advertising
+	// +kubebuilder:default:=Advertising
 	Condition BGPAdvertisementCondition `json:"condition"`
 }
 
@@ -66,7 +66,7 @@ var (
 //+kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Network",type="string",JSONPath=".spec.network"
 // +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.serviceType"
-// +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status"
+// +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.condition"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // BGPAdvertisement is the Schema for the bgpadvertisements API
@@ -74,7 +74,8 @@ type BGPAdvertisement struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   BGPAdvertisementSpec   `json:"spec,omitempty"`
+	Spec BGPAdvertisementSpec `json:"spec,omitempty"`
+	// +kubebuilder:default:={condition:Advertising}
 	Status BGPAdvertisementStatus `json:"status,omitempty"`
 }
 

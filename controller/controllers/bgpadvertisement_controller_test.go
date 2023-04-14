@@ -63,9 +63,9 @@ func TestAdvDiff(t *testing.T) {
 				ObjectMeta: v1.ObjectMeta{Name: "adv1"},
 				Spec: sartv1alpha1.BGPAdvertisementSpec{
 					Network: "10.69.0.1/32",
+					Nodes:     []string{"node1", "node2"},
 				},
 				Status: sartv1alpha1.BGPAdvertisementStatus{
-					Nodes:     []string{"node1", "node2"},
 					Condition: sartv1alpha1.BGPAdvertisementConditionAdvertising,
 				},
 			},
@@ -113,9 +113,9 @@ func TestAdvDiff(t *testing.T) {
 				ObjectMeta: v1.ObjectMeta{Name: "adv1"},
 				Spec: sartv1alpha1.BGPAdvertisementSpec{
 					Network: "10.69.0.1/32",
+					Nodes:     []string{"node2", "node3"},
 				},
 				Status: sartv1alpha1.BGPAdvertisementStatus{
-					Nodes:     []string{"node2", "node3"},
 					Condition: sartv1alpha1.BGPAdvertisementConditionAdvertising,
 				},
 			},

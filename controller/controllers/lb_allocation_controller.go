@@ -296,9 +296,6 @@ func (r *LBAllocationReconciler) handleService(ctx context.Context, svc *v1.Serv
 				if err := r.Client.Create(ctx, adv); err != nil {
 					return err
 				}
-				if err := r.Client.Status().Update(ctx, adv); err != nil {
-					return err
-				}
 			}
 		}
 	}
@@ -344,12 +341,15 @@ func (r *LBAllocationReconciler) handleEndpointUpdate(ctx context.Context, svc *
 	}
 
 	for _, adv := range advertisements {
-		if reflect.DeepEqual(adv.Status.Nodes, nodes) {
+		if reflect.DeepEqual(adv.Spec.Nodes, nodes) {
 			return nil
 		}
-		logger.Info("need to update endpoints")
+		logger.Info("need to update endpoints", "old", adv.Spec.Nodes, "new", nodes)
 		newAdv := adv.DeepCopy()
-		newAdv.Status.Nodes = nodes
+		newAdv.Spec.Nodes = nodes
+		if err := r.Client.Patch(ctx, newAdv, client.MergeFrom(adv)); err != nil {
+			return err
+		}
 		newAdv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionUpdated
 		if err := r.Client.Status().Patch(ctx, newAdv, client.MergeFrom(adv)); err != nil {
 			return err
@@ -665,10 +665,10 @@ func (r *LBAllocationReconciler) createOrUpdateAdvertisement(ctx context.Context
 				Protocol:  protocolFromAddr(lbAddr),
 				Origin:    "",
 				LocalPref: 0,
+				Nodes:     nodes,
 			}
 			advertisement.Spec = spec
 			advertisement.Status = sartv1alpha1.BGPAdvertisementStatus{
-				Nodes:     nodes,
 				Condition: sartv1alpha1.BGPAdvertisementConditionAdvertising,
 			}
 			logger.Info("create new advertisement", "Name", svcName, "Prefix", prefix, "Nodes", nodes, "Condition", advertisement.Status.Condition)
@@ -683,8 +683,8 @@ func (r *LBAllocationReconciler) createOrUpdateAdvertisement(ctx context.Context
 		advertisement.Spec.Network = prefix.String()
 		needUpdate = true
 	}
-	if !reflect.DeepEqual(advertisement.Status.Nodes, nodes) {
-		advertisement.Status.Nodes = nodes
+	if !reflect.DeepEqual(advertisement.Spec.Nodes, nodes) {
+		advertisement.Spec.Nodes = nodes
 		needUpdate = true
 	}
 
@@ -714,7 +714,7 @@ func (r *LBAllocationReconciler) getLocalEndpoints(ctx context.Context, svc *v1.
 		}
 	}
 
-	endpointNodes := []string{}
+	endpointNodeMap := make(map[string]struct{})
 
 	for _, eps := range epsList.Items {
 		for _, ep := range eps.Endpoints {
@@ -724,8 +724,12 @@ func (r *LBAllocationReconciler) getLocalEndpoints(ctx context.Context, svc *v1.
 			if *ep.NodeName == "" {
 				continue
 			}
-			endpointNodes = append(endpointNodes, *ep.NodeName)
+			endpointNodeMap[*ep.NodeName] = struct{}{}
 		}
+	}
+	endpointNodes := make([]string, 0, len(endpointNodeMap))
+	for n, _ := range endpointNodeMap {
+		endpointNodes = append(endpointNodes, n)
 	}
 	sort.Strings(endpointNodes)
 	return endpointNodes, nil
@@ -748,33 +752,6 @@ func (r *LBAllocationReconciler) getClusterEndpoints(ctx context.Context, svc *v
 	}
 	sort.Strings(endpointNodes)
 	return endpointNodes, nil
-}
-
-func (r *LBAllocationReconciler) selectBackend(svc *v1.Service, epsList discoveryv1.EndpointSliceList, adv *sartv1alpha1.BGPAdvertisement) (*sartv1alpha1.BGPAdvertisement, bool, error) {
-
-	_, ok := svc.Annotations[constants.AnnotationAllocatedFromPool]
-	if !ok {
-		return nil, false, fmt.Errorf("service not found")
-	}
-	nodes := []string{}
-	for _, eps := range epsList.Items {
-		for _, ep := range eps.Endpoints {
-			if ep.NodeName == nil || *ep.NodeName == "" {
-				continue
-			}
-			nodes = append(nodes, *ep.NodeName)
-		}
-	}
-	newAdv := adv.DeepCopy()
-	sort.Strings(newAdv.Status.Nodes)
-	sort.Strings(nodes)
-
-	if !reflect.DeepEqual(newAdv.Status.Nodes, nodes) {
-		newAdv.Status.Nodes = nodes
-		newAdv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionUpdated
-		return newAdv, true, nil
-	}
-	return nil, false, nil
 }
 
 func (r *LBAllocationReconciler) recoverAllocation(ctx context.Context) error {
