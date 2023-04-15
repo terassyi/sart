@@ -61,12 +61,13 @@ func (r *NodeBGPReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	for _, nodeBgp := range nodeBgpList.Items {
+		newNodeBgp := nodeBgp.DeepCopy()
 		speakerEndpoint := speaker.New(r.SpeakerType, nodeBgp.Spec.RouterId, r.SpeakerEndpointPort)
 		info, err := speakerEndpoint.GetInfo(ctx)
 		if err != nil {
 			logger.Error(err, "failed to get speaker info", "NodeBGP", nodeBgp.Spec.RouterId)
-			nodeBgp.Status = sartv1alpha1.NodeBGPStatusUnavailable
-			if err := r.Client.Status().Update(ctx, &nodeBgp); err != nil {
+			newNodeBgp.Status = sartv1alpha1.NodeBGPStatusUnavailable
+			if err := r.Client.Status().Patch(ctx, newNodeBgp, client.MergeFrom(&nodeBgp)); err != nil {
 				logger.Error(err, "failed to update status", "NodeBGP", nodeBgp.Spec.RouterId)
 				return ctrl.Result{}, err
 			}
@@ -88,8 +89,8 @@ func (r *NodeBGPReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 
 		if nodeBgp.Status != sartv1alpha1.NodeBGPStatusAvailable {
-			nodeBgp.Status = sartv1alpha1.NodeBGPStatusAvailable
-			if err := r.Client.Status().Update(ctx, &nodeBgp); err != nil {
+			newNodeBgp.Status = sartv1alpha1.NodeBGPStatusAvailable
+			if err := r.Client.Status().Patch(ctx, newNodeBgp, client.MergeFrom(&nodeBgp)); err != nil {
 				logger.Error(err, "failed to update status", "NodeBGP", nodeBgp.Spec.RouterId)
 				return ctrl.Result{}, err
 			}

@@ -21,10 +21,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
@@ -62,13 +60,14 @@ func NewLBAllocationReconciler(client client.Client, allocators map[string]map[s
 }
 
 type alloc struct {
+	pool     string
 	name     string     // namespaced name of sartv1alpha1.BGPAdvertisement
 	protocol string     // ipv4 or ipv6
 	addr     netip.Addr // allocated address
 }
 
 func (a alloc) String() string {
-	return fmt.Sprintf("%s/%s/%s", a.name, a.protocol, a.addr)
+	return fmt.Sprintf("%s/%s/%s/%s", a.pool, a.name, a.protocol, a.addr)
 }
 
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;update;patch
@@ -134,11 +133,11 @@ func (r *LBAllocationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			ns, name := advertiseNameToServiceName(adv.Name)
 			return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: ns, Name: name}}}
 		})).
-		WithEventFilter(predicate.Funcs{
-			DeleteFunc: func(e event.DeleteEvent) bool {
-				return false
-			},
-		}).
+		// WithEventFilter(predicate.Funcs{
+		// 	DeleteFunc: func(e event.DeleteEvent) bool {
+		// 		return false
+		// 	},
+		// }).
 		Complete(r)
 }
 
@@ -216,6 +215,8 @@ func (r *LBAllocationReconciler) reconcileService(ctx context.Context, req ctrl.
 
 	svc := &v1.Service{}
 	if err := r.Client.Get(ctx, req.NamespacedName, svc); err != nil {
+		// Reconciliation loop targets is v1.Service, discoveryv1.EndpointSlice and sartv1alpha1.BGPAdvertisement.
+		// but ignore the deletion of EndpointSlice and BGPAdvertisement
 		if apierrors.IsNotFound(err) {
 			// handle deletion
 			return r.reconcileServiceWhenDelete(ctx, req)
@@ -236,10 +237,61 @@ func (r *LBAllocationReconciler) reconcileService(ctx context.Context, req ctrl.
 	return ctrl.Result{}, nil
 }
 
+// reconsileServiceWhenDelete: the target of reconciling is v1.Service
 func (r *LBAllocationReconciler) reconcileServiceWhenDelete(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
 	logger.Info("reconcile when deleting", "Name", req.NamespacedName)
+
+	allocInfo, ok := r.allocMap[req.NamespacedName.String()]
+	if !ok {
+		// if allocations are not found, there is nothing to do
+		logger.Info("Allocations is not found when deleting")
+		return ctrl.Result{}, nil
+	}
+
+	// release allocations
+	// Service resource must be deleted
+	if len(allocInfo) == 0 {
+		return ctrl.Result{}, fmt.Errorf("Allocation must be found at least one")
+	}
+
+	pool := allocInfo[0].pool
+	allocators, ok := r.Allocators[pool]
+	if !ok {
+		return ctrl.Result{}, ErrAllocatorIsNotFound
+	}
+
+	for _, a := range allocInfo {
+		allocator, ok := allocators[a.protocol]
+		if !ok {
+			return ctrl.Result{}, ErrAllocatorIsNotFound
+		}
+		res, err := allocator.Release(a.addr)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if !res {
+			continue
+		}
+		logger.Info("Release LB address", "Address", a.addr)
+
+		// delete BGPAdvertisement associated with
+		adv := &sartv1alpha1.BGPAdvertisement{}
+		if err := r.Client.Get(ctx, types.NamespacedName{Namespace: constants.Namespace, Name: a.name}, adv); err != nil {
+			if apierrors.IsNotFound(err) {
+				logger.Info("BGPAdvertisement is not found", "Name", a.name)
+				continue
+			}
+			return ctrl.Result{}, err
+		}
+		if err := r.Client.Delete(ctx, adv); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	// delete allocation information from allocMap
+	delete(r.allocMap, req.NamespacedName.String())
 
 	return ctrl.Result{}, nil
 }
@@ -395,6 +447,7 @@ func (r *LBAllocationReconciler) allocate(svc *v1.Service, pool string) ([]alloc
 	allocInfo := make([]alloc, 0, len(desired))
 	for proto, addr := range desired {
 		a := alloc{
+			pool:     pool,
 			name:     svcToAdvertisementName(svc, proto),
 			protocol: proto,
 			addr:     addr,
@@ -465,7 +518,7 @@ func (r *LBAllocationReconciler) assign(ctx context.Context, svc *v1.Service) er
 		addrs = append(addrs, a.addr.String())
 	}
 	logger.Info("Assign LB addresses", "Address", addrs)
-	if err := r.Client.Status().Update(ctx, newSvc); err != nil {
+	if err := r.Client.Status().Patch(ctx, newSvc, client.MergeFrom(svc)); err != nil {
 		return err
 	}
 
@@ -827,6 +880,7 @@ func (r *LBAllocationReconciler) recoverAllocation(ctx context.Context) error {
 				}
 			}
 			alloInfo = append(alloInfo, alloc{
+				pool:     poolName,
 				name:     adv.Name,
 				protocol: proto,
 				addr:     prefix.Addr(),

@@ -6,7 +6,7 @@ metadata:
 spec:
   node: devenv-worker
   peerAsn: 65000
-  peerRouterId: 172.18.0.8
+  peerRouterId: 172.18.0.7
 ---
 apiVersion: sart.terassyi.net/v1alpha1
 kind: BGPPeer
@@ -16,7 +16,7 @@ metadata:
 spec:
   node: devenv-worker2
   peerAsn: 65000
-  peerRouterId: 172.18.0.8
+  peerRouterId: 172.18.0.7
 ---
 apiVersion: sart.terassyi.net/v1alpha1
 kind: BGPPeer
@@ -26,7 +26,7 @@ metadata:
 spec:
   node: devenv-worker3
   peerAsn: 65000
-  peerRouterId: 172.18.0.8
+  peerRouterId: 172.18.0.7
 ---
 apiVersion: sart.terassyi.net/v1alpha1
 kind: BGPPeer
@@ -36,4 +36,4 @@ metadata:
 spec:
   node: devenv-control-plane
   peerAsn: 65000
-  peerRouterId: 172.18.0.8
+  peerRouterId: 172.18.0.7
