@@ -8,42 +8,42 @@ metadata:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: nginx-cluster
+  name: app-cluster
   namespace: test
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: nginx-cluster
+      app: app-cluster
   template:
     metadata:
       labels:
-        app: nginx-cluster
+        app: app-cluster
     spec:
       containers:
-        - name: nginx
-          image: nginx:latest
+        - name: app
+          image: localhost:5005/test-app:dev
           ports:
             - containerPort: 80
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: nginx-local
+  name: app-local
   namespace: test
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: nginx-local
+      app: app-local
   template:
     metadata:
       labels:
-        app: nginx-local
+        app: app-local
     spec:
       containers:
-        - name: nginx
-          image: nginx:latest
+        - name: app
+          image: localhost:5005/test-app:dev
           ports:
             - containerPort: 80
 ---
@@ -51,7 +51,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: nginx-lb-svc-cluster
+  name: app-svc-cluster
   namespace: test
   annotations:
     sart.terassyi.net/address-pool: default-lb-pool
@@ -59,7 +59,7 @@ spec:
   type: LoadBalancer
   externalTrafficPolicy: Cluster
   selector:
-    app: nginx-cluster
+    app: app-cluster
   ports:
     - name: http
       port: 80
@@ -69,7 +69,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: nginx-lb-svc-local
+  name: app-svc-local
   namespace: test
   annotations:
     sart.terassyi.net/address-pool: default-lb-pool
@@ -77,7 +77,7 @@ spec:
   type: LoadBalancer
   externalTrafficPolicy: Local
   selector:
-    app: nginx-local
+    app: app-local
   ports:
     - name: http
       port: 80

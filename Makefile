@@ -174,8 +174,10 @@ configure-bgp:
 push-image:
 	docker image tag sart:${IMAGE_VERSION} ${REGISTORY_URL}/sart:${IMAGE_VERSION}
 	docker image tag sart-controller:${IMAGE_VERSION} ${REGISTORY_URL}/sart-controller:${IMAGE_VERSION}
+	docker image tag test-app:${IMAGE_VERSION} ${REGISTORY_URL}/test-app:${IMAGE_VERSION}
 	docker push ${REGISTORY_URL}/sart:${IMAGE_VERSION}
 	docker push ${REGISTORY_URL}/sart-controller:${IMAGE_VERSION}
+	docker push ${REGISTORY_URL}/test-app:${IMAGE_VERSION}
 
 .PHONY: clean-devenv
 clean-devenv:

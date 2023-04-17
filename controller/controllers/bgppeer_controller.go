@@ -242,7 +242,6 @@ func (r *BGPPeerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 func (r *BGPPeerReconciler) reconcileWhenDelete(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
-	logger.Info("reconcile when delete", "BGPPeer", req.NamespacedName)
 
 	nodeBGPList := &sartv1alpha1.NodeBGPList{}
 	if err := r.Client.List(ctx, nodeBGPList); err != nil {

@@ -52,7 +52,6 @@ func (n *NodeWatcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Res
 
 	for _, node := range nodeList.Items {
 		addrs := node.Status.Addresses
-		logger.Info("node addresses", "name", node.Name, "addresses", addrs)
 
 		exist := false
 		for _, nodeBgp := range nodeBgpList.Items {

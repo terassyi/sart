@@ -9,7 +9,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/go-logr/logr"
 	sartv1alpha1 "github.com/terassyi/sart/controller/api/v1alpha1"
 	"github.com/terassyi/sart/controller/pkg/allocator"
 	"github.com/terassyi/sart/controller/pkg/constants"
@@ -198,7 +197,6 @@ func (r *LBAllocationReconciler) reconcileAddressPool(ctx context.Context, req c
 		return ctrl.Result{}, nil
 	}
 
-	logger.Info("AddressaddressPool is already created", "AddressaddressPool", addressPool.Name, "allocator", p)
 	for _, a := range p {
 		if addressPool.Spec.Disable {
 			a.Disable()
@@ -241,12 +239,9 @@ func (r *LBAllocationReconciler) reconcileService(ctx context.Context, req ctrl.
 func (r *LBAllocationReconciler) reconcileServiceWhenDelete(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	logger.Info("reconcile when deleting", "Name", req.NamespacedName)
-
 	allocInfo, ok := r.allocMap[req.NamespacedName.String()]
 	if !ok {
 		// if allocations are not found, there is nothing to do
-		logger.Info("Allocations is not found when deleting")
 		return ctrl.Result{}, nil
 	}
 
@@ -469,7 +464,6 @@ func (r *LBAllocationReconciler) assign(ctx context.Context, svc *v1.Service) er
 
 	newSvc := svc.DeepCopy()
 	if len(newSvc.Status.LoadBalancer.Ingress) != 0 {
-		logger.Info("LB addresses are already assigned. Clear status")
 		newSvc.Status.LoadBalancer = v1.LoadBalancerStatus{}
 	}
 
@@ -484,7 +478,6 @@ func (r *LBAllocationReconciler) assign(ctx context.Context, svc *v1.Service) er
 			return err
 		}
 		if adv.Status.Condition != sartv1alpha1.BGPAdvertisementConditionAdvertised {
-			logger.Info("LB address is not advertised")
 			return nil
 		}
 
@@ -522,41 +515,6 @@ func (r *LBAllocationReconciler) assign(ctx context.Context, svc *v1.Service) er
 		return err
 	}
 
-	return nil
-}
-
-func (r *LBAllocationReconciler) release(logger logr.Logger, svc *v1.Service) error {
-	delete(svc.Annotations, constants.AnnotationAllocatedFromPool)
-	if svc.Status.LoadBalancer.Ingress == nil || len(svc.Status.LoadBalancer.Ingress) == 0 {
-		return nil
-	}
-	poolName, ok := svc.Annotations[constants.AnnotationAddressPool]
-	if !ok {
-		return fmt.Errorf("pool is not found")
-	}
-	allocator, ok := r.Allocators[poolName]
-	if !ok {
-		return fmt.Errorf("allocator is not registered")
-	}
-
-	for _, ingress := range svc.Status.LoadBalancer.Ingress {
-		addr, err := netip.ParseAddr(ingress.IP)
-		if err != nil {
-			return err
-		}
-		if addr.Is4() {
-			_, err := allocator[constants.ProtocolIpv4].Release(addr)
-			if err != nil {
-				return err
-			}
-		} else {
-			_, err := allocator[constants.ProtocolIpv6].Release(addr)
-			if err != nil {
-				return err
-			}
-		}
-	}
-	svc.Status.LoadBalancer = v1.LoadBalancerStatus{}
 	return nil
 }
 
@@ -663,12 +621,6 @@ func desiredAddr(svc *v1.Service) (map[string]netip.Addr, error) {
 		}
 	}
 	return desired, nil
-}
-
-func (r *LBAllocationReconciler) clearAllocationInfo(svc *v1.Service) error {
-	delete(svc.Annotations, constants.AnnotationAllocatedFromPool)
-	svc.Status.LoadBalancer = v1.LoadBalancerStatus{}
-	return nil
 }
 
 func (r *LBAllocationReconciler) createOrUpdateAdvertisement(ctx context.Context, svcName string, lbAddr netip.Addr, lbType v1.ServiceExternalTrafficPolicyType, epSliceList discoveryv1.EndpointSliceList) (*sartv1alpha1.BGPAdvertisement, bool, error) {

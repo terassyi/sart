@@ -11,7 +11,6 @@ import (
 	"github.com/terassyi/sart/controller/pkg/speaker"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -42,7 +41,6 @@ func (r *BGPAdvertisementReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, err
 	}
 
-	logger.Info("handle advertisement", "Status", advertisement.Status)
 	switch advertisement.Status.Condition {
 	case sartv1alpha1.BGPAdvertisementConditionAdvertising:
 		return r.reconcileWhenAdvertising(ctx, advertisement)
@@ -69,7 +67,6 @@ func (r *BGPAdvertisementReconciler) reconcileWhenAdvertising(ctx context.Contex
 		for _, target := range advertisement.Spec.Nodes {
 			if p.Spec.Node == target {
 				if p.Status != sartv1alpha1.BGPPeerStatusEstablished {
-					logger.Info("BGPPeer is unavailable", "BGPPeer", p.Spec)
 					return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 5}, nil
 				}
 				if err := r.advertise(ctx, &p, advertisement); err != nil {
@@ -178,7 +175,6 @@ func (r *BGPAdvertisementReconciler) reconcileWhenUpdated(ctx context.Context, a
 	for _, n := range removed {
 		removedNodes = append(removedNodes, n.Spec.Node)
 	}
-	logger.Info("advertisement", "Name", types.NamespacedName{Namespace: advertisement.Namespace, Name: advertisement.Name}, "Added", addedNodes, "Removed", removedNodes)
 
 	notComplete := false
 
@@ -273,7 +269,6 @@ func (r *BGPAdvertisementReconciler) advertise(ctx context.Context, peer *sartv1
 		logger.Error(err, "failed to add path to speaker", "Peer", peer.Spec, "Advertisement", adv.Spec)
 		return err
 	}
-	logger.Info("advertise the path", "Path", adv.ToPathInfo())
 
 	return nil
 }
@@ -308,7 +303,6 @@ func (r *BGPAdvertisementReconciler) withdraw(ctx context.Context, peer *sartv1a
 	if err := speakerEndpoint.DeletePath(ctx, pathInfo); err != nil {
 		return err
 	}
-	logger.Info("withdraw the path", "Prefix", prefix)
 	return nil
 }
 
