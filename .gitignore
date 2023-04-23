@@ -4,4 +4,4 @@
 *.pcaping
 .vscode
 *.bin
-devenv/frr/staticd.conf
+devenv/frr/gobfp.conf
