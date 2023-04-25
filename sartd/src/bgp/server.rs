@@ -288,7 +288,8 @@ impl Bgp {
     async fn set_asn(&mut self, asn: u32) -> Result<(), Error> {
         let mut config = self.config.lock().unwrap();
         if config.asn != 0 {
-            return Err(Error::Config(ConfigError::AlreadyConfigured));
+            // return Err(Error::Config(ConfigError::AlreadyConfigured));
+            return Ok(());
         }
         config.asn = asn;
         if let Some(cap) = self
@@ -314,7 +315,8 @@ impl Bgp {
     async fn set_router_id(&mut self, router_id: Ipv4Addr) -> Result<(), Error> {
         let mut config = self.config.lock().unwrap();
         if config.router_id.ne(&Ipv4Addr::new(0, 0, 0, 0)) {
-            return Err(Error::Config(ConfigError::AlreadyConfigured));
+            // return Err(Error::Config(ConfigError::AlreadyConfigured));
+            return Ok(());
         }
         config.router_id = router_id;
         tracing::info!("set local router_id");

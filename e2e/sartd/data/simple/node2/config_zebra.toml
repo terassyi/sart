@@ -1,0 +1,14 @@
+[global.config]
+as = 65100
+router-id = "10.0.0.3"
+
+[zebra]
+ [zebra.config]
+   enabled = true
+   url = "unix:/var/run/frr/zserv.api"
+   version = 6
+
+[[neighbors]]
+  [neighbors.config]
+    neighbor-address = "10.0.0.2"
+    peer-as = 65000
