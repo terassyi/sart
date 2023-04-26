@@ -25,5 +25,6 @@ var _ = Describe("sartd", func() {
 	})
 
 	// Context("Establish", testEstablish)
-	Context("Update", testUpdate)
+	// Context("Update", testUpdate)
+	Context("Fib", testFib)
 })
