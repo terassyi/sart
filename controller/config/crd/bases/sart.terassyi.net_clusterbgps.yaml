@@ -111,8 +111,6 @@ spec:
                     default: none
                     type: string
                 type: object
-            required:
-            - nodes
             type: object
           status:
             description: ClusterBGPStatus defines the observed state of ClusterBGP

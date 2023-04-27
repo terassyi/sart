@@ -20,12 +20,13 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -33,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	sartv1alpha1 "github.com/terassyi/sart/controller/api/v1alpha1"
+	"github.com/terassyi/sart/controller/pkg/constants"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -47,6 +49,7 @@ var scheme = runtime.NewScheme()
 func TestAPIs(t *testing.T) {
 	RegisterFailHandler(Fail)
 
+	SetDefaultEventuallyTimeout(20 * time.Second)
 	RunSpecs(t, "Controller Suite")
 }
 
@@ -65,6 +68,8 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
 
+	err = clientgoscheme.AddToScheme(scheme)
+	Expect(err).NotTo(HaveOccurred())
 	err = corev1.AddToScheme(scheme)
 	Expect(err).NotTo(HaveOccurred())
 	err = sartv1alpha1.AddToScheme(scheme)
@@ -79,13 +84,39 @@ var _ = BeforeSuite(func() {
 	ctx := context.Background()
 	node1 := &corev1.Node{}
 	node1.Name = "node1"
+	node1.SetLabels(map[string]string{
+		constants.LabelKeyAsn: "65000",
+	})
+	node1.Status.Addresses = []corev1.NodeAddress{
+		{
+			Type:    corev1.NodeInternalIP,
+			Address: "10.0.0.1",
+		},
+	}
 	err = k8sClient.Create(ctx, node1)
 	Expect(err).ToNot(HaveOccurred())
+
 	node2 := &corev1.Node{}
 	node2.Name = "node2"
+	node2.Status.Addresses = []corev1.NodeAddress{
+		{
+			Type:    corev1.NodeInternalIP,
+			Address: "10.0.0.2",
+		},
+	}
+	node2.SetLabels(map[string]string{
+		constants.LabelKeyAsn: "65000",
+	})
 	err = k8sClient.Create(ctx, node2)
 	Expect(err).ToNot(HaveOccurred())
 
+	clusterBgp := sartv1alpha1.ClusterBGP{}
+	clusterBgp.Name = "test"
+	clusterBgp.Namespace = constants.Namespace
+	err = k8sClient.Create(ctx, &clusterBgp)
+	Expect(err).ToNot(HaveOccurred())
+
+	time.Sleep(1 * time.Second)
 })
 
 var _ = AfterSuite(func() {

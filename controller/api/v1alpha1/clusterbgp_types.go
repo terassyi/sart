@@ -28,7 +28,7 @@ type ClusterBGPSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 	PeeringPolicy PeeringPolicy `json:"peeringPolicy,omitempty"`
-	Nodes         []NodeBGP     `json:"nodes"`
+	Nodes         []NodeBGP     `json:"nodes,omitempty"`
 }
 
 // ClusterBGPStatus defines the observed state of ClusterBGP

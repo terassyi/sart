@@ -5,6 +5,8 @@ import (
 	"fmt"
 )
 
+var mockSpeakerStore map[string]*Mock = make(map[string]*Mock)
+
 type Mock struct {
 	endpointAddr string
 	endpointPort uint32
@@ -15,12 +17,25 @@ type Mock struct {
 }
 
 func newMockSpeaker(endpointAddr string, endpointPort uint32) *Mock {
-	return &Mock{
-		endpointAddr: endpointAddr,
-		endpointPort: endpointPort,
-		peerMap:      make(map[string]PeerInfo),
-		pathMap:      make(map[string]PathInfo),
+	key := fmt.Sprintf("%s:%d", endpointAddr, endpointPort)
+	speaker, ok := mockSpeakerStore[key]
+	if !ok {
+		fmt.Printf("Store mock speaker: %s\n", key)
+		speaker := &Mock{
+			endpointAddr: endpointAddr,
+			endpointPort: endpointPort,
+			peerMap:      make(map[string]PeerInfo),
+			pathMap:      make(map[string]PathInfo),
+		}
+		mockSpeakerStore[key] = speaker
+		return speaker
 	}
+	fmt.Printf("Get mock speaker: %s: %v\n", key, speaker)
+	return speaker
+}
+
+func ClearMockSpeakerStore() {
+	mockSpeakerStore = make(map[string]*Mock)
 }
 
 func (s *Mock) HealthCheck(ctx context.Context) error {

@@ -24,7 +24,7 @@ var _ = Describe("sartd", func() {
 		fmt.Printf("END: %s\n", time.Now().Format(time.RFC3339))
 	})
 
-	// Context("Establish", testEstablish)
-	// Context("Update", testUpdate)
+	Context("Establish", testEstablish)
+	Context("Update", testUpdate)
 	Context("Fib", testFib)
 })
