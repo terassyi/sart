@@ -19,6 +19,8 @@ jobs:
         run: make build
       - name: Fmt
         run: make fmt
+      - name: build-image
+        run: make build-dev-image
       - name: setup-dev
         run: make setup-dev
       - name: Run unit tests
