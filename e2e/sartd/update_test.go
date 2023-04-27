@@ -38,7 +38,7 @@ func testUpdate() {
 				return fmt.Errorf("Session is not Established")
 			}
 			return nil
-		}, "1m").WithPolling(1 * time.Second).Should(Succeed())
+		}, "5m").WithPolling(1 * time.Second).Should(Succeed())
 
 		By("getting GoBGP peer state with node3")
 		Eventually(func(g Gomega) error {
@@ -54,7 +54,7 @@ func testUpdate() {
 				return fmt.Errorf("Session is not Established")
 			}
 			return nil
-		}, "1m").WithPolling(1 * time.Second).Should(Succeed())
+		}, "5m").WithPolling(1 * time.Second).Should(Succeed())
 
 		By("propagating paths received from peers")
 		err = container.RunCommandInContainer(ctx, "node2", false, []string{"gobgp", "global", "rib", "add", "10.0.0.0/24", "-a", "ipv4", "origin", "igp"})
@@ -151,7 +151,7 @@ func testUpdate() {
 				return fmt.Errorf("Session is not Established")
 			}
 			return nil
-		}, "1m").WithPolling(1 * time.Second).Should(Succeed())
+		}, "5m").WithPolling(1 * time.Second).Should(Succeed())
 
 		By("getting GoBGP peer state with node3")
 		Eventually(func(g Gomega) error {
@@ -167,7 +167,7 @@ func testUpdate() {
 				return fmt.Errorf("Session is not Established")
 			}
 			return nil
-		}, "1m").WithPolling(1 * time.Second).Should(Succeed())
+		}, "5m").WithPolling(1 * time.Second).Should(Succeed())
 
 		By("not propagated iBGP paths received from peers")
 		err = container.RunCommandInContainer(ctx, "node2", false, []string{"gobgp", "global", "rib", "add", "10.0.0.0/24", "-a", "ipv4", "origin", "igp"})

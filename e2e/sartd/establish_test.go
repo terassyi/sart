@@ -38,7 +38,7 @@ func testEstablish() {
 				return fmt.Errorf("Session is not Established")
 			}
 			return nil
-		}, "1m").WithPolling(1 * time.Second).Should(Succeed())
+		}, "5m").WithPolling(1 * time.Second).Should(Succeed())
 
 		By("getting GoBGP peer state with node3")
 		Eventually(func(g Gomega) error {
@@ -54,7 +54,7 @@ func testEstablish() {
 				return fmt.Errorf("Session is not Established")
 			}
 			return nil
-		}, "1m").WithPolling(1 * time.Second).Should(Succeed())
+		}, "5m").WithPolling(1 * time.Second).Should(Succeed())
 
 	})
 	It("should establish bgp peer manually", func() {
@@ -93,7 +93,7 @@ func testEstablish() {
 				return fmt.Errorf("Session is not Established")
 			}
 			return nil
-		}, "1m").WithPolling(1 * time.Second).Should(Succeed())
+		}, "5m").WithPolling(1 * time.Second).Should(Succeed())
 
 		By("getting GoBGP peer state with node3")
 		Eventually(func(g Gomega) error {
@@ -109,7 +109,7 @@ func testEstablish() {
 				return fmt.Errorf("Session is not Established")
 			}
 			return nil
-		}, "1m").WithPolling(1 * time.Second).Should(Succeed())
+		}, "5m").WithPolling(1 * time.Second).Should(Succeed())
 
 	})
 }

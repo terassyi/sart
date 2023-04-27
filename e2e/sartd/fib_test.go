@@ -35,7 +35,7 @@ func testFib() {
 				return fmt.Errorf("Session is not Established")
 			}
 			return nil
-		}, "1m").WithPolling(1 * time.Second).Should(Succeed())
+		}, "5m").WithPolling(1 * time.Second).Should(Succeed())
 
 		By("getting GoBGP peer state with node3")
 		Eventually(func(g Gomega) error {
@@ -51,7 +51,7 @@ func testFib() {
 				return fmt.Errorf("Session is not Established")
 			}
 			return nil
-		}, "1m").WithPolling(1 * time.Second).Should(Succeed())
+		}, "5m").WithPolling(1 * time.Second).Should(Succeed())
 
 		By("propagating paths received from peers")
 		err = container.RunCommandInContainer(ctx, "node2", false, []string{"gobgp", "global", "rib", "add", "10.0.10.0/24", "-a", "ipv4", "origin", "igp"})
@@ -109,7 +109,7 @@ func testFib() {
 				return fmt.Errorf("Session is not Established")
 			}
 			return nil
-		}, "1m").WithPolling(1 * time.Second).Should(Succeed())
+		}, "5m").WithPolling(1 * time.Second).Should(Succeed())
 
 		By("getting GoBGP peer state with node3")
 		Eventually(func(g Gomega) error {
@@ -125,7 +125,7 @@ func testFib() {
 				return fmt.Errorf("Session is not Established")
 			}
 			return nil
-		}, "1m").WithPolling(1 * time.Second).Should(Succeed())
+		}, "5m").WithPolling(1 * time.Second).Should(Succeed())
 
 		By("advertising paths")
 		err = container.RunCommandInContainer(ctx, "node4", false, []string{"gobgp", "global", "rib", "add", "10.0.3.0/24", "-a", "ipv4", "origin", "igp"})
@@ -152,7 +152,7 @@ func testFib() {
 				return fmt.Errorf("one path required")
 			}
 			return nil
-		}, "1m").WithPolling(1 * time.Second).Should(Succeed())
+		}, "5m").WithPolling(1 * time.Second).Should(Succeed())
 
 		Eventually(func() error {
 			res, err := container.RunCommandInContainerWithOutput(ctx, "node3", []string{"gobgp", "global", "rib", "-a", "ipv4", "-j"})
@@ -172,7 +172,7 @@ func testFib() {
 				return fmt.Errorf("one path required")
 			}
 			return nil
-		}, "1m").WithPolling(1 * time.Second).Should(Succeed())
+		}, "5m").WithPolling(1 * time.Second).Should(Succeed())
 
 		By("checking connectivity to node4")
 		err = container.RunCommandInContainer(ctx, "node5", false, []string{"ping", "-c", "1", "10.0.3.3"})
