@@ -6,26 +6,22 @@ env:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
-
     steps:
-    - uses: actions/setup-go@v4
-      with:
-        go-version: '>=1.17.0'
-    - uses: actions/checkout@v3
-    - name: Setup grpc
-      run: make setup-grpc
-    - name: Build
-      run: make build
-    - name: Fmt
-      run: make fmt
-    - name: setup-dev
-      run: make setup-dev
-    - name: Run unit tests
-      run: make unit-test
-    - name: Run integration test
-      run: make integration-test
-    - name: Run controller test
-      run: make controller-test
+      - uses: actions/setup-go@v4
+        with:
+          go-version: ">=1.17.0"
+      - uses: actions/checkout@v3
+      - name: Setup grpc
+        run: make setup-grpc
+      - name: Build
+        run: make build
+      - name: Fmt
+        run: make fmt
+      - name: setup-dev
+        run: make setup-dev
+      - name: Run unit tests
+        run: make unit-test
+      - name: Run e2e test
+        run: make e2e-test

@@ -60,15 +60,15 @@ fmt:
 	cd sartd; $(CARGO) fmt
 
 .PHONY: test
-test: unit-test
+test: unit-test e2e-test
 
 .PHONY: unit-test
 unit-test:
 	cd sartd; $(CARGO) test
 
-.PHONY: integration-test
-integration-test:
-	sartd/test/run-integration.sh
+.PHONY: e2e-test
+e2e-test:
+	cd e2e; go test -v ./sartd
 
 .PHONY: controller-test
 controller-test:

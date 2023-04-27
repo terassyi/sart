@@ -24,12 +24,15 @@ type SpeakerType string
 var (
 	SpeakerTypeUnknown SpeakerType = SpeakerType("unknown")
 	SpeakerTypeSart    SpeakerType = SpeakerType("sart")
+	SpeakerTypeMock    SpeakerType = SpeakerType("mock")
 )
 
 func New(typ SpeakerType, endpointAddr string, endpointPort uint32) Speaker {
 	switch typ {
 	case SpeakerTypeSart:
 		return newSartSpeaker(endpointAddr, endpointPort)
+	case SpeakerTypeMock:
+		return newMockSpeaker(endpointAddr, endpointPort)
 	default:
 		return nil
 	}

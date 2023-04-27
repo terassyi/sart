@@ -17,20 +17,22 @@ limitations under the License.
 package controllers
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"k8s.io/client-go/kubernetes/scheme"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	sartterassyinetv1alpha1 "github.com/terassyi/sart/controller/api/v1alpha1"
+	sartv1alpha1 "github.com/terassyi/sart/controller/api/v1alpha1"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -40,6 +42,7 @@ import (
 var cfg *rest.Config
 var k8sClient client.Client
 var testEnv *envtest.Environment
+var scheme = runtime.NewScheme()
 
 func TestAPIs(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -62,14 +65,26 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
 
-	err = sartterassyinetv1alpha1.AddToScheme(scheme.Scheme)
+	err = corev1.AddToScheme(scheme)
+	Expect(err).NotTo(HaveOccurred())
+	err = sartv1alpha1.AddToScheme(scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	//+kubebuilder:scaffold:scheme
 
-	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
+	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
+
+	ctx := context.Background()
+	node1 := &corev1.Node{}
+	node1.Name = "node1"
+	err = k8sClient.Create(ctx, node1)
+	Expect(err).ToNot(HaveOccurred())
+	node2 := &corev1.Node{}
+	node2.Name = "node2"
+	err = k8sClient.Create(ctx, node2)
+	Expect(err).ToNot(HaveOccurred())
 
 })
 
