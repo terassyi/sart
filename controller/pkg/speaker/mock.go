@@ -12,8 +12,8 @@ type Mock struct {
 	endpointPort uint32
 	asn          uint32
 	routerId     string
-	peerMap      map[string]PeerInfo
-	pathMap      map[string]PathInfo
+	peerMap      map[string]*PeerInfo
+	pathMap      map[string]*PathInfo
 }
 
 func newMockSpeaker(endpointAddr string, endpointPort uint32) *Mock {
@@ -23,8 +23,8 @@ func newMockSpeaker(endpointAddr string, endpointPort uint32) *Mock {
 		speaker := &Mock{
 			endpointAddr: endpointAddr,
 			endpointPort: endpointPort,
-			peerMap:      make(map[string]PeerInfo),
-			pathMap:      make(map[string]PathInfo),
+			peerMap:      make(map[string]*PeerInfo),
+			pathMap:      make(map[string]*PathInfo),
 		}
 		mockSpeakerStore[key] = speaker
 		return speaker
@@ -34,6 +34,30 @@ func newMockSpeaker(endpointAddr string, endpointPort uint32) *Mock {
 
 func ClearMockSpeakerStore() {
 	mockSpeakerStore = make(map[string]*Mock)
+}
+
+func GetMockSpeakerPeer(speakerKey, peerKey string) (*PeerInfo, error) {
+	speaker, ok := mockSpeakerStore[speakerKey]
+	if !ok {
+		return nil, fmt.Errorf("speaker not found: %s", speakerKey)
+	}
+	peer, ok := speaker.peerMap[peerKey]
+	if !ok {
+		return nil, fmt.Errorf("path not found: %s", peerKey)
+	}
+	return peer, nil
+}
+
+func GetMockSpeakerPath(speakerKey, pathKey string) (*PathInfo, error) {
+	speaker, ok := mockSpeakerStore[speakerKey]
+	if !ok {
+		return nil, fmt.Errorf("speaker not found: %s", speakerKey)
+	}
+	path, ok := speaker.pathMap[pathKey]
+	if !ok {
+		return nil, fmt.Errorf("path not found: %s", pathKey)
+	}
+	return path, nil
 }
 
 func (s *Mock) HealthCheck(ctx context.Context) error {
@@ -56,13 +80,16 @@ func (s *Mock) SetInfo(ctx context.Context, info SpeakerInfo) error {
 func (s *Mock) GetPeer(ctx context.Context, peer string) (*PeerInfo, error) {
 	p, ok := s.peerMap[peer]
 	if !ok {
-		return nil, fmt.Errorf("peer not found")
+		return nil, fmt.Errorf("peer not found: %s, %v", peer, s.peerMap)
 	}
-	return &p, nil
+	return p, nil
 }
 
 func (s *Mock) AddPeer(ctx context.Context, peer PeerInfo) error {
-	s.peerMap[peer.PeerRouterId] = peer
+	if peer.State == "" {
+		peer.State = PeerStateIdle
+	}
+	s.peerMap[peer.PeerRouterId] = &peer
 	return nil
 }
 
@@ -72,7 +99,7 @@ func (s *Mock) DeletePeer(ctx context.Context, peer string) error {
 }
 
 func (s *Mock) AddPath(ctx context.Context, path PathInfo) error {
-	s.pathMap[path.Prefix] = path
+	s.pathMap[path.Prefix] = &path
 	return nil
 }
 

@@ -125,12 +125,12 @@ var _ = Describe("Node Watcher", func() {
 		Expect(nodeBgp3.Spec.RouterId).To(Equal(node3Addr))
 
 		By("deleting a node")
-		err = k8sClient.Delete(ctx, node2)
+		err = k8sClient.Delete(ctx, node3)
 		Expect(err).NotTo(HaveOccurred())
 
 		Eventually(func() error {
 			deleted := &sartv1alpha1.NodeBGP{}
-			err := k8sClient.Get(ctx, types.NamespacedName{Namespace: constants.Namespace, Name: "node2"}, deleted)
+			err := k8sClient.Get(ctx, types.NamespacedName{Namespace: constants.Namespace, Name: "node3"}, deleted)
 			if err != nil {
 				if apierrors.IsNotFound(err) {
 					return nil

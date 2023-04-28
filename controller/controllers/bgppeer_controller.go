@@ -255,6 +255,7 @@ func (r *BGPPeerReconciler) reconcileWhenDelete(ctx context.Context, req ctrl.Re
 			if req.Name == p.Name && req.Namespace == p.Namespace {
 				idx = i
 				peer = p
+				break
 			}
 		}
 		if idx != -1 {
@@ -264,7 +265,7 @@ func (r *BGPPeerReconciler) reconcileWhenDelete(ctx context.Context, req ctrl.Re
 			speakerEndpoint := speaker.New(r.SpeakerType, nb.Spec.RouterId, r.SpeakerEndpointPort)
 			p, err := speakerEndpoint.GetPeer(ctx, peer.RouterId)
 			if err != nil {
-				logger.Error(err, "failed to get speaker peer", "NodeBGP", nb, "Peer", peer)
+				logger.Error(err, "failed to get speaker peer", "NodeBGP", nb.Name, "Peer", peer.Name)
 				return ctrl.Result{}, err
 			}
 			logger.Info("delete speaker peer", "Node", nb, "speaker peer", p)
