@@ -20,6 +20,7 @@ import (
 	"context"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -54,32 +55,32 @@ func (r *NodeBGPReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	logger := log.FromContext(ctx)
 
 	// get NodeBGP resources
-	nodeBgpList := &sartv1alpha1.NodeBGPList{}
-	if err := r.Client.List(ctx, nodeBgpList); err != nil {
-		logger.Error(err, "failed to list NodeBGP")
+	nodeBgp := &sartv1alpha1.NodeBGP{}
+	if err := r.Client.Get(ctx, req.NamespacedName, nodeBgp); err != nil {
+		if apierrors.IsNotFound(err) {
+			return ctrl.Result{}, nil
+		}
 		return ctrl.Result{}, err
 	}
 
-	for _, nodeBgp := range nodeBgpList.Items {
-		newNodeBgp := nodeBgp.DeepCopy()
-		speakerEndpoint := speaker.New(r.SpeakerType, nodeBgp.Spec.RouterId, r.SpeakerEndpointPort)
-		info, err := speakerEndpoint.GetInfo(ctx)
-		if err != nil {
-			logger.Error(err, "failed to get speaker info", "NodeBGP", nodeBgp.Spec.RouterId)
-			newNodeBgp.Status = sartv1alpha1.NodeBGPStatusUnavailable
-			if err := r.Client.Status().Patch(ctx, newNodeBgp, client.MergeFrom(&nodeBgp)); err != nil {
-				logger.Error(err, "failed to update status", "NodeBGP", nodeBgp.Spec.RouterId)
-				return ctrl.Result{}, err
-			}
-			return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 5}, nil
+	newNodeBgp := nodeBgp.DeepCopy()
+	speakerEndpoint := speaker.New(r.SpeakerType, nodeBgp.Spec.RouterId, r.SpeakerEndpointPort)
+	info, err := speakerEndpoint.GetInfo(ctx)
+	if err != nil {
+		logger.Error(err, "failed to get speaker info", "NodeBGP", nodeBgp.Spec.RouterId)
+		newNodeBgp.Status = sartv1alpha1.NodeBGPStatusUnavailable
+		if err := r.Client.Status().Patch(ctx, newNodeBgp, client.MergeFrom(nodeBgp)); err != nil {
+			logger.Error(err, "failed to update status", "NodeBGP", nodeBgp.Spec.RouterId)
+			return ctrl.Result{}, err
 		}
-		if nodeBgp.Spec.Asn != info.Asn {
-			logger.Info("don't match ASN", "desired", nodeBgp.Spec.Asn, "actual", info.Asn)
-		}
-		if nodeBgp.Spec.RouterId != info.RouterId {
-			logger.Info("don't match Router id", "desired", nodeBgp.Spec.RouterId, "actual", info.RouterId)
-		}
+		return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 5}, nil
+	}
 
+	if nodeBgp.Spec.Asn == info.Asn && nodeBgp.Spec.RouterId == info.RouterId && nodeBgp.Status == sartv1alpha1.NodeBGPStatusAvailable {
+		return ctrl.Result{}, nil
+	}
+	if nodeBgp.Spec.Asn != info.Asn || nodeBgp.Spec.RouterId != info.RouterId {
+		logger.Info("don't match NodeBGP info", "ASN", info.Asn, "RouerId", info.RouterId)
 		if err := speakerEndpoint.SetInfo(ctx, speaker.SpeakerInfo{
 			Asn:      nodeBgp.Spec.Asn,
 			RouterId: nodeBgp.Spec.RouterId,
@@ -87,14 +88,12 @@ func (r *NodeBGPReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			logger.Error(err, "failed to set NodeBGP information", "NodeBGP", nodeBgp.Name)
 			return ctrl.Result{}, err
 		}
+	}
 
-		if nodeBgp.Status != sartv1alpha1.NodeBGPStatusAvailable {
-			newNodeBgp.Status = sartv1alpha1.NodeBGPStatusAvailable
-			if err := r.Client.Status().Patch(ctx, newNodeBgp, client.MergeFrom(&nodeBgp)); err != nil {
-				logger.Error(err, "failed to update status", "NodeBGP", nodeBgp.Spec.RouterId)
-				return ctrl.Result{}, err
-			}
-		}
+	newNodeBgp.Status = sartv1alpha1.NodeBGPStatusAvailable
+	if err := r.Client.Status().Patch(ctx, newNodeBgp, client.MergeFrom(nodeBgp)); err != nil {
+		logger.Error(err, "failed to update status", "NodeBGP", nodeBgp.Spec.RouterId)
+		return ctrl.Result{}, err
 	}
 
 	return ctrl.Result{}, nil

@@ -1,12 +1,49 @@
 package controllers
 
 import (
+	"context"
 	"testing"
+	"time"
 
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 	"github.com/stretchr/testify/assert"
 	sartv1alpha1 "github.com/terassyi/sart/controller/api/v1alpha1"
+	"github.com/terassyi/sart/controller/pkg/speaker"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	ctrl "sigs.k8s.io/controller-runtime"
 )
+
+var _ = Describe("handle BGPAdvertisement", func() {
+	ctx := context.Background()
+	var cancel context.CancelFunc
+
+	BeforeEach(func() {
+		mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+			Scheme:             scheme,
+			LeaderElection:     false,
+			MetricsBindAddress: "0",
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		ctx, cancel = context.WithCancel(context.TODO())
+		go func() {
+			err := mgr.Start(ctx)
+			if err != nil {
+				panic(err)
+			}
+		}()
+		time.Sleep(100 * time.Millisecond)
+
+	})
+
+	AfterEach(func() {
+		speaker.ClearMockSpeakerStore()
+		cancel()
+		time.Sleep(10 * time.Millisecond)
+	})
+
+})
 
 func TestAdvDiff(t *testing.T) {
 	t.Parallel()

@@ -20,7 +20,6 @@ func newMockSpeaker(endpointAddr string, endpointPort uint32) *Mock {
 	key := fmt.Sprintf("%s:%d", endpointAddr, endpointPort)
 	speaker, ok := mockSpeakerStore[key]
 	if !ok {
-		fmt.Printf("Store mock speaker: %s\n", key)
 		speaker := &Mock{
 			endpointAddr: endpointAddr,
 			endpointPort: endpointPort,
@@ -30,7 +29,6 @@ func newMockSpeaker(endpointAddr string, endpointPort uint32) *Mock {
 		mockSpeakerStore[key] = speaker
 		return speaker
 	}
-	fmt.Printf("Get mock speaker: %s: %v\n", key, speaker)
 	return speaker
 }
 

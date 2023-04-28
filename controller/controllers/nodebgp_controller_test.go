@@ -74,13 +74,16 @@ var _ = Describe("NodeBGP Reconciler", func() {
 
 		By("changing NodeBGP status to available")
 		Eventually(func() error {
+			err := k8sClient.List(ctx, nodeBGPList)
+			if err != nil {
+				return err
+			}
 			for _, nb := range nodeBGPList.Items {
 				if nb.Status != sartv1alpha1.NodeBGPStatusAvailable {
 					return fmt.Errorf("not available: %s", nb.Name)
 				}
 			}
 			return nil
-		}, "1m").Should(Succeed())
-
+		}).Should(Succeed())
 	})
 })

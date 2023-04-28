@@ -86,9 +86,8 @@ func (n *NodeWatcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Res
 		// TODO: select asn selection policy by ClusterBGP.Spec.PeeringPolicy
 		s, ok := node.Labels[constants.LabelKeyAsn]
 		if !ok {
-			err := fmt.Errorf("failed to get asn from label")
-			logger.Error(err, "got label", "Node", node.Name, "Value", s)
-			return ctrl.Result{}, err
+			logger.Info("ignore the node doesn't has an ASN annotation")
+			return ctrl.Result{}, nil
 		}
 		asn, err := strconv.ParseUint(s, 10, 64)
 		if err != nil {
