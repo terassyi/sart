@@ -290,7 +290,20 @@ var _ = Describe("handle BGPPeer", func() {
 			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: "default", Name: "lb-cluster1"}, svc); err != nil {
 				return err
 			}
-
+			if len(svc.Status.Conditions) < 1 {
+				return fmt.Errorf("expected at least one condition")
+			}
+			assignedCondition := svc.Status.Conditions[len(svc.Status.Conditions)-1]
+			if assignedCondition.Type != ServiceConditionTypeAdvertised {
+				return fmt.Errorf("want: %v, got: %v", corev1.ConditionStatus(ServiceConditionReasonAdvertised), assignedCondition.Reason)
+			}
+			if len(svc.Status.LoadBalancer.Ingress) == 0 {
+				return fmt.Errorf("expected at least one ingress")
+			}
+			lbStatus := svc.Status.LoadBalancer.Ingress[0]
+			if lbStatus.IP != allocInfo.addr.String() {
+				return fmt.Errorf("want: %s, got: %s", allocInfo.addr, lbStatus.IP)
+			}
 			return nil
 		}).Should(Succeed())
 

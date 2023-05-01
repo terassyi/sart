@@ -377,7 +377,7 @@ func (r *LBAllocationReconciler) handleService(ctx context.Context, svc *v1.Serv
 	newSvc := svc.DeepCopy()
 
 	newSvc.Status.Conditions = append(newSvc.Status.Conditions, metav1.Condition{
-		Type:    ServiceConditionReasonAdvertising,
+		Type:    ServiceConditionTypeAdvertising,
 		Status:  metav1.ConditionFalse,
 		Reason:  ServiceConditionReasonAdvertising,
 		Message: "LB addresses are allocated internally",
@@ -515,7 +515,7 @@ func (r *LBAllocationReconciler) assign(ctx context.Context, svc *v1.Service) er
 	}
 	if assigned {
 		newSvc.Status.Conditions = append(newSvc.Status.Conditions, metav1.Condition{
-			Type:    ServiceConditionReasonAdvertised,
+			Type:    ServiceConditionTypeAdvertised,
 			Status:  metav1.ConditionTrue,
 			Reason:  ServiceConditionReasonAdvertised,
 			Message: "allocated addresses are advertised and assigned",
