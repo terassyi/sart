@@ -15,6 +15,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
+var peerNames = []string{"peer1", "peer2", "peer3"}
+
 var _ = Describe("handle BGPPeer", func() {
 	ctx := context.Background()
 	var cancel context.CancelFunc

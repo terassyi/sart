@@ -62,13 +62,18 @@ func (r *BGPAdvertisementReconciler) reconcileWhenAdvertising(ctx context.Contex
 	}
 
 	notComplete := false
+	requeue := false
 	for _, p := range peerList.Items {
-		logger.Info("decide advertising node", "Status", advertisement.Spec.Nodes)
+		logger.Info("decide advertising from node", "Nodes", advertisement.Spec.Nodes, "Peer", p.Name)
 		for _, target := range advertisement.Spec.Nodes {
 			if p.Spec.Node == target {
 				if p.Status != sartv1alpha1.BGPPeerStatusEstablished {
-					return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 5}, nil
+					logger.Info("peer is not established", "Peer", p.Name, "State", p.Status)
+					// return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 5}, nil
+					requeue = true
+					continue
 				}
+				logger.Info("advertise new path", "Node", target, "Prefix", advertisement.Spec.Network)
 				if err := r.advertise(ctx, &p, advertisement); err != nil {
 					if errors.Is(err, ErrPeerIsNotEstablished) {
 						notComplete = true
@@ -89,6 +94,7 @@ func (r *BGPAdvertisementReconciler) reconcileWhenAdvertising(ctx context.Contex
 						Namespace: advertisement.Namespace,
 						Prefix:    advertisement.Spec.Network,
 					})
+					logger.Info("update peer")
 					if err := r.Client.Update(ctx, &p); err != nil {
 						return ctrl.Result{}, err
 					}
@@ -113,6 +119,9 @@ func (r *BGPAdvertisementReconciler) reconcileWhenAdvertising(ctx context.Contex
 		return ctrl.Result{Requeue: true}, nil // TODO: should we use RequeueAfter?
 	}
 
+	if requeue {
+		return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 5}, nil
+	}
 	return ctrl.Result{}, nil
 }
 
@@ -167,14 +176,6 @@ func (r *BGPAdvertisementReconciler) reconcileWhenUpdated(ctx context.Context, a
 	}
 	// search advertised path
 	added, removed := advDiff(*peerList, advertisement)
-
-	addedNodes, removedNodes := []string{}, []string{}
-	for _, n := range added {
-		addedNodes = append(addedNodes, n.Spec.Node)
-	}
-	for _, n := range removed {
-		removedNodes = append(removedNodes, n.Spec.Node)
-	}
 
 	notComplete := false
 

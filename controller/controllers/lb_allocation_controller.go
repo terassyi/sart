@@ -20,8 +20,10 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
@@ -109,6 +111,29 @@ func (r *LBAllocationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1.Service{}).
+		WithEventFilter(predicate.Funcs{
+			CreateFunc: func(ce event.CreateEvent) bool {
+				svc, ok := ce.Object.(*v1.Service)
+				if !ok {
+					return true
+				}
+				return filterService(svc) && !filterEmptyService(svc)
+			},
+			UpdateFunc: func(ue event.UpdateEvent) bool {
+				svc, ok := ue.ObjectOld.(*v1.Service)
+				if !ok {
+					return true
+				}
+				return filterService(svc) && !filterEmptyService(svc)
+			},
+			DeleteFunc: func(de event.DeleteEvent) bool {
+				svc, ok := de.Object.(*v1.Service)
+				if !ok {
+					return true
+				}
+				return filterService(svc) && !filterEmptyService(svc)
+			},
+		}).
 		Watches(&source.Kind{Type: &sartv1alpha1.AddressPool{}}, &handler.EnqueueRequestForObject{}).
 		Watches(&source.Kind{Type: &discoveryv1.EndpointSlice{}}, handler.EnqueueRequestsFromMapFunc(func(o client.Object) []reconcile.Request {
 			epSlice, ok := o.(*discoveryv1.EndpointSlice)
@@ -132,11 +157,6 @@ func (r *LBAllocationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			ns, name := advertiseNameToServiceName(adv.Name)
 			return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: ns, Name: name}}}
 		})).
-		// WithEventFilter(predicate.Funcs{
-		// 	DeleteFunc: func(e event.DeleteEvent) bool {
-		// 		return false
-		// 	},
-		// }).
 		Complete(r)
 }
 
@@ -153,9 +173,9 @@ func (r *LBAllocationReconciler) reconcileAddressPool(ctx context.Context, req c
 	}
 
 	// add finalizer
-	finalizer := constants.GetFinalizerName(addressPool.TypeMeta)
-	if !controllerutil.ContainsFinalizer(addressPool, finalizer) {
-		controllerutil.AddFinalizer(addressPool, finalizer)
+	// finalizer := constants.GetFinalizerName(addressPool.TypeMeta)
+	if !controllerutil.ContainsFinalizer(addressPool, constants.AddressPoolFinalizer) {
+		controllerutil.AddFinalizer(addressPool, constants.AddressPoolFinalizer)
 		if err := r.Client.Update(ctx, addressPool); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -163,8 +183,8 @@ func (r *LBAllocationReconciler) reconcileAddressPool(ctx context.Context, req c
 	// remove finalizer and delete addresspool
 	if !addressPool.ObjectMeta.DeletionTimestamp.IsZero() {
 		logger.Info("deletion timestamp is not zero. remove AddressPool", "Name", addressPool.Name, "DeletionTimestamp", addressPool.DeletionTimestamp)
-		if controllerutil.ContainsFinalizer(addressPool, finalizer) {
-			controllerutil.RemoveFinalizer(addressPool, finalizer)
+		if controllerutil.ContainsFinalizer(addressPool, constants.AddressPoolFinalizer) {
+			controllerutil.RemoveFinalizer(addressPool, constants.AddressPoolFinalizer)
 
 			delete(r.Allocators, addressPool.Name)
 
@@ -767,7 +787,9 @@ func (r *LBAllocationReconciler) getClusterEndpoints(ctx context.Context, svc *v
 }
 
 func (r *LBAllocationReconciler) recoverAllocation(ctx context.Context) error {
-	// logger := log.FromContext(ctx)
+	logger := log.FromContext(ctx)
+
+	logger.Info("recover allocators")
 
 	poolList := &sartv1alpha1.AddressPoolList{}
 	if err := r.Client.List(ctx, poolList); err != nil {
@@ -877,4 +899,12 @@ func advertiseNameToServiceName(adv string) (string, string) {
 	name = strings.TrimSuffix(name, "-"+constants.ProtocolIpv6)
 
 	return namespace, name
+}
+
+func filterService(svc *v1.Service) bool {
+	return svc.Spec.Type == v1.ServiceTypeLoadBalancer
+}
+
+func filterEmptyService(svc *v1.Service) bool {
+	return svc.Name == "" && svc.Namespace == ""
 }

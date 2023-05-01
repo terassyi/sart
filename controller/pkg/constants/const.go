@@ -27,6 +27,10 @@ const (
 	ProtocolIpv6 string = "ipv6"
 )
 
+const (
+	AddressPoolFinalizer = "addresspool" + "." + Finalizer
+)
+
 func GetFinalizerName(obj metav1.TypeMeta) string {
 	return strings.ToLower(obj.Kind) + "." + Finalizer
 }
