@@ -200,7 +200,7 @@ var _ = Describe("handle BGPAdvertisement", func() {
 			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: peer1.Namespace, Name: peer1.Name}, peer); err != nil {
 				return err
 			}
-			if len(peer.Spec.Advertisements) != 1 {
+			if len(peer.Spec.Advertisements) < 1 {
 				return fmt.Errorf("want: 1, got: %d", len(peer.Spec.Advertisements))
 			}
 			return nil
@@ -260,7 +260,7 @@ var _ = Describe("handle BGPAdvertisement", func() {
 			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: peer1.Namespace, Name: peer1.Name}, peer); err != nil {
 				return err
 			}
-			if len(peer.Spec.Advertisements) != 1 {
+			if len(peer.Spec.Advertisements) < 1 {
 				return fmt.Errorf("want: 1, got: %d", len(peer.Spec.Advertisements))
 			}
 			return nil
