@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"time"
 
 	"github.com/terassyi/sart/e2e/container"
 )
@@ -70,7 +71,8 @@ func (n *Node) create(ctx context.Context) error {
 
 	o := new(bytes.Buffer)
 	e := new(bytes.Buffer)
-	showLog := exec.Command("docker", "logs", "-f", "node1")
+	cctx, _ := context.WithTimeout(context.Background(), time.Minute)
+	showLog := exec.CommandContext(cctx, "docker", "logs", "-f", "node1")
 	showLog.Stdout = o
 	showLog.Stderr = e
 	err := showLog.Run()
