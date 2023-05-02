@@ -49,7 +49,7 @@ func CreateDockerContainer(ctx context.Context, name, image, network, address st
 	e := new(bytes.Buffer)
 	cmd.Stderr = e
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%s", e.String())
+		return fmt.Errorf("%s\n%v", e.String(), err)
 	}
 	for _, c := range commands {
 		a := []string{"exec", "-d", name}

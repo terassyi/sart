@@ -1,12 +1,9 @@
 package topology
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"os/exec"
 	"path/filepath"
-	"time"
 
 	"github.com/terassyi/sart/e2e/container"
 )
@@ -66,19 +63,6 @@ func (n *Node) create(ctx context.Context) error {
 		volumes = append(volumes, fmt.Sprintf("%s:%s", abs, v.Destination))
 	}
 	if err := container.CreateDockerContainer(ctx, n.Name, n.Image, n.Interfaces[0].PeerName, n.Interfaces[0].Address, n.Privileged, volumes, n.InitCommands, n.Commands); err != nil {
-		return err
-	}
-
-	o := new(bytes.Buffer)
-	e := new(bytes.Buffer)
-	cctx, _ := context.WithTimeout(context.Background(), time.Minute)
-	showLog := exec.CommandContext(cctx, "docker", "logs", "-f", "node1")
-	showLog.Stdout = o
-	showLog.Stderr = e
-	err := showLog.Run()
-	fmt.Println(o.String())
-	fmt.Println(e.String())
-	if err != nil {
 		return err
 	}
 
