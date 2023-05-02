@@ -32,7 +32,7 @@ jobs:
       - name: Upload the dev image
         uses: actions/upload-artifact@v3
         with: 
-          name: dev-image
+          name: devimage
           path: /tmp/devimage.tar
   test:
     runs-on: ubuntu-latest
