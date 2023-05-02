@@ -34,6 +34,7 @@ jobs:
           path: /tmp/devimage.tar
   test:
     runs-on: ubuntu-latest
+    needs: build
     steps:
       - uses: actions/setup-go@v4
         with:
