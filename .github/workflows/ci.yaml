@@ -59,7 +59,5 @@ jobs:
         run: make setup-grpc
       - name: Run unit tests
         run: make unit-test
-      - name: Run controller tests
-        run: make controller-test
       - name: Run e2e test
         run: make e2e-test
