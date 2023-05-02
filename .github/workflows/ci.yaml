@@ -12,8 +12,8 @@ jobs:
         with:
           go-version: ">=1.17.0"
       - uses: actions/checkout@v3
-      - name: Setup grpc
-        run: make setup-grpc
+      - name: setup-dev
+        run: make setup-dev
       - name: Fmt
         run: make fmt
       - name: Build
@@ -21,6 +21,12 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/setup-go@v4
+        with:
+          go-version: ">=1.17.0"
+      - uses: actions/checkout@v3
+      - name: Setup grpc
+        run: make setup-grpc
       - name: setup-dev
         run: make setup-dev
       - name: build-image
