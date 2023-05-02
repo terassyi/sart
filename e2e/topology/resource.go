@@ -1,9 +1,12 @@
 package topology
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"os/exec"
 	"path/filepath"
+	"time"
 
 	"github.com/terassyi/sart/e2e/container"
 )
@@ -65,6 +68,18 @@ func (n *Node) create(ctx context.Context) error {
 	if err := container.CreateDockerContainer(ctx, n.Name, n.Image, n.Interfaces[0].PeerName, n.Interfaces[0].Address, n.Privileged, volumes, n.InitCommands, n.Commands); err != nil {
 		return err
 	}
+	for i := 0; i < 6; i++ {
+		lsContainer := exec.Command("docker", "ps", "-a")
+		stdout := new(bytes.Buffer)
+		lsContainer.Stdout = stdout
+		if err := lsContainer.Run(); err != nil {
+			return err
+		}
+		fmt.Println(lsContainer.Args)
+		fmt.Println(stdout.String())
+		time.Sleep(10 * time.Second)
+	}
+
 	if len(n.Interfaces) > 1 {
 		for i := 1; i < len(n.Interfaces); i++ {
 			if err := container.ConnectNetwork(ctx, n.Interfaces[i].PeerName, n.Interfaces[i].Address, n.Name); err != nil {
