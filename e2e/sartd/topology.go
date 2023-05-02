@@ -6,6 +6,25 @@ var simpleTopology topology.Topology = topology.Topology{
 	Name: "simple",
 	Nodes: []topology.Node{
 		{
+			Name: "node2",
+			Interfaces: []topology.Interface{
+				{
+					Name:     "n2-n1",
+					PeerName: "1-2",
+					Address:  "10.0.0.3",
+				},
+			},
+			Image: "ghcr.io/terassyi/terakoya:0.1.2",
+			Volume: []topology.Volume{
+				{
+					Source:      "./data/simple/node2",
+					Destination: "/etc/node2",
+				},
+			},
+			Privileged:   true,
+			InitCommands: []string{"gobgpd", "-f", "/etc/node2/config.toml"},
+		},
+		{
 			Name: "node1",
 			Interfaces: []topology.Interface{
 				{
@@ -30,25 +49,6 @@ var simpleTopology topology.Topology = topology.Topology{
 			InitCommands: []string{"sartd", "bgp", "-f", "/etc/node1/config.yaml"},
 			Config:       "",
 			Commands:     []string{},
-		},
-		{
-			Name: "node2",
-			Interfaces: []topology.Interface{
-				{
-					Name:     "n2-n1",
-					PeerName: "1-2",
-					Address:  "10.0.0.3",
-				},
-			},
-			Image: "ghcr.io/terassyi/terakoya:0.1.2",
-			Volume: []topology.Volume{
-				{
-					Source:      "./data/simple/node2",
-					Destination: "/etc/node2",
-				},
-			},
-			Privileged:   true,
-			InitCommands: []string{"gobgpd", "-f", "/etc/node2/config.toml"},
 		},
 		{
 			Name: "node3",
