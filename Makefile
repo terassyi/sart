@@ -60,7 +60,7 @@ fmt:
 	cd sartd; $(CARGO) fmt
 
 .PHONY: test
-test: unit-test e2e-test
+test: unit-test controller-test e2e-test
 
 .PHONY: unit-test
 unit-test:
