@@ -28,7 +28,7 @@ jobs:
           context: .
           file: ./Dockerfile.dev
           tags: sart:dev
-          outputs: type=docker,dest=/tmp/deviamge.tar
+          outputs: type=docker,dest=/tmp/devimage.tar
       - name: Upload the dev image
         uses: actions/upload-artifact@v3
         with: 
