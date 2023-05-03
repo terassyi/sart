@@ -62,8 +62,8 @@ jobs:
           builder: ${{ steps.buildx.outputs.name }}
           load: true
           tags: sart:${{ env.TAGS }}
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
       - name: List images
         run: |
           docker images ls
