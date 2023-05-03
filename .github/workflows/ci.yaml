@@ -48,6 +48,8 @@ jobs:
             ${{ github.ref }}-${{ github.sha }}
             ${{ github.ref }}
             refs/head/main
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
       - name: Build and load
         uses: docker/build-push-action@v2
         with:
