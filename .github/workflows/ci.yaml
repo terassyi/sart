@@ -38,7 +38,7 @@ jobs:
           outputs: type=docker,dest=/tmp/devimage.tar
       - name: Upload the dev image
         uses: actions/upload-artifact@v3
-        with: 
+        with:
           name: devimage
           path: /tmp/devimage.tar
   test:
@@ -73,6 +73,15 @@ jobs:
         run: make setup-grpc
       - name: Run unit tests
         run: make unit-test
+      - name: Run sart container
+        run: |
+          docker run --rm --name sartd-test --privileged -d sart:dev sartd bgp
+          sleep 1
+          docker ps
+          docker exec -d sart bgp global set --asn 65000 --router-id 1.1.1.1
+          sleep 10
+          docker logs sartd-test
+          docker rm -f sartd-test
       - name: Run e2e test
         continue-on-error: true
         run: make e2e-test
