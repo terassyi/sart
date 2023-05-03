@@ -3,25 +3,27 @@ on: [push, pull_request]
 
 env:
   CARGO_TERM_COLOR: always
+  TAGS: dev
 
 jobs:
-  build:
+  unit-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/setup-go@v4
         with:
           go-version: ">=1.17.0"
       - uses: actions/checkout@v3
-      - name: Set up Docker
-        uses: docker/setup-buildx-action@v2
       - uses: actions/cache@v3
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
+            ~/sartd/.cargo/registry
+            ~/sartd/.cargo/git
+            sartd/target
+            ~/sart/.cargo/registry
+            ~/sart/.cargo/git
+            sart/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - name: setup-dev
+      - name: Setup dev
         run: make setup-dev
       - name: Setup grpc
         run: make setup-grpc
@@ -31,29 +33,30 @@ jobs:
         run: make build
       - name: Run unit tests
         run: make unit-test
-      - name: Build and Load
-        uses: docker/build-push-action@v4
+      - name: Run controller envtest
+        run: make controller-test
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cache Docker layers
+        uses: actions/cache@v3
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ github.ref }}-${{ github.sha }}
+          restore-keys: |
+            ${{ github.ref }}-${{ github.sha }}
+            ${{ github.ref }}
+            refs/head/main
+      - name: Build and load
+        uses: docker/build-push-action@v2
         with:
           context: .
           file: ./Dockerfile.dev
-          load: true
-          tags: sart:dev
-      - name: Run sart container
-        run: |
-          docker run --rm --name sartd-test --privileged -d sart:dev tail -f /dev/null
-          sleep 1
-          docker ps
-          docker exec -d sartd-test sartd bgp
-          sleep 1
-          docker exec sartd-test sart bgp global set --asn 65000 --router-id 1.1.1.1
-          docker exec sartd-test sart bgp global get
-          sleep 10
-          docker logs sartd-test
-          docker rm -f sartd-test
+          builder: ${{ steps.buildx.outputs.name }}
+          push: false
+          tags: ${{ env.TAGS }}
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache
       - name: Run e2e test
-        continue-on-error: true
         run: make e2e-test
-      - name: Read syslog grep dockerd
-        continue-on-error: true
-        run: |
-          sudo journalctl --no-pager -u docker.service
