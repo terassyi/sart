@@ -60,7 +60,6 @@ jobs:
           context: .
           file: ./Dockerfile.dev
           builder: ${{ steps.buildx.outputs.name }}
-          push: false
           load: true
           tags: ${{ env.TAGS }}
           cache-from: type=local,src=/tmp/.buildx-cache
