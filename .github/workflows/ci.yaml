@@ -61,8 +61,12 @@ jobs:
           file: ./Dockerfile.dev
           builder: ${{ steps.buildx.outputs.name }}
           push: false
+          load: true
           tags: ${{ env.TAGS }}
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache
+      - name: List images
+        run: |
+          docker images ls
       - name: Run e2e test
         run: make e2e-test
