@@ -78,7 +78,9 @@ jobs:
           docker run --rm --name sartd-test --privileged -d sart:dev tail -f /dev/null
           sleep 1
           docker ps
-          docker exec -d sart bgp global set --asn 65000 --router-id 1.1.1.1
+          docker exec -d sartd-test sart bgp
+          sleep 1
+          docker exec -d sartd-test sart bgp global set --asn 65000 --router-id 1.1.1.1
           sleep 10
           docker logs sartd-test
           docker rm -f sartd-test
