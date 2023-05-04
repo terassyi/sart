@@ -28,6 +28,7 @@ jobs:
           docker run -d --rm --name frr-test --privileged --volume /home/runner/work/sart/sart/e2e/sartd/data/simple/node2:/etc/node2 ghcr.io/terassyi/terakoya:0.1.2 tail -f /dev/null
           docker exec -d frr-test /usr/lib/frr/frrinit.sh start
           docker ps
+          sleep 60
           docker exec -t frr-test gobgpd -f /etc/node2/config_zebra.toml
           docker ps
       - name: Setup dev
