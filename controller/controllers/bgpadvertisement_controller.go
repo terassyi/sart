@@ -11,6 +11,7 @@ import (
 	"github.com/terassyi/sart/controller/pkg/speaker"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -22,6 +23,17 @@ type BGPAdvertisementReconciler struct {
 	Scheme              *runtime.Scheme
 	SpeakerEndpointPort uint32
 	SpeakerType         speaker.SpeakerType
+	advMap              map[string]map[string]bool
+}
+
+func NewBGPAdvertisementReconciler(client client.Client, scheme *runtime.Scheme, endpoint uint32, speakerType speaker.SpeakerType) *BGPAdvertisementReconciler {
+	return &BGPAdvertisementReconciler{
+		Client:              client,
+		Scheme:              scheme,
+		SpeakerEndpointPort: endpoint,
+		SpeakerType:         speakerType,
+		advMap:              map[string]map[string]bool{},
+	}
 }
 
 // +kubebuilder:rbac:groups=sart.terassyi.net,resources=bgpadvertisements,verbs=get;list;watch;create;update;patch;delete
@@ -55,31 +67,36 @@ func (r *BGPAdvertisementReconciler) Reconcile(ctx context.Context, req ctrl.Req
 func (r *BGPAdvertisementReconciler) reconcileWhenAdvertising(ctx context.Context, advertisement *sartv1alpha1.BGPAdvertisement) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
+	var advInfo map[string]bool
+	advInfo, ok := r.advMap[types.NamespacedName{Namespace: advertisement.Namespace, Name: advertisement.Name}.String()]
+	if !ok {
+		advInfo = make(map[string]bool)
+		r.advMap[types.NamespacedName{Namespace: advertisement.Namespace, Name: advertisement.Name}.String()] = advInfo
+	}
+
 	peerList := &sartv1alpha1.BGPPeerList{}
 	if err := r.Client.List(ctx, peerList); err != nil {
 		logger.Error(err, "failed to list BGPPeer resource")
 		return ctrl.Result{}, err
 	}
 
-	notComplete := false
-	requeue := false
 	for _, p := range peerList.Items {
 		for _, target := range advertisement.Spec.Nodes {
 			if p.Spec.Node == target {
 				if p.Status != sartv1alpha1.BGPPeerStatusEstablished {
 					logger.Info("peer is not established", "Peer", p.Name, "State", p.Status)
 					// return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 5}, nil
-					requeue = true
 					continue
 				}
 				logger.Info("advertise new path", "Node", target, "Prefix", advertisement.Spec.Network)
 				if err := r.advertise(ctx, &p, advertisement); err != nil {
 					if errors.Is(err, ErrPeerIsNotEstablished) {
-						notComplete = true
 						continue
 					}
 					return ctrl.Result{}, err
 				}
+
+				advInfo[p.Spec.Node] = true
 				contain := false
 				for _, adv := range p.Spec.Advertisements {
 					if adv.Name == advertisement.Name {
@@ -93,6 +110,7 @@ func (r *BGPAdvertisementReconciler) reconcileWhenAdvertising(ctx context.Contex
 						Namespace: advertisement.Namespace,
 						Prefix:    advertisement.Spec.Network,
 					})
+					// update BGPPeer
 					if err := r.Client.Update(ctx, &p); err != nil {
 						return ctrl.Result{}, err
 					}
@@ -103,7 +121,11 @@ func (r *BGPAdvertisementReconciler) reconcileWhenAdvertising(ctx context.Contex
 
 	newAdv := advertisement.DeepCopy()
 
-	if notComplete {
+	newAdv.Status.Advertised = uint32(len(advInfo))
+	newAdv.Status.Advertising = uint32(len(newAdv.Spec.Nodes) - len(advInfo))
+
+	logger.Info("advertise status", "advertising", newAdv.Status.Advertising, "advertised", newAdv.Status.Advertised)
+	if len(advInfo) != len(newAdv.Spec.Nodes) {
 		newAdv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionAdvertising
 	} else {
 		newAdv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionAdvertised
@@ -114,12 +136,9 @@ func (r *BGPAdvertisementReconciler) reconcileWhenAdvertising(ctx context.Contex
 		return ctrl.Result{}, err
 	}
 	if newAdv.Status.Condition == sartv1alpha1.BGPAdvertisementConditionAdvertising {
-		return ctrl.Result{Requeue: true}, nil // TODO: should we use RequeueAfter?
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil // TODO: should we use RequeueAfter?
 	}
 
-	if requeue {
-		return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 5}, nil
-	}
 	return ctrl.Result{}, nil
 }
 
@@ -161,11 +180,20 @@ func (r *BGPAdvertisementReconciler) reconcileWhenDelete(ctx context.Context, re
 			}
 		}
 	}
+
+	delete(r.advMap, req.NamespacedName.String())
 	return ctrl.Result{}, nil
 }
 
 func (r *BGPAdvertisementReconciler) reconcileWhenUpdated(ctx context.Context, advertisement *sartv1alpha1.BGPAdvertisement) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
+
+	var advInfo map[string]bool
+	advInfo, ok := r.advMap[types.NamespacedName{Namespace: advertisement.Namespace, Name: advertisement.Name}.String()]
+	if !ok {
+		advInfo = make(map[string]bool)
+		r.advMap[types.NamespacedName{Namespace: advertisement.Namespace, Name: advertisement.Name}.String()] = advInfo
+	}
 
 	peerList := &sartv1alpha1.BGPPeerList{}
 	if err := r.Client.List(ctx, peerList); err != nil {
@@ -175,18 +203,17 @@ func (r *BGPAdvertisementReconciler) reconcileWhenUpdated(ctx context.Context, a
 	// search advertised path
 	added, removed := advDiff(*peerList, advertisement)
 
-	notComplete := false
-
 	for _, p := range removed {
 		logger.Info("withdraw from", "Node", p.Spec.Node, "Advertisement", advertisement.Name, "Prefix", advertisement.Spec.Network)
 		if err := r.withdraw(ctx, &p, advertisement.Spec.Network); err != nil {
 			if errors.Is(err, ErrPeerIsNotEstablished) {
-				notComplete = true
 				continue
 			}
 			logger.Error(err, "failed to withdraw path by speaker", "Advertisement", advertisement)
 			return ctrl.Result{}, err
 		}
+
+		delete(advInfo, p.Spec.Node)
 		// remove from peer advertisement list
 		index := -1
 		for i, adv := range p.Spec.Advertisements {
@@ -208,11 +235,12 @@ func (r *BGPAdvertisementReconciler) reconcileWhenUpdated(ctx context.Context, a
 		logger.Info("advertise to", "Node", p.Spec.Node, "Advertisement", advertisement.Name, "Prefix", advertisement.Spec.Network)
 		if err := r.advertise(ctx, &p, advertisement); err != nil {
 			if errors.Is(err, ErrPeerIsNotEstablished) {
-				notComplete = true
 				continue
 			}
 			return ctrl.Result{}, err
 		}
+
+		advInfo[p.Spec.Node] = true
 		// append peer advertisement list
 		contain := false
 		for _, adv := range p.Spec.Advertisements {
@@ -235,7 +263,11 @@ func (r *BGPAdvertisementReconciler) reconcileWhenUpdated(ctx context.Context, a
 
 	newAdv := advertisement.DeepCopy()
 
-	if notComplete {
+	newAdv.Status.Advertised = uint32(len(advInfo))
+	newAdv.Status.Advertising = uint32(len(newAdv.Spec.Nodes) - len(advInfo))
+
+	logger.Info("advertise status", "advertising", newAdv.Status.Advertising, "advertised", newAdv.Status.Advertised)
+	if len(advInfo) != len(newAdv.Spec.Nodes) {
 		newAdv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionAdvertising
 	} else {
 		newAdv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionAdvertised
@@ -246,7 +278,7 @@ func (r *BGPAdvertisementReconciler) reconcileWhenUpdated(ctx context.Context, a
 		return ctrl.Result{}, err
 	}
 	if newAdv.Status.Condition == sartv1alpha1.BGPAdvertisementConditionAdvertising {
-		return ctrl.Result{Requeue: true}, nil // TODO: should we use RequeueAfter?
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil // TODO: should we use RequeueAfter?
 	}
 
 	return ctrl.Result{}, nil

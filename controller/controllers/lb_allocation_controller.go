@@ -362,6 +362,10 @@ func (r *LBAllocationReconciler) handleService(ctx context.Context, svc *v1.Serv
 				if err := r.Client.Update(ctx, adv); err != nil {
 					return err
 				}
+				// update BGPAdvertisement.status
+				if err := r.Client.Status().Update(ctx, adv); err != nil {
+					return err
+				}
 
 			} else {
 				// create new BGPAdvertisement
@@ -422,7 +426,11 @@ func (r *LBAllocationReconciler) handleEndpointUpdate(ctx context.Context, svc *
 		if err := r.Client.Patch(ctx, newAdv, client.MergeFrom(adv)); err != nil {
 			return err
 		}
-		newAdv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionUpdated
+		newAdv.Status = sartv1alpha1.BGPAdvertisementStatus{
+			Condition:   sartv1alpha1.BGPAdvertisementConditionUpdated,
+			Advertising: uint32(len(nodes)),
+			Advertised:  0,
+		}
 		if err := r.Client.Status().Patch(ctx, newAdv, client.MergeFrom(adv)); err != nil {
 			return err
 		}
@@ -699,7 +707,9 @@ func (r *LBAllocationReconciler) createOrUpdateAdvertisement(ctx context.Context
 			}
 			advertisement.Spec = spec
 			advertisement.Status = sartv1alpha1.BGPAdvertisementStatus{
-				Condition: sartv1alpha1.BGPAdvertisementConditionAdvertising,
+				Condition:   sartv1alpha1.BGPAdvertisementConditionAdvertising,
+				Advertising: uint32(len(nodes)),
+				Advertised:  0,
 			}
 			logger.Info("create new advertisement", "Name", svcName, "Prefix", prefix, "Nodes", nodes, "Condition", advertisement.Status.Condition)
 			return advertisement, false, nil
@@ -715,6 +725,8 @@ func (r *LBAllocationReconciler) createOrUpdateAdvertisement(ctx context.Context
 	}
 	if !reflect.DeepEqual(advertisement.Spec.Nodes, nodes) {
 		advertisement.Spec.Nodes = nodes
+		advertisement.Status.Advertised = 0
+		advertisement.Status.Advertising = uint32(len(nodes))
 		needUpdate = true
 	}
 

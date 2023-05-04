@@ -51,6 +51,10 @@ type BGPAdvertisementSpec struct {
 type BGPAdvertisementStatus struct {
 	// +kubebuilder:default:=Advertising
 	Condition BGPAdvertisementCondition `json:"condition"`
+	// +kubebuilder:default:=0
+	Advertising uint32 `json:"advertising,omitempty"`
+	// +kubebuilder:default:=0
+	Advertised uint32 `json:"advertised,omitempty"`
 }
 
 type BGPAdvertisementCondition string
@@ -67,6 +71,8 @@ var (
 // +kubebuilder:printcolumn:name="Network",type="string",JSONPath=".spec.network"
 // +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.serviceType"
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.condition"
+// +kubebuilder:printcolumn:name="Advertising",type="integer",JSONPath=".status.advertising"
+// +kubebuilder:printcolumn:name="Advertised",type="integer",JSONPath=".status.advertised"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // BGPAdvertisement is the Schema for the bgpadvertisements API
