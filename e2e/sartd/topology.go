@@ -210,6 +210,7 @@ var simpleTopologyWithZebra topology.Topology = topology.Topology{
 			InitCommands: []string{"tail", "-f", "/dev/null"},
 			Commands: []string{
 				"/usr/lib/frr/frrinit.sh start",
+				"sleep 30",
 				"gobgpd -f /etc/node2/config_zebra.toml",
 			},
 		},
@@ -233,6 +234,7 @@ var simpleTopologyWithZebra topology.Topology = topology.Topology{
 			InitCommands: []string{"tail", "-f", "/dev/null"},
 			Commands: []string{
 				"/usr/lib/frr/frrinit.sh start",
+				"sleep 30",
 				"gobgpd -f /etc/node3/config_zebra.toml",
 			},
 		},
@@ -297,6 +299,7 @@ var simpleTopologyIBGPWithZebra topology.Topology = topology.Topology{
 			InitCommands: []string{"tail", "-f", "/dev/null"},
 			Commands: []string{
 				"/usr/lib/frr/frrinit.sh start",
+				"sleep 30",
 				"gobgpd -f /etc/node2/config_ibgp_zebra.toml",
 			},
 		},
@@ -320,6 +323,7 @@ var simpleTopologyIBGPWithZebra topology.Topology = topology.Topology{
 			InitCommands: []string{"tail", "-f", "/dev/null"},
 			Commands: []string{
 				"/usr/lib/frr/frrinit.sh start",
+				"sleep 30",
 				"gobgpd -f /etc/node3/config_ibgp_zebra.toml",
 			},
 		},
@@ -398,6 +402,7 @@ var simpleTopologyWithClient topology.Topology = topology.Topology{
 			InitCommands: []string{"tail", "-f", "/dev/null"},
 			Commands: []string{
 				"/usr/lib/frr/frrinit.sh start",
+				"sleep 30",
 				"gobgpd -f /etc/node2/config_zebra.toml",
 			},
 		},
@@ -421,6 +426,7 @@ var simpleTopologyWithClient topology.Topology = topology.Topology{
 			InitCommands: []string{"tail", "-f", "/dev/null"},
 			Commands: []string{
 				"/usr/lib/frr/frrinit.sh start",
+				"sleep 30",
 				"gobgpd -f /etc/node3/config_zebra.toml",
 			},
 		},
@@ -661,6 +667,7 @@ var multiPathSimpleWithZebra topology.Topology = topology.Topology{
 			InitCommands: []string{"tail", "-f", "/dev/null"},
 			Commands: []string{
 				"/usr/lib/frr/frrinit.sh start",
+				"sleep 30",
 				"gobgpd -f /etc/node2/config_zebra.toml",
 			},
 		},
@@ -689,6 +696,7 @@ var multiPathSimpleWithZebra topology.Topology = topology.Topology{
 			InitCommands: []string{"tail", "-f", "/dev/null"},
 			Commands: []string{
 				"/usr/lib/frr/frrinit.sh start",
+				"sleep 30",
 				"gobgpd -f /etc/node3/config_zebra.toml",
 			},
 		},
@@ -717,6 +725,7 @@ var multiPathSimpleWithZebra topology.Topology = topology.Topology{
 			InitCommands: []string{"tail", "-f", "/dev/null"},
 			Commands: []string{
 				"/usr/lib/frr/frrinit.sh start",
+				"sleep 30",
 				"gobgpd -f /etc/node4/config_zebra.toml",
 			},
 		},
