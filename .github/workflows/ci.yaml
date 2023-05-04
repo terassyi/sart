@@ -23,6 +23,9 @@ jobs:
             ~/sart/.cargo/git
             sart/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Run FRR
+        run: |
+          docker run --rm --name frr-test --privileged ghcr.io/terassyi/terakoya:0.1.2 /usr/lib/frr/frrinit.sh start
       - name: Setup dev
         run: make setup-dev
       - name: Setup grpc
