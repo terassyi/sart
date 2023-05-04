@@ -64,7 +64,6 @@ func (r *BGPAdvertisementReconciler) reconcileWhenAdvertising(ctx context.Contex
 	notComplete := false
 	requeue := false
 	for _, p := range peerList.Items {
-		logger.Info("decide advertising from node", "Nodes", advertisement.Spec.Nodes, "Peer", p.Name)
 		for _, target := range advertisement.Spec.Nodes {
 			if p.Spec.Node == target {
 				if p.Status != sartv1alpha1.BGPPeerStatusEstablished {
@@ -94,7 +93,6 @@ func (r *BGPAdvertisementReconciler) reconcileWhenAdvertising(ctx context.Contex
 						Namespace: advertisement.Namespace,
 						Prefix:    advertisement.Spec.Network,
 					})
-					logger.Info("update peer")
 					if err := r.Client.Update(ctx, &p); err != nil {
 						return ctrl.Result{}, err
 					}

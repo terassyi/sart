@@ -31,6 +31,10 @@ const (
 	AddressPoolFinalizer = "addresspool" + "." + Finalizer
 )
 
+const (
+	DefaultPeerStateWatchInterval uint64 = 5
+)
+
 func GetFinalizerName(obj metav1.TypeMeta) string {
 	return strings.ToLower(obj.Kind) + "." + Finalizer
 }

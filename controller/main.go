@@ -34,6 +34,7 @@ import (
 	sartterassyinetv1alpha1 "github.com/terassyi/sart/controller/api/v1alpha1"
 	"github.com/terassyi/sart/controller/controllers"
 	"github.com/terassyi/sart/controller/pkg/allocator"
+	"github.com/terassyi/sart/controller/pkg/constants"
 	"github.com/terassyi/sart/controller/pkg/speaker"
 	//+kubebuilder:scaffold:imports
 )
@@ -57,6 +58,7 @@ func main() {
 
 	var speakerTypeStr string
 	var speakerEndpointPort uint64
+	var peerStateWatchInterval uint64
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -65,6 +67,7 @@ func main() {
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.StringVar(&speakerTypeStr, "speaker", "sart", "BGP speaker type. support (sart) default is sart")
 	flag.Uint64Var(&speakerEndpointPort, "speaker-endpoint-port", uint64(speaker.SartDefaultEndpointPort), "Endpoint port to communicate BGP Speaker on each node")
+	flag.Uint64Var(&peerStateWatchInterval, "peer-state-watch-interval", uint64(constants.DefaultPeerStateWatchInterval), "Interval to watch peer state transitions")
 	opts := zap.Options{
 		Development: true,
 	}

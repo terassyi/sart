@@ -337,8 +337,6 @@ func (r *LBAllocationReconciler) handleService(ctx context.Context, svc *v1.Serv
 	}
 
 	// not allocated
-	logger.Info("new allocation", "Policy", svc.Spec.ExternalTrafficPolicy, "Pool", pool)
-
 	allocated, err := r.allocate(svc, pool)
 	if err != nil {
 		return err

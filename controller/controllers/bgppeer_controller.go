@@ -124,11 +124,12 @@ func (r *BGPPeerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		logger.Error(err, "", "info", globalInfo)
 		return ctrl.Result{}, err
 	}
+
 	p, _ := speakerEndpoint.GetPeer(ctx, peer.Spec.PeerRouterId) // TODO: handle error if it is not not found error
 	if p != nil {
-		logger.Info("BGPPeer already exists", "LocalAsn", nodeBGP.Spec.Asn, "LocalRouterId", nodeBGP.Spec.RouterId, "PeerAsn", peer.Spec.PeerAsn, "PeerRouterId", peer.Spec.PeerRouterId)
 
 		if peer.Status != sartv1alpha1.BGPPeerStatus(p.State) {
+			logger.Info("sync peer state", "old", peer.Status, "new", p.State)
 			peer.Status = sartv1alpha1.BGPPeerStatus(p.State)
 			if err := r.Client.Status().Update(ctx, peer); err != nil {
 				logger.Error(err, "failed to update status", "BGPPeer", peer)
@@ -138,9 +139,7 @@ func (r *BGPPeerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 		i, exist, needUpdate := isPeerRegistered(ctx, nodeBGP, peer)
 		if exist {
-			logger.Info("registered peer exists", "Node", nodeBGP, "Peer", peer)
 			if needUpdate {
-				logger.Info("need update", "Node", nodeBGP, "Peer", peer)
 				nodeBGP.Spec.Peers[i] = PeerFromBGPPeer(peer)
 			}
 		} else {
@@ -149,16 +148,16 @@ func (r *BGPPeerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			nodeBGP.Spec.Peers = append(nodeBGP.Spec.Peers, pp)
 		}
 		if !exist || needUpdate {
-			logger.Info("update node associated peers", "NodeBGP", nodeBGP, "Length of Peers", len(nodeBGP.Spec.Peers))
 			if r.Client.Update(ctx, nodeBGP); err != nil {
 				logger.Error(err, "failed to update NodeBGP to append peer", "Peer", peer, "NodeBGP", nodeBGP)
 				return ctrl.Result{}, err
 			}
 		}
 
+		// return here
 		switch peer.Status {
 		case sartv1alpha1.BGPPeerStatusIdle, sartv1alpha1.BGPPeerStatusActive, sartv1alpha1.BGPPeerStatusConnect:
-			return ctrl.Result{RequeueAfter: time.Minute * 5}, nil // TODO: find appropriate requeue time
+			return ctrl.Result{RequeueAfter: time.Second * 5}, nil // TODO: find appropriate requeue time
 		case sartv1alpha1.BGPPeerStatusOpenSent, sartv1alpha1.BGPPeerStatusOpenConfirm:
 			return ctrl.Result{Requeue: true}, nil
 		default:
@@ -194,14 +193,11 @@ func (r *BGPPeerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	i, exist, needUpdate := isPeerRegistered(ctx, nodeBGP, peer)
 	if exist {
-		logger.Info("registered peer exists", "Node", nodeBGP, "Peer", peer)
 		if needUpdate {
-			logger.Info("need register ", "Node", nodeBGP, "Peer", peer)
 			nodeBGP.Spec.Peers[i] = PeerFromBGPPeer(peer)
 		}
 	} else {
 		pp := PeerFromBGPPeer(peer)
-		logger.Info("need register ", "Node", nodeBGP, "Peer", pp)
 		nodeBGP.Spec.Peers = append(nodeBGP.Spec.Peers, pp)
 	}
 	if !exist || needUpdate {
@@ -217,7 +213,6 @@ func (r *BGPPeerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			logger.Error(err, "failed to update BGPPeer")
 			return ctrl.Result{}, err
 		}
-		logger.Info("complete BGPPeer information", "Peer", peer.Spec)
 	}
 
 	return ctrl.Result{Requeue: true}, nil

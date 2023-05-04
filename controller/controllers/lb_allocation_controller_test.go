@@ -805,8 +805,12 @@ var _ = Describe("handle BGPPeer", func() {
 		}).Should(Succeed())
 
 		By("deleting alloc info")
-		_, ok = allocMap[types.NamespacedName{Namespace: svc.Namespace, Name: svc.Name}.String()]
-		Expect(ok).To(BeFalse())
+		Eventually(func() error {
+			if _, ok = allocMap[types.NamespacedName{Namespace: svc.Namespace, Name: svc.Name}.String()]; !ok {
+				return nil
+			}
+			return fmt.Errorf("should not get")
+		}).Should(Succeed())
 
 		protocolAllocator, ok = allocatorMap["default"]
 		Expect(ok).To(BeTrue())
