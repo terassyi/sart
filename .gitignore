@@ -4,5 +4,7 @@
 *.pcaping
 .vscode
 *.bin
-devenv/frr/gobgp.conf
-devenv/frr/staticd.conf
+*/bin
+staticd.conf
+gobgp.conf
+logs*

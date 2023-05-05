@@ -33,7 +33,9 @@ func (n *NodeWatcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Res
 	if err := n.Client.List(ctx, &clusterBGPs); err != nil {
 		return ctrl.Result{}, err
 	}
-	if len(clusterBGPs.Items) != 1 {
+	if len(clusterBGPs.Items) == 0 {
+		return ctrl.Result{}, nil
+	} else if len(clusterBGPs.Items) > 1 {
 		return ctrl.Result{}, fmt.Errorf("a ClusterBGP resource must be one")
 	}
 	clusterBGP := clusterBGPs.Items[0]

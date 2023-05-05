@@ -9,4 +9,4 @@ resources:
 namespace: kube-system
 
 commonLabels:
-  app.kubernetes.io/name: coil
+  app.kubernetes.io/name: sart

@@ -1,0 +1,39 @@
+apiVersion: sart.terassyi.net/v1alpha1
+kind: BGPPeer
+metadata:
+  name: worker-peer
+  namespace: kube-system
+spec:
+  node: sart-worker
+  peerAsn: 65000
+  peerRouterId: 172.18.0.6
+---
+apiVersion: sart.terassyi.net/v1alpha1
+kind: BGPPeer
+metadata:
+  name: worker2-peer
+  namespace: kube-system
+spec:
+  node: sart-worker2
+  peerAsn: 65000
+  peerRouterId: 172.18.0.6
+---
+apiVersion: sart.terassyi.net/v1alpha1
+kind: BGPPeer
+metadata:
+  name: worker3-peer
+  namespace: kube-system
+spec:
+  node: sart-worker3
+  peerAsn: 65000
+  peerRouterId: 172.18.0.6
+---
+apiVersion: sart.terassyi.net/v1alpha1
+kind: BGPPeer
+metadata:
+  name: cp-peer
+  namespace: kube-system
+spec:
+  node: sart-control-plane
+  peerAsn: 65000
+  peerRouterId: 172.18.0.6

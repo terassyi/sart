@@ -91,6 +91,7 @@ var _ = Describe("handle BGPAdvertisement", func() {
 			Scheme:              scheme,
 			SpeakerEndpointPort: 5000,
 			SpeakerType:         speaker.SpeakerTypeMock,
+			advMap:              make(map[string]map[string]bool),
 		}
 		err = bgpAdvertisementReconciler.SetupWithManager(mgr)
 		Expect(err).NotTo(HaveOccurred())

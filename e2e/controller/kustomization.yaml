@@ -1,0 +1,10 @@
+resources:
+  - ../../controller/config/default
+patchesStrategicMerge:
+  - sartd_patch.yaml
+  - sart-controller_patch.yaml
+
+namespace: kube-system
+
+commonLabels:
+  app.kubernetes.io/name: sart

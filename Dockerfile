@@ -6,8 +6,8 @@ WORKDIR /home
 COPY . /home/
 
 RUN apt update -y && \
-	apt install -y protobuf-compiler libprotobuf-dev && \
-	make release-build
+	apt install -y protobuf-compiler libprotobuf-dev
+RUN make release-build
 
 FROM debian:stable
 

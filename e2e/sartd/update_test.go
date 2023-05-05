@@ -26,25 +26,10 @@ func testUpdate() {
 
 		By("getting GoBGP peer state with node2")
 		Eventually(func(g Gomega) error {
-			r, err := container.RunCommandInContainerWithOutput(ctx, "node2", []string{"gobgp", "global"})
-			if err != nil {
-				fmt.Println(err.Error())
-				return err
-			}
-			fmt.Println(string(r))
-
-			r, err = container.RunCommandInContainerWithOutput(ctx, "node1", []string{"sart", "bgp", "global", "get"})
-			if err != nil {
-				fmt.Println(err.Error())
-				return err
-			}
-			fmt.Println(string(r))
-
 			res, err := container.RunCommandInContainerWithOutput(ctx, "node2", []string{"gobgp", "neighbor", "10.0.0.2", "-j"})
 			if err != nil {
 				return err
 			}
-			fmt.Println(string(res))
 			node2State := &GoBGPNeighbor{}
 			if err := json.Unmarshal(res, node2State); err != nil {
 				return err

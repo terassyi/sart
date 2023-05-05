@@ -70,6 +70,11 @@ unit-test:
 e2e-test:
 	cd e2e; go test -v ./sartd
 
+	cd e2e/controller; make start
+	cd e2e/controller; make install
+	cd e2e/controller; make test
+	cd e2e/controller; make stop
+
 .PHONY: controller-test
 controller-test:
 	cd controller; make test
