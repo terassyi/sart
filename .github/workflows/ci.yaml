@@ -68,7 +68,7 @@ jobs:
         uses: docker/build-push-action@v2
         with:
           context: ./controller
-          file: .
+          file: ./controller/Dockerfile
           builder: ${{ steps.buildx.outputs.name }}
           load: true
           tags: sart-controller:${{ env.TAGS }}
@@ -77,8 +77,8 @@ jobs:
       - name: Build test-app and load
         uses: docker/build-push-action@v2
         with:
-          context: ./controller/test/testapp
-          file: .
+          context: ./controller/test/testapp/Dockerfile
+          file: ./controller/test/testapp
           builder: ${{ steps.buildx.outputs.name }}
           load: true
           tags: test-app:${{ env.TAGS }}
