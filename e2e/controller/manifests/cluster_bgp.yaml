@@ -1,0 +1,6 @@
+apiVersion: sart.terassyi.net/v1alpha1
+kind: ClusterBGP
+metadata:
+  name: clusterbgp-sample
+  namespace: kube-system
+spec:

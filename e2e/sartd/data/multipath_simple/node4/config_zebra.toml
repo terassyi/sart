@@ -1,0 +1,34 @@
+[global.config]
+  as = 65030
+  router-id = "10.0.2.3"
+
+[global.use-multiple-paths.config]
+  enabled = true
+
+[[neighbors]]
+  [neighbors.config]
+    neighbor-address = "10.0.2.2"
+    peer-as = 65010
+  [[neighbors.afi-safis]]
+    [neighbors.afi-safis.config]
+      afi-safi-name = "ipv4-unicast"
+  [[neighbors.afi-safis]]
+    [neighbors.afi-safis.config]
+      afi-safi-name = "ipv6-unicast"
+
+[[neighbors]]
+  [neighbors.config]
+    neighbor-address = "10.0.3.2"
+    peer-as = 65020
+  [[neighbors.afi-safis]]
+    [neighbors.afi-safis.config]
+      afi-safi-name = "ipv4-unicast"
+  [[neighbors.afi-safis]]
+    [neighbors.afi-safis.config]
+      afi-safi-name = "ipv6-unicast"
+
+[zebra]
+ [zebra.config]
+   enabled = true
+   url = "unix:/var/run/frr/zserv.api"
+   version = 6

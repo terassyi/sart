@@ -7,7 +7,7 @@ use crate::{
     error::Error,
     proto::{
         self,
-        sart::{AddPathRequest, AddressFamily, GetPathRequest},
+        sart::{AddPathRequest, AddressFamily, DeletePathRequest, GetPathRequest},
     },
     rpc::connect_bgp,
     util,
@@ -52,6 +52,9 @@ pub(crate) enum Action {
             help = "Attributes to attach prefixes"
         )]
         attributes: Vec<String>,
+    },
+    Del {
+        prefixes: Vec<String>,
     },
 }
 
@@ -145,6 +148,28 @@ pub(crate) async fn add(
         })
         .await
         .map_err(Error::FailedToGetResponse)?;
+    Ok(())
+}
+
+pub(crate) async fn del(
+    endpoint: &str,
+    afi: Afi,
+    safi: Safi,
+    prefixes: Vec<String>,
+) -> Result<(), Error> {
+    let mut client = connect_bgp(endpoint).await;
+
+    let _res = client
+        .delete_path(DeletePathRequest {
+            family: Some(proto::sart::AddressFamily {
+                afi: afi as i32,
+                safi: safi as i32,
+            }),
+            prefixes,
+        })
+        .await
+        .map_err(Error::FailedToGetResponse)?;
+
     Ok(())
 }
 

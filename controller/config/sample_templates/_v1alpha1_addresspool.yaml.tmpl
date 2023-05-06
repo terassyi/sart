@@ -1,0 +1,9 @@
+apiVersion: sart.terassyi.net/v1alpha1
+kind: AddressPool
+metadata:
+  name: default-lb-pool
+spec:
+  type: lb
+  cidrs:
+    - protocol: ipv4
+      prefix: LB_CIDR

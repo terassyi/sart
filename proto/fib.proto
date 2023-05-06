@@ -1,9 +1,10 @@
 syntax = "proto3";
 
-package sart;
+package sart.v1;
+
+option go_package = ".";
 
 import "google/protobuf/empty.proto";
-// import "google/protobuf/any.proto";
 
 service FibApi {
 	rpc GetRoute(GetRouteRequest) returns (GetRouteResponse);

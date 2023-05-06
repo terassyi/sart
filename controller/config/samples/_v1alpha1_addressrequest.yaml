@@ -1,0 +1,12 @@
+apiVersion: sart.terassyi.net/v1alpha1
+kind: AddressRequest
+metadata:
+  labels:
+    app.kubernetes.io/name: addressrequest
+    app.kubernetes.io/instance: addressrequest-sample
+    app.kubernetes.io/part-of: controller
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: controller
+  name: addressrequest-sample
+spec:
+  # TODO(user): Add fields here

@@ -39,7 +39,13 @@ async fn main() {
                     bgp::rib::Action::Get => bgp::rib::get(&endpoint, format, r.afi, r.safi)
                         .await
                         .unwrap(),
+                    bgp::rib::Action::Del { prefixes } => {
+                        bgp::rib::del(&endpoint, r.afi, r.safi, prefixes)
+                            .await
+                            .unwrap()
+                    }
                 },
+                bgp::global::Action::Health => bgp::global::health(&endpoint).await.unwrap(),
                 _ => unimplemented!(),
             },
             Scope::Neighbor(n) => match n.action {

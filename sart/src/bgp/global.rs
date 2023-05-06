@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 
 use crate::error::Error;
-use crate::proto::sart::{SetAsRequest, SetRouterIdRequest};
+use crate::proto::sart::{SetAsRequest, SetRouterIdRequest, HealthRequest};
 use crate::{cmd::Format, proto::sart::GetBgpInfoRequest, rpc::connect_bgp};
 
 use super::rib::RibCmd;
@@ -24,6 +24,7 @@ pub(crate) enum Action {
     },
     Rib(RibCmd),
     Policy,
+    Health,
 }
 
 pub(crate) async fn get(endpoint: &str, format: Format) -> Result<(), Error> {
@@ -72,5 +73,11 @@ pub(crate) async fn set(
             .await
             .map_err(Error::FailedToGetResponse)?;
     }
+    Ok(())
+}
+
+pub(crate) async fn health(endpoint: &str) -> Result<(), Error> {
+    let mut client = connect_bgp(endpoint).await;
+    client.health(HealthRequest{}).await.map_err(Error::FailedToGetResponse)?;
     Ok(())
 }

@@ -1,0 +1,10 @@
+namespace: kube-system
+
+resources:
+  - ../crd
+  - ../rbac
+  - ../manager
+  - speaker.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true

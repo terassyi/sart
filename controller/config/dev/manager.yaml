@@ -1,0 +1,12 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sart-controller
+  namespace: system
+spec:
+  template:
+    spec:
+      containers:
+        - name: sart-controller
+          # image: localhost:5005/sart-controller:dev
+          image: sart-controller:dev

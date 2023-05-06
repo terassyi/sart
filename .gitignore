@@ -4,3 +4,7 @@
 *.pcaping
 .vscode
 *.bin
+*/bin
+staticd.conf
+gobgp.conf
+logs*
