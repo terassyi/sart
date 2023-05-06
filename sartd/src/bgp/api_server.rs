@@ -11,6 +11,7 @@ use tokio::time::timeout;
 use tonic::{Request, Response, Status};
 
 use super::config::NeighborConfig;
+use super::rib::RibKind;
 use super::{event::ControlEvent, family::AddressFamily, packet::attribute::Attribute};
 
 pub mod api {
@@ -102,6 +103,27 @@ impl BgpApi for ApiServer {
         }
     }
 
+    async fn list_neighbor(
+        &self,
+        _req: Request<ListNeighborRequest>,
+    ) -> Result<Response<ListNeighborResponse>, Status> {
+        self.tx.send(ControlEvent::ListPeer).await.unwrap();
+        let mut rx = self.response_rx.lock().await;
+        match timeout(Duration::from_secs(self.timeout), rx.recv()).await {
+            Ok(res) => match res {
+                Some(res) => {
+                    if let ApiResponse::Neighbors(peers) = res {
+                        Ok(Response::new(proto::sart::ListNeighborResponse { peers }))
+                    } else {
+                        Err(Status::internal("failed to get neighbors list information"))
+                    }
+                }
+                None => Err(Status::internal("failed to get neighbors list information")),
+            },
+            Err(_e) => Err(Status::deadline_exceeded("timeout")),
+        }
+    }
+
     async fn get_path(
         &self,
         req: Request<GetPathRequest>,
@@ -122,6 +144,50 @@ impl BgpApi for ApiServer {
                 Some(res) => {
                     if let ApiResponse::Paths(paths) = res {
                         Ok(Response::new(proto::sart::GetPathResponse { paths }))
+                    } else {
+                        Err(Status::internal("failed to get path information"))
+                    }
+                }
+                None => Err(Status::internal("failed to get path information")),
+            },
+            Err(_e) => Err(Status::deadline_exceeded("timeout")),
+        }
+    }
+
+    async fn get_neighbor_path(
+        &self,
+        req: Request<GetNeighborPathRequest>,
+    ) -> Result<Response<GetNeighborPathResponse>, Status> {
+        if req.get_ref().family.is_none() {
+            return Err(Status::aborted("failed to receive AddressFamily"));
+        }
+        let f = req.get_ref().family.as_ref().unwrap();
+        let family = match AddressFamily::new(f.afi as u16, f.safi as u8) {
+            Ok(f) => f,
+            Err(_) => return Err(Status::aborted("failed to get AddressFamily")),
+        };
+        let addr = match req.get_ref().addr.parse() {
+            Ok(addr) => addr,
+            Err(_) => return Err(Status::aborted("failed to parse peer address")),
+        };
+        let kind = match RibKind::try_from(req.get_ref().kind as u32) {
+            Ok(k) => k,
+            Err(_) => return Err(Status::aborted("failed to get rib kind")),
+        };
+
+        self.tx
+            .send(ControlEvent::GetNeighborPath(kind, addr, family))
+            .await
+            .unwrap();
+
+        let mut rx = self.response_rx.lock().await;
+        match timeout(Duration::from_secs(self.timeout), rx.recv()).await {
+            Ok(res) => match res {
+                Some(res) => {
+                    if let ApiResponse::Paths(paths) = res {
+                        Ok(Response::new(proto::sart::GetNeighborPathResponse {
+                            paths,
+                        }))
                     } else {
                         Err(Status::internal("failed to get path information"))
                     }

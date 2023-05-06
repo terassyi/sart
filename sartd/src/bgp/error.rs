@@ -204,4 +204,6 @@ pub(crate) enum RibError {
     UnhandlableEvent,
     #[error("failed to connect to fib endpoint")]
     FailedToConnectToFibEndpoint,
+    #[error("unknown rib kind")]
+    UnknownRibKind,
 }

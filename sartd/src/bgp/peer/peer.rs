@@ -36,7 +36,7 @@ use crate::bgp::packet::message::{
 };
 use crate::bgp::packet::prefix::Prefix;
 use crate::bgp::path::{Path, PathBuilder};
-use crate::bgp::rib::AdjRib;
+use crate::bgp::rib::{AdjRib, RibKind};
 use crate::bgp::server::Bgp;
 use crate::proto;
 
@@ -168,12 +168,6 @@ impl Peer {
         }
     }
 
-    // need lock of PeerInfo
-    fn is_ebgp(&self) -> bool {
-        let info = self.info.lock().unwrap();
-        info.asn != info.neighbor.get_asn()
-    }
-
     fn state(&self) -> State {
         self.fsm.lock().unwrap().get_state()
     }
@@ -248,6 +242,7 @@ impl Peer {
                             },
                             Event::Api(event) => match event {
                                 PeerLevelApiEvent::GetPeer => self.get_info().await,
+                                PeerLevelApiEvent::GetPath(kind, family) => self.get_path(kind, family).await,
                             },
                             _ => Err(Error::InvalidEvent{val: (&event).into()}),
                         };
@@ -1624,7 +1619,7 @@ impl Peer {
                 families: info
                     .families
                     .iter()
-                    .map(|f| proto::sart::AddressFamily::from(f))
+                    .map(proto::sart::AddressFamily::from)
                     .collect(),
                 hold_time: self.negotiated_hold_time as u32,
                 keepalive_time: self.keepalive_time as u32,
@@ -1638,6 +1633,22 @@ impl Peer {
 
         self.api_tx
             .send(ApiResponse::Neighbor(peer))
+            .await
+            .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))
+    }
+
+    #[tracing::instrument(skip(self))]
+    async fn get_path(&self, kind: RibKind, family: AddressFamily) -> Result<(), Error> {
+        let paths = match kind {
+            RibKind::In => self.adj_rib_in.get_all(&family),
+            RibKind::Out => self.adj_rib_out.get_all(&family),
+        }
+        .unwrap_or(Vec::new())
+        .iter()
+        .map(|&p| proto::sart::Path::from(p))
+        .collect();
+        self.api_tx
+            .send(ApiResponse::Paths(paths))
             .await
             .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))
     }
@@ -1735,11 +1746,6 @@ impl MessageCounter {
         }
     }
 
-    fn sum(&self) -> usize {
-        self.open + self.update + self.keepalive + self.notification + self.route_refresh
-    }
-
-    #[tracing::instrument(skip(self))]
     fn reset(&mut self) {
         self.open = 0;
         self.update = 0;

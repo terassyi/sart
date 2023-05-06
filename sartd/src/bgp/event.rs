@@ -14,6 +14,7 @@ use super::packet::attribute::Attribute;
 use super::packet::message::Message;
 use super::path::Path;
 use super::peer::neighbor::NeighborPair;
+use super::rib::RibKind;
 
 #[derive(Debug)]
 pub(crate) enum Event {
@@ -309,7 +310,9 @@ impl From<BgpMessageEvent> for u8 {
 pub(crate) enum ControlEvent {
     GetBgpInfo,
     GetPeer(IpAddr),
+    ListPeer,
     GetPath(AddressFamily),
+    GetNeighborPath(RibKind, IpAddr, AddressFamily),
     SetAsn(u32),
     SetRouterId(Ipv4Addr),
     AddPeer(NeighborConfig),
@@ -324,7 +327,9 @@ impl std::fmt::Display for ControlEvent {
         match self {
             ControlEvent::GetBgpInfo => write!(f, "Control::GetBgpInfo"),
             ControlEvent::GetPeer(_) => write!(f, "Control::GetPeer"),
+            ControlEvent::ListPeer => write!(f, "Control::ListPeer"),
             ControlEvent::GetPath(_) => write!(f, "Control::GetPath"),
+            ControlEvent::GetNeighborPath(_, _, _) => write!(f, "Control::GetNeighborPath"),
             ControlEvent::SetAsn(_) => write!(f, "Control::SetAsn"),
             ControlEvent::SetRouterId(_) => write!(f, "Control::SetRouterId"),
             ControlEvent::AddPeer(_) => write!(f, "Control::AddPeer"),
@@ -376,12 +381,14 @@ impl std::fmt::Display for RibEvent {
 #[derive(Debug, Clone)]
 pub(crate) enum PeerLevelApiEvent {
     GetPeer,
+    GetPath(RibKind, AddressFamily),
 }
 
 impl std::fmt::Display for PeerLevelApiEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             PeerLevelApiEvent::GetPeer => write!(f, "PeerLevelApi::GetPeer"),
+            PeerLevelApiEvent::GetPath(_, _) => write!(f, "PeerLevelApi::GetPath"),
         }
     }
 }
