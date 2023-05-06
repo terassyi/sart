@@ -84,8 +84,7 @@ jobs:
           tags: test-app:${{ env.TAGS }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - name: List images
-        run: |
-          docker images ls
-      - name: Run e2e test
-        run: make e2e-test
+      - name: Run sart e2e test
+        run: make sart-e2e-test
+      - name: Run sart-controller e2e test
+        run: make controller-e2e-test

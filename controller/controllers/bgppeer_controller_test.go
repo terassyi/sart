@@ -116,17 +116,23 @@ var _ = Describe("handle BGPPeer", func() {
 		}))
 
 		By("checking that NodeBGP has peer information")
-		nb := &sartv1alpha1.NodeBGP{}
-		err = k8sClient.Get(ctx, types.NamespacedName{Namespace: constants.Namespace, Name: "node1"}, nb)
-		Expect(err).NotTo(HaveOccurred())
-		exist := false
-		for _, nbp := range nb.Spec.Peers {
-			if nbp.Asn == peer.Spec.PeerAsn && nbp.RouterId == peer.Spec.PeerRouterId {
-				exist = true
-				break
+		Eventually(func() {
+			nb := &sartv1alpha1.NodeBGP{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: constants.Namespace, Name: "node1"}, nb); err != nil {
+				return err
 			}
-		}
-		Expect(exist).To(BeTrue())
+			exist := false
+			for _, nbp := range nb.Spec.Peers {
+				if nbp.Asn == peer.Spec.PeerAsn && nbp.RouterId == peer.Spec.PeerRouterId {
+					exist = true
+					break
+				}
+			}
+			if !exist {
+				return fmt.Errorf("not exist")
+			}
+			return nil
+		}).Should(Succeed())
 
 		By("changing peer state to Established")
 		// state transition may not be work well, some time.

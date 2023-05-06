@@ -67,9 +67,14 @@ unit-test:
 	cd sartd; $(CARGO) test
 
 .PHONY: e2e-test
-e2e-test:
+e2e-test: sart-e2e-test controller-e2e-test
+
+.PHONY: sart-e2e-test
+sart-e2e-test:
 	cd e2e; go test -v ./sartd
 
+.PHONY: controller-e2e-test
+controller-e2e-test:
 	cd e2e/controller; make start
 	cd e2e/controller; make install
 	cd e2e/controller; make test
