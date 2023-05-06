@@ -116,7 +116,7 @@ var _ = Describe("handle BGPPeer", func() {
 		}))
 
 		By("checking that NodeBGP has peer information")
-		Eventually(func() {
+		Eventually(func() error {
 			nb := &sartv1alpha1.NodeBGP{}
 			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: constants.Namespace, Name: "node1"}, nb); err != nil {
 				return err
