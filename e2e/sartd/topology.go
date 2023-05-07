@@ -1,4 +1,4 @@
-package e2e
+package sartd
 
 import "github.com/terassyi/sart/e2e/topology"
 

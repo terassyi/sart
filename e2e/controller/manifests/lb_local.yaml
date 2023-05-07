@@ -1,24 +1,17 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: test
-  labels:
-    name: test
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: app-cluster
+  name: app-local
   namespace: test
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: app-cluster
+      app: app-local
   template:
     metadata:
       labels:
-        app: app-cluster
+        app: app-local
     spec:
       containers:
         - name: app
@@ -30,15 +23,15 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: app-svc-cluster
+  name: app-svc-local
   namespace: test
   annotations:
     sart.terassyi.net/address-pool: default-lb-pool
 spec:
   type: LoadBalancer
-  externalTrafficPolicy: Cluster
+  externalTrafficPolicy: Local
   selector:
-    app: app-cluster
+    app: app-local
   ports:
     - name: http
       port: 80
