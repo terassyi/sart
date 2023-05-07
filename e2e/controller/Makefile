@@ -70,10 +70,12 @@ configure:
 	docker exec -d external-bgp gobgpd -f /etc/frr/gobgp.conf
 	docker exec external-client ip route add ${LB_CIDR} via ${EXTERNAL_BGP_ADDR}
 
+
 .PHONY: install
 install:
 	$(KIND) load docker-image --name sart sart:dev
 	$(KIND) load docker-image --name sart sart-controller:dev
+	$(KIND) load docker-image --name sart test-app:dev
 	$(KUSTOMIZE) build --load-restrictor=LoadRestrictionsNone . | $(KUBECTL) apply -f -
 	$(KUBECTL) -n kube-system wait --timeout=3m --for=condition=available deployment/sart-controller
 

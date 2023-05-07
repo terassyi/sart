@@ -12,7 +12,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
 type NodeWatcher struct {
@@ -143,7 +145,10 @@ func (n *NodeWatcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Res
 }
 
 func (n *NodeWatcher) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).For(&v1.Node{}).Complete(n)
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&v1.Node{}).
+		Watches(&source.Kind{Type: &sartv1alpha1.ClusterBGP{}}, &handler.EnqueueRequestForObject{}).
+		Complete(n)
 }
 
 func getNodeInternalIp(node *v1.Node) (string, bool) {

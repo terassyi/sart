@@ -387,7 +387,11 @@ func (r *LBAllocationReconciler) handleService(ctx context.Context, svc *v1.Serv
 	newSvc.Annotations[constants.AnnotationAllocatedFromPool] = pool
 
 	logger.Info("Allocate LB adddress", "Pool", pool)
-	if err := r.Client.Update(ctx, newSvc); err != nil {
+	if err := r.Client.Patch(ctx, newSvc, client.MergeFrom(svc)); err != nil {
+		logger.Error(err, "failed to update service")
+		return err
+	}
+	if err := r.Client.Status().Patch(ctx, newSvc, client.MergeFrom(svc)); err != nil {
 		logger.Error(err, "failed to update service status")
 		return err
 	}
