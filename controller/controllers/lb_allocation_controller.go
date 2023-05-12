@@ -367,7 +367,7 @@ func (r *LBAllocationReconciler) handleService(ctx context.Context, svc *v1.Serv
 
 	// create advertisement info
 	for _, a := range allocated {
-		adv, needUpdate, err := r.createOrUpdateAdvertisement(ctx, a.name, svc.Namespace, a.addr, endpoints)
+		adv, needUpdate, err := r.createOrUpdateAdvertisement(ctx, a.name, svc, a.addr, endpoints)
 		if err != nil {
 			return err
 		}
@@ -671,21 +671,21 @@ func desiredAddr(svc *v1.Service) (map[string]netip.Addr, error) {
 	return desired, nil
 }
 
-func (r *LBAllocationReconciler) createOrUpdateAdvertisement(ctx context.Context, advName, svcNamespace string, lbAddr netip.Addr, endpointNodes []string) (*sartv1alpha1.BGPAdvertisement, bool, error) {
+func (r *LBAllocationReconciler) createOrUpdateAdvertisement(ctx context.Context, advName string, svc *v1.Service, lbAddr netip.Addr, endpointNodes []string) (*sartv1alpha1.BGPAdvertisement, bool, error) {
 	logger := log.FromContext(ctx)
 
 	prefix := netip.PrefixFrom(lbAddr, 32)
 
 	needUpdate := false
 	advertisement := &sartv1alpha1.BGPAdvertisement{}
-	if err := r.Client.Get(ctx, types.NamespacedName{Name: advName, Namespace: svcNamespace}, advertisement); err != nil {
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: advName, Namespace: svc.Namespace}, advertisement); err != nil {
 		if apierrors.IsNotFound(err) {
 			// advertise is not exist
 			// create it
 			needUpdate = true
 
 			advertisement.Name = advName
-			advertisement.Namespace = svcNamespace
+			advertisement.Namespace = svc.Namespace
 
 			spec := sartv1alpha1.BGPAdvertisementSpec{
 				Network:   prefix.String(),
@@ -700,6 +700,10 @@ func (r *LBAllocationReconciler) createOrUpdateAdvertisement(ctx context.Context
 				Condition:   sartv1alpha1.BGPAdvertisementConditionAdvertising,
 				Advertising: uint32(len(endpointNodes)),
 				Advertised:  0,
+			}
+			// set owner reference
+			if err := controllerutil.SetOwnerReference(svc, advertisement, r.Scheme()); err != nil {
+				return nil, false, err
 			}
 			return advertisement, false, nil
 		} else {
