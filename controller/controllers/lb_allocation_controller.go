@@ -439,19 +439,16 @@ func (r *LBAllocationReconciler) handleEndpointUpdate(ctx context.Context, svc *
 	}
 
 	for _, adv := range advertisements {
-		if reflect.DeepEqual(adv.Spec.Nodes, nodes) {
+		if reflect.DeepEqual(adv.Status.Nodes, nodes) {
 			return nil
 		}
-		logger.Info("need to update endpoints", "old", adv.Spec.Nodes, "new", nodes)
+		logger.Info("need to update endpoints", "old", adv.Status.Nodes, "new", nodes)
 		newAdv := adv.DeepCopy()
-		newAdv.Spec.Nodes = nodes
-		if err := r.Client.Patch(ctx, newAdv, client.MergeFrom(adv)); err != nil {
-			return err
-		}
 		newAdv.Status = sartv1alpha1.BGPAdvertisementStatus{
 			Condition:   sartv1alpha1.BGPAdvertisementConditionUpdated,
 			Advertising: uint32(len(nodes)),
 			Advertised:  0,
+			Nodes:       nodes,
 		}
 		if err := r.Client.Status().Patch(ctx, newAdv, client.MergeFrom(adv)); err != nil {
 			return err
@@ -696,13 +693,13 @@ func (r *LBAllocationReconciler) createOrUpdateAdvertisement(ctx context.Context
 				Protocol:  protocolFromAddr(lbAddr),
 				Origin:    "",
 				LocalPref: 0,
-				Nodes:     endpointNodes,
 			}
 			advertisement.Spec = spec
 			advertisement.Status = sartv1alpha1.BGPAdvertisementStatus{
 				Condition:   sartv1alpha1.BGPAdvertisementConditionAdvertising,
 				Advertising: uint32(len(endpointNodes)),
 				Advertised:  0,
+				Nodes:       endpointNodes,
 			}
 			// set owner reference
 			if err := controllerutil.SetOwnerReference(svc, advertisement, r.Scheme); err != nil {
@@ -719,8 +716,8 @@ func (r *LBAllocationReconciler) createOrUpdateAdvertisement(ctx context.Context
 		advertisement.Spec.Network = prefix.String()
 		needUpdate = true
 	}
-	if !reflect.DeepEqual(advertisement.Spec.Nodes, endpointNodes) {
-		advertisement.Spec.Nodes = endpointNodes
+	if !reflect.DeepEqual(advertisement.Status.Nodes, endpointNodes) {
+		advertisement.Status.Nodes = endpointNodes
 		advertisement.Status.Advertised = 0
 		advertisement.Status.Advertising = uint32(len(endpointNodes))
 		needUpdate = true

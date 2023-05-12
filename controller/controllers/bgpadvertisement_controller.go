@@ -81,7 +81,7 @@ func (r *BGPAdvertisementReconciler) reconcileWhenAdvertising(ctx context.Contex
 	}
 
 	for _, p := range peerList.Items {
-		for _, target := range advertisement.Spec.Nodes {
+		for _, target := range advertisement.Status.Nodes {
 			if p.Spec.Node == target {
 				if p.Status != sartv1alpha1.BGPPeerStatusEstablished {
 					logger.Info("peer is not established", "Peer", p.Name, "State", p.Status)
@@ -122,10 +122,10 @@ func (r *BGPAdvertisementReconciler) reconcileWhenAdvertising(ctx context.Contex
 	newAdv := advertisement.DeepCopy()
 
 	newAdv.Status.Advertised = uint32(len(advInfo))
-	newAdv.Status.Advertising = uint32(len(newAdv.Spec.Nodes) - len(advInfo))
+	newAdv.Status.Advertising = uint32(len(newAdv.Status.Nodes) - len(advInfo))
 
 	logger.Info("advertise status", "advertising", newAdv.Status.Advertising, "advertised", newAdv.Status.Advertised)
-	if len(advInfo) != len(newAdv.Spec.Nodes) {
+	if len(advInfo) != len(newAdv.Status.Nodes) {
 		newAdv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionAdvertising
 	} else {
 		newAdv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionAdvertised
@@ -264,10 +264,10 @@ func (r *BGPAdvertisementReconciler) reconcileWhenUpdated(ctx context.Context, a
 	newAdv := advertisement.DeepCopy()
 
 	newAdv.Status.Advertised = uint32(len(advInfo))
-	newAdv.Status.Advertising = uint32(len(newAdv.Spec.Nodes) - len(advInfo))
+	newAdv.Status.Advertising = uint32(len(newAdv.Status.Nodes) - len(advInfo))
 
 	logger.Info("advertise status", "advertising", newAdv.Status.Advertising, "advertised", newAdv.Status.Advertised)
-	if len(advInfo) != len(newAdv.Spec.Nodes) {
+	if len(advInfo) != len(newAdv.Status.Nodes) {
 		newAdv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionAdvertising
 	} else {
 		newAdv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionAdvertised
@@ -353,7 +353,7 @@ func advDiff(peerList sartv1alpha1.BGPPeerList, advertisement *sartv1alpha1.BGPA
 	removed := []sartv1alpha1.BGPPeer{}
 	added := []sartv1alpha1.BGPPeer{}
 
-	for _, an := range advertisement.Spec.Nodes {
+	for _, an := range advertisement.Status.Nodes {
 		_, ok := oldMap[an]
 		if !ok {
 			added = append(added, peerMap[an])

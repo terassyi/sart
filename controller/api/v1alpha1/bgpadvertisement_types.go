@@ -43,8 +43,7 @@ type BGPAdvertisementSpec struct {
 	//+kubebuilder:default:=igp
 	Origin string `json:"origin,omitempty"`
 
-	LocalPref uint32   `json:"localPref,omitempty"`
-	Nodes     []string `json:"nodes,omitempty"` // list of node names
+	LocalPref uint32 `json:"localPref,omitempty"`
 }
 
 // BGPAdvertisementStatus defines the observed state of BGPAdvertisement
@@ -54,7 +53,8 @@ type BGPAdvertisementStatus struct {
 	// +kubebuilder:default:=0
 	Advertising uint32 `json:"advertising,omitempty"`
 	// +kubebuilder:default:=0
-	Advertised uint32 `json:"advertised,omitempty"`
+	Advertised uint32   `json:"advertised,omitempty"`
+	Nodes      []string `json:"nodes,omitempty"` // list of node names
 }
 
 type BGPAdvertisementCondition string

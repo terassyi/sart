@@ -59,10 +59,6 @@ spec:
                 type: integer
               network:
                 type: string
-              nodes:
-                items:
-                  type: string
-                type: array
               origin:
                 default: igp
                 enum:
@@ -102,6 +98,10 @@ spec:
               condition:
                 default: Advertising
                 type: string
+              nodes:
+                items:
+                  type: string
+                type: array
             required:
             - condition
             type: object
