@@ -16,6 +16,7 @@ import (
 	discoveryv1 "k8s.io/api/discovery/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -48,14 +49,16 @@ var (
 
 type LBAllocationReconciler struct {
 	client.Client
+	Scheme     *runtime.Scheme
 	Allocators map[string]map[string]allocator.Allocator
 	allocMap   map[string][]alloc
 	recover    bool
 }
 
-func NewLBAllocationReconciler(client client.Client, allocators map[string]map[string]allocator.Allocator) *LBAllocationReconciler {
+func NewLBAllocationReconciler(client client.Client, scheme *runtime.Scheme, allocators map[string]map[string]allocator.Allocator) *LBAllocationReconciler {
 	return &LBAllocationReconciler{
 		Client:     client,
+		Scheme:     scheme,
 		Allocators: allocators,
 		allocMap:   make(map[string][]alloc),
 		recover:    true,
@@ -702,7 +705,7 @@ func (r *LBAllocationReconciler) createOrUpdateAdvertisement(ctx context.Context
 				Advertised:  0,
 			}
 			// set owner reference
-			if err := controllerutil.SetOwnerReference(svc, advertisement, r.Scheme()); err != nil {
+			if err := controllerutil.SetOwnerReference(svc, advertisement, r.Scheme); err != nil {
 				return nil, false, err
 			}
 			return advertisement, false, nil
