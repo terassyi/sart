@@ -6,7 +6,7 @@ metadata:
 spec:
   node: sart-worker
   peerAsn: 65000
-  peerRouterId: 172.18.0.15
+  peerRouterId: 172.18.0.6
 ---
 apiVersion: sart.terassyi.net/v1alpha1
 kind: BGPPeer
@@ -16,7 +16,7 @@ metadata:
 spec:
   node: sart-worker2
   peerAsn: 65000
-  peerRouterId: 172.18.0.15
+  peerRouterId: 172.18.0.6
 ---
 apiVersion: sart.terassyi.net/v1alpha1
 kind: BGPPeer
@@ -26,7 +26,7 @@ metadata:
 spec:
   node: sart-worker3
   peerAsn: 65000
-  peerRouterId: 172.18.0.15
+  peerRouterId: 172.18.0.6
 ---
 apiVersion: sart.terassyi.net/v1alpha1
 kind: BGPPeer
@@ -36,4 +36,4 @@ metadata:
 spec:
   node: sart-control-plane
   peerAsn: 65000
-  peerRouterId: 172.18.0.15
+  peerRouterId: 172.18.0.6

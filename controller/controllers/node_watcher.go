@@ -111,7 +111,6 @@ func (n *NodeWatcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Res
 		}
 		logger.Info("create resource", "NodeBGP", nodeBgp)
 		if err := n.Client.Create(ctx, nodeBgp); err != nil {
-			logger.Error(err, "failed to create", "NodeBGP", nodeBgp)
 			return ctrl.Result{}, err
 		}
 		clusterBGP.Spec.Nodes = append(clusterBGP.Spec.Nodes, *nodeBgp)
@@ -135,7 +134,6 @@ func (n *NodeWatcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Res
 		}
 		if !exist {
 			if err := n.Client.Delete(ctx, &nodeBgp); err != nil {
-				logger.Error(err, "failed to delete", "NodeBGP", nodeBgp)
 				return ctrl.Result{}, err
 			}
 		}

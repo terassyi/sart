@@ -70,7 +70,6 @@ func (r *NodeBGPReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		logger.Error(err, "failed to get speaker info", "NodeBGP", nodeBgp.Spec.RouterId)
 		newNodeBgp.Status = sartv1alpha1.NodeBGPStatusUnavailable
 		if err := r.Client.Status().Patch(ctx, newNodeBgp, client.MergeFrom(nodeBgp)); err != nil {
-			logger.Error(err, "failed to update status", "NodeBGP", nodeBgp.Spec.RouterId)
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 5}, nil
@@ -92,7 +91,6 @@ func (r *NodeBGPReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	newNodeBgp.Status = sartv1alpha1.NodeBGPStatusAvailable
 	if err := r.Client.Status().Patch(ctx, newNodeBgp, client.MergeFrom(nodeBgp)); err != nil {
-		logger.Error(err, "failed to update status", "NodeBGP", nodeBgp.Spec.RouterId)
 		return ctrl.Result{}, err
 	}
 

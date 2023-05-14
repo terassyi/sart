@@ -67,41 +67,16 @@ func (r *BGPPeerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		if apierrors.IsNotFound(err) {
 			return r.reconcileWhenDelete(ctx, req)
 		}
-		logger.Error(err, "failed to get BGPPeer", "Object", req.NamespacedName)
 		return ctrl.Result{}, err
 	}
 
 	// find bgp speaker
-	nodeBGP := &sartv1alpha1.NodeBGP{}
-	if peer.Spec.Node != "" {
-		if err := r.Client.Get(ctx, types.NamespacedName{Namespace: constants.Namespace, Name: peer.Spec.Node}, nodeBGP); err != nil {
-			if apierrors.IsNotFound(err) {
-				return ctrl.Result{Requeue: true, RequeueAfter: time.Second * 5}, nil
-			}
-			logger.Error(err, "failed to get resource", "NodeBGP", types.NamespacedName{Namespace: constants.Namespace, Name: peer.Spec.Node})
-			return ctrl.Result{}, err
+	nodeBGP, err := r.getNodeBgp(ctx, peer)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return ctrl.Result{RequeueAfter: time.Second * 5}, nil
 		}
-	} else {
-		// if node is not specified, localAsn and localRouterId must be provided.
-		nodeBGPList := &sartv1alpha1.NodeBGPList{}
-		if err := r.Client.List(ctx, nodeBGPList); err != nil {
-			logger.Error(err, "failed to list NodeBGP resource")
-			return ctrl.Result{}, err
-		}
-
-		exist := false
-		for _, nb := range nodeBGPList.Items {
-			if nb.Spec.Asn == peer.Spec.LocalAsn && nb.Spec.RouterId == peer.Spec.LocalRouterId {
-				nodeBGP = &nb
-				exist = true
-				break
-			}
-		}
-		if !exist {
-			err := fmt.Errorf("NodeBGP resource is not found")
-			logger.Error(err, "failed to find wanted the NodeBGP resource", "ASN", peer.Spec.LocalAsn, "RouterId", peer.Spec.LocalRouterId)
-			return ctrl.Result{}, err
-		}
+		return ctrl.Result{}, err
 	}
 
 	// confirm NodeBGP is available
@@ -132,7 +107,6 @@ func (r *BGPPeerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			logger.Info("sync peer state", "old", peer.Status, "new", p.State)
 			peer.Status = sartv1alpha1.BGPPeerStatus(p.State)
 			if err := r.Client.Status().Update(ctx, peer); err != nil {
-				logger.Error(err, "failed to update status", "BGPPeer", peer)
 				return ctrl.Result{}, err
 			}
 		}
@@ -144,12 +118,11 @@ func (r *BGPPeerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			}
 		} else {
 			pp := PeerFromBGPPeer(peer)
-			logger.Info("need register ", "Node", nodeBGP, "Peer", pp)
+			logger.Info("need to register the peer", "Node", nodeBGP, "Peer", pp)
 			nodeBGP.Spec.Peers = append(nodeBGP.Spec.Peers, pp)
 		}
 		if !exist || needUpdate {
 			if r.Client.Update(ctx, nodeBGP); err != nil {
-				logger.Error(err, "failed to update NodeBGP to append peer", "Peer", peer, "NodeBGP", nodeBGP)
 				return ctrl.Result{}, err
 			}
 		}
@@ -189,7 +162,6 @@ func (r *BGPPeerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		logger.Error(err, "failed to create peer by speaker", "Peer", peer, "NodeBGP", nodeBGP)
 		return ctrl.Result{}, err
 	}
-	logger.Info("send BGP Peer create request", "Peer", peer, "NodeBGP", nodeBGP)
 
 	i, exist, needUpdate := isPeerRegistered(ctx, nodeBGP, peer)
 	if exist {
@@ -203,7 +175,6 @@ func (r *BGPPeerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if !exist || needUpdate {
 		logger.Info("update node associated peers", "NodeBGP", nodeBGP, "Length of Peers", len(nodeBGP.Spec.Peers))
 		if r.Client.Update(ctx, nodeBGP); err != nil {
-			logger.Error(err, "failed to update NodeBGP to append peer", "Peer", peer, "NodeBGP", nodeBGP)
 			return ctrl.Result{}, err
 		}
 	}
@@ -240,7 +211,6 @@ func (r *BGPPeerReconciler) reconcileWhenDelete(ctx context.Context, req ctrl.Re
 
 	nodeBGPList := &sartv1alpha1.NodeBGPList{}
 	if err := r.Client.List(ctx, nodeBGPList); err != nil {
-		logger.Error(err, "failed to list NodeBGP resource")
 		return ctrl.Result{}, err
 	}
 	for _, nb := range nodeBGPList.Items {
@@ -270,7 +240,6 @@ func (r *BGPPeerReconciler) reconcileWhenDelete(ctx context.Context, req ctrl.Re
 			}
 
 			if err := r.Client.Update(ctx, &nb); err != nil {
-				logger.Error(err, "failed to update NodeBGP", "NodeBGP", nb, "Peer", peer)
 				return ctrl.Result{}, err
 			}
 			return ctrl.Result{}, nil
@@ -280,6 +249,34 @@ func (r *BGPPeerReconciler) reconcileWhenDelete(ctx context.Context, req ctrl.Re
 	err := fmt.Errorf("cann't find NodeBGP resource on all node")
 	logger.Error(err, "search all nodes")
 	return ctrl.Result{}, err
+}
+
+func (r *BGPPeerReconciler) getNodeBgp(ctx context.Context, peer *sartv1alpha1.BGPPeer) (*sartv1alpha1.NodeBGP, error) {
+	nodeBGP := &sartv1alpha1.NodeBGP{}
+	if peer.Spec.Node != "" {
+		if err := r.Client.Get(ctx, types.NamespacedName{Namespace: constants.Namespace, Name: peer.Spec.Node}, nodeBGP); err != nil {
+			return nil, err
+		}
+	} else {
+		// if node is not specified, localAsn and localRouterId must be provided.
+		nodeBGPList := &sartv1alpha1.NodeBGPList{}
+		if err := r.Client.List(ctx, nodeBGPList); err != nil {
+			return nil, err
+		}
+
+		exist := false
+		for _, nb := range nodeBGPList.Items {
+			if nb.Spec.Asn == peer.Spec.LocalAsn && nb.Spec.RouterId == peer.Spec.LocalRouterId {
+				nodeBGP = &nb
+				exist = true
+				break
+			}
+		}
+		if !exist {
+			return nil, fmt.Errorf("NodeBGP resource is not found")
+		}
+	}
+	return nodeBGP, nil
 }
 
 func PeerFromBGPPeer(p *sartv1alpha1.BGPPeer) sartv1alpha1.Peer {

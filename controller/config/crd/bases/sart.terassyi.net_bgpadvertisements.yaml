@@ -25,12 +25,6 @@ spec:
     - jsonPath: .status.condition
       name: Status
       type: string
-    - jsonPath: .status.advertising
-      name: Advertising
-      type: integer
-    - jsonPath: .status.advertised
-      name: Advertised
-      type: integer
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -84,19 +78,11 @@ spec:
             type: object
           status:
             default:
-              condition: Advertising
+              condition: Unavailable
             description: BGPAdvertisementStatus defines the observed state of BGPAdvertisement
             properties:
-              advertised:
-                default: 0
-                format: int32
-                type: integer
-              advertising:
-                default: 0
-                format: int32
-                type: integer
               condition:
-                default: Advertising
+                default: Unavailable
                 type: string
               nodes:
                 items:
