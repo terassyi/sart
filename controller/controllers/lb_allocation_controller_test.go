@@ -24,6 +24,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+var (
+	endpointReady    = true
+	endpointNotReady = false
+)
+
 var _ = Describe("handle BGPPeer", func() {
 	ctx := context.Background()
 	var cancel context.CancelFunc
@@ -41,6 +46,7 @@ var _ = Describe("handle BGPPeer", func() {
 
 		lbAllocationReconciler := &LBAllocationReconciler{
 			Client:     k8sClient,
+			Scheme:     scheme,
 			Allocators: allocatorMap,
 			allocMap:   allocMap,
 			recover:    false,
@@ -242,6 +248,38 @@ var _ = Describe("handle BGPPeer", func() {
 		err = k8sClient.Create(ctx, svc)
 		Expect(err).NotTo(HaveOccurred())
 
+		By("creating EndpointSlice")
+		nodes := []string{"node1", "node2"}
+		eps := &discoveryv1.EndpointSlice{
+			ObjectMeta: corev1.ObjectMeta{
+				Name:      "lb-cluster1",
+				Namespace: "default",
+				Labels: map[string]string{
+					constants.KubernetesServiceNameLabel: "lb-cluster1",
+				},
+				Annotations: map[string]string{},
+			},
+			AddressType: "IPv4",
+			Endpoints: []discoveryv1.Endpoint{
+				{
+					Addresses: []string{"10.100.0.1"},
+					NodeName:  &nodes[0],
+					Conditions: discoveryv1.EndpointConditions{
+						Ready: &endpointReady,
+					},
+				},
+				{
+					Addresses: []string{"10.100.0.2"},
+					NodeName:  &nodes[1],
+					Conditions: discoveryv1.EndpointConditions{
+						Ready: &endpointReady,
+					},
+				},
+			},
+		}
+		err = k8sClient.Create(ctx, eps)
+		Expect(err).NotTo(HaveOccurred())
+
 		By("getting service")
 		svc = &v1.Service{}
 		Eventually(func() error {
@@ -260,17 +298,17 @@ var _ = Describe("handle BGPPeer", func() {
 
 		By("existing an advertisement")
 		adv := &sartv1alpha1.BGPAdvertisement{}
-		nodes := []string{"node1", "node2", "node3"}
+		advertisedNodes := []string{"node1", "node2", "node3"}
 		Eventually(func() error {
-			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: constants.Namespace, Name: svcToAdvertisementName(svc, "ipv4")}, adv); err != nil {
+			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: "default", Name: svcToAdvertisementName(svc, "ipv4")}, adv); err != nil {
 				return err
 			}
-			if adv.Status.Condition != sartv1alpha1.BGPAdvertisementConditionAdvertising {
+			if adv.Status.Condition != sartv1alpha1.BGPAdvertisementConditionUnavailable {
 				return fmt.Errorf("advertisement status is not advertising: got %v", adv.Status.Condition)
 			}
 			sort.Strings(adv.Spec.Nodes)
-			if !reflect.DeepEqual(adv.Spec.Nodes, nodes) {
-				return fmt.Errorf("want: %v, got: %v", nodes, adv.Spec.Nodes)
+			if !reflect.DeepEqual(adv.Spec.Nodes, advertisedNodes) {
+				return fmt.Errorf("want: %v, got: %v", advertisedNodes, adv.Spec.Nodes)
 			}
 			return nil
 		}).Should(Succeed())
@@ -287,8 +325,8 @@ var _ = Describe("handle BGPPeer", func() {
 		Expect(ok).To(BeTrue())
 		Expect(allocator.IsAllocated(allocInfo.addr)).To(BeTrue())
 
-		By("changing the advertisement status to advertised")
-		adv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionAdvertised
+		By("changing the advertisement status to available")
+		adv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionAvailable
 		err = k8sClient.Status().Update(ctx, adv)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -394,10 +432,16 @@ var _ = Describe("handle BGPPeer", func() {
 				{
 					Addresses: []string{"10.100.0.1"},
 					NodeName:  &nodes[0],
+					Conditions: discoveryv1.EndpointConditions{
+						Ready: &endpointReady,
+					},
 				},
 				{
 					Addresses: []string{"10.100.0.2"},
 					NodeName:  &nodes[1],
+					Conditions: discoveryv1.EndpointConditions{
+						Ready: &endpointReady,
+					},
 				},
 			},
 		}
@@ -423,11 +467,11 @@ var _ = Describe("handle BGPPeer", func() {
 		By("existing an advertisement")
 		adv := &sartv1alpha1.BGPAdvertisement{}
 		Eventually(func() error {
-			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: constants.Namespace, Name: svcToAdvertisementName(svc, "ipv4")}, adv); err != nil {
+			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: "default", Name: svcToAdvertisementName(svc, "ipv4")}, adv); err != nil {
 				return err
 			}
-			if adv.Status.Condition != sartv1alpha1.BGPAdvertisementConditionAdvertising {
-				return fmt.Errorf("advertisement status is not advertising: got %v", adv.Status.Condition)
+			if adv.Status.Condition != sartv1alpha1.BGPAdvertisementConditionUnavailable {
+				return fmt.Errorf("advertisement status is not unavailable : got %v", adv.Status.Condition)
 			}
 			sort.Strings(adv.Spec.Nodes)
 			if !reflect.DeepEqual(adv.Spec.Nodes, nodes) {
@@ -449,7 +493,7 @@ var _ = Describe("handle BGPPeer", func() {
 		Expect(allocator.IsAllocated(allocInfo.addr)).To(BeTrue())
 
 		By("changing the advertisement status to advertised")
-		adv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionAdvertised
+		adv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionAvailable
 		err = k8sClient.Status().Update(ctx, adv)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -539,6 +583,31 @@ var _ = Describe("handle BGPPeer", func() {
 		err = k8sClient.Create(ctx, svc)
 		Expect(err).NotTo(HaveOccurred())
 
+		By("creating EndpointSlice")
+		endpointNodes := []string{"node2"}
+		eps := &discoveryv1.EndpointSlice{
+			ObjectMeta: corev1.ObjectMeta{
+				Name:      "lb-cluster2",
+				Namespace: "default",
+				Labels: map[string]string{
+					constants.KubernetesServiceNameLabel: "lb-cluster2",
+				},
+				Annotations: map[string]string{},
+			},
+			AddressType: "IPv4",
+			Endpoints: []discoveryv1.Endpoint{
+				{
+					Addresses: []string{"10.100.0.2"},
+					NodeName:  &endpointNodes[0],
+					Conditions: discoveryv1.EndpointConditions{
+						Ready: &endpointReady,
+					},
+				},
+			},
+		}
+		err = k8sClient.Create(ctx, eps)
+		Expect(err).NotTo(HaveOccurred())
+
 		By("getting service")
 		svc = &v1.Service{}
 		Eventually(func() error {
@@ -559,10 +628,10 @@ var _ = Describe("handle BGPPeer", func() {
 		adv := &sartv1alpha1.BGPAdvertisement{}
 		nodes := []string{"node1", "node2", "node3"}
 		Eventually(func() error {
-			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: constants.Namespace, Name: svcToAdvertisementName(svc, "ipv4")}, adv); err != nil {
+			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: "default", Name: svcToAdvertisementName(svc, "ipv4")}, adv); err != nil {
 				return err
 			}
-			if adv.Status.Condition != sartv1alpha1.BGPAdvertisementConditionAdvertising {
+			if adv.Status.Condition != sartv1alpha1.BGPAdvertisementConditionUnavailable {
 				return fmt.Errorf("advertisement status is not advertising: got %v", adv.Status.Condition)
 			}
 			sort.Strings(adv.Spec.Nodes)
@@ -585,7 +654,7 @@ var _ = Describe("handle BGPPeer", func() {
 		Expect(allocator.IsAllocated(allocInfo.addr)).To(BeTrue())
 
 		By("changing the advertisement status to advertised")
-		adv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionAdvertised
+		adv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionAvailable
 		err = k8sClient.Status().Update(ctx, adv)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -724,11 +793,11 @@ var _ = Describe("handle BGPPeer", func() {
 		By("existing an advertisement")
 		adv := &sartv1alpha1.BGPAdvertisement{}
 		Eventually(func() error {
-			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: constants.Namespace, Name: svcToAdvertisementName(svc, "ipv4")}, adv); err != nil {
+			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: "default", Name: svcToAdvertisementName(svc, "ipv4")}, adv); err != nil {
 				return err
 			}
-			if adv.Status.Condition != sartv1alpha1.BGPAdvertisementConditionAdvertising {
-				return fmt.Errorf("advertisement status is not advertising: got %v", adv.Status.Condition)
+			if adv.Status.Condition != sartv1alpha1.BGPAdvertisementConditionUnavailable {
+				return fmt.Errorf("advertisement status is not unavailable: got %v", adv.Status.Condition)
 			}
 			sort.Strings(adv.Spec.Nodes)
 			if !reflect.DeepEqual(adv.Spec.Nodes, nodes) {
@@ -750,7 +819,7 @@ var _ = Describe("handle BGPPeer", func() {
 		Expect(allocator.IsAllocated(allocInfo.addr)).To(BeTrue())
 
 		By("changing the advertisement status to advertised")
-		adv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionAdvertised
+		adv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionAvailable
 		err = k8sClient.Status().Update(ctx, adv)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -896,6 +965,9 @@ var _ = Describe("handle BGPPeer", func() {
 				{
 					Addresses: []string{"10.100.0.1"},
 					NodeName:  &nodes[0],
+					Conditions: discoveryv1.EndpointConditions{
+						Ready: &endpointReady,
+					},
 				},
 				{
 					Addresses: []string{"10.100.0.2"},
@@ -925,11 +997,11 @@ var _ = Describe("handle BGPPeer", func() {
 		By("existing an advertisement")
 		adv := &sartv1alpha1.BGPAdvertisement{}
 		Eventually(func() error {
-			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: constants.Namespace, Name: svcToAdvertisementName(svc, "ipv4")}, adv); err != nil {
+			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: "default", Name: svcToAdvertisementName(svc, "ipv4")}, adv); err != nil {
 				return err
 			}
-			if adv.Status.Condition != sartv1alpha1.BGPAdvertisementConditionAdvertising {
-				return fmt.Errorf("advertisement status is not advertising: got %v", adv.Status.Condition)
+			if adv.Status.Condition != sartv1alpha1.BGPAdvertisementConditionUnavailable {
+				return fmt.Errorf("advertisement status is not unavailable: got %v", adv.Status.Condition)
 			}
 			sort.Strings(adv.Spec.Nodes)
 			if !reflect.DeepEqual(adv.Spec.Nodes, nodes) {
@@ -951,7 +1023,7 @@ var _ = Describe("handle BGPPeer", func() {
 		Expect(allocator.IsAllocated(allocInfo.addr)).To(BeTrue())
 
 		By("changing the advertisement status to advertised")
-		adv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionAdvertised
+		adv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionAvailable
 		err = k8sClient.Status().Update(ctx, adv)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -998,14 +1070,17 @@ var _ = Describe("handle BGPPeer", func() {
 			if !reflect.DeepEqual(updatedAdv.Spec.Nodes, newNodes) {
 				return fmt.Errorf("updated advertised nodes is not matched. want: %v, got: %v", newNodes, updatedAdv.Spec.Nodes)
 			}
-			if updatedAdv.Status.Condition != sartv1alpha1.BGPAdvertisementConditionUpdated {
-				return fmt.Errorf("status is not matched. want: %s, got: %s", sartv1alpha1.BGPAdvertisementConditionUpdated, updatedAdv.Status.Condition)
+			if updatedAdv.Status.Condition != sartv1alpha1.BGPAdvertisementConditionAvailable {
+				return fmt.Errorf("status is not matched. want: %s, got: %s", sartv1alpha1.BGPAdvertisementConditionAvailable, updatedAdv.Status.Condition)
 			}
 			return nil
 		}).Should(Succeed())
 	})
 
 	It("should handle multiple LoadBalancers", func() {
+
+		nodes := []string{"node1", "node2"}
+
 		By("creating default2 namespace")
 		default2Ns := &v1.Namespace{
 			ObjectMeta: corev1.ObjectMeta{
@@ -1124,11 +1199,86 @@ var _ = Describe("handle BGPPeer", func() {
 			Expect(err).NotTo(HaveOccurred())
 		}
 
+		By("creating EndpointSlices")
+		epsList := []*discoveryv1.EndpointSlice{
+			{
+				ObjectMeta: corev1.ObjectMeta{
+					Name:      "lb-local4",
+					Namespace: "default",
+					Labels: map[string]string{
+						constants.KubernetesServiceNameLabel: "lb-local4",
+					},
+					Annotations: map[string]string{},
+				},
+				AddressType: "IPv4",
+				Endpoints: []discoveryv1.Endpoint{
+					{
+						Addresses: []string{"10.100.0.1"},
+						NodeName:  &nodes[0],
+						Conditions: discoveryv1.EndpointConditions{
+							Ready: &endpointReady,
+						},
+					},
+					{
+						Addresses: []string{"10.100.0.2"},
+						NodeName:  &nodes[1],
+						Conditions: discoveryv1.EndpointConditions{
+							Ready: &endpointReady,
+						},
+					},
+				},
+			},
+			{
+				ObjectMeta: corev1.ObjectMeta{
+					Name:      "lb-cluster3",
+					Namespace: "default",
+					Labels: map[string]string{
+						constants.KubernetesServiceNameLabel: "lb-cluster3",
+					},
+					Annotations: map[string]string{},
+				},
+				AddressType: "IPv4",
+				Endpoints: []discoveryv1.Endpoint{
+					{
+						Addresses: []string{"10.100.0.2"},
+						NodeName:  &nodes[1],
+						Conditions: discoveryv1.EndpointConditions{
+							Ready: &endpointReady,
+						},
+					},
+				},
+			},
+			{
+				ObjectMeta: corev1.ObjectMeta{
+					Name:      "lb-cluster4",
+					Namespace: "default",
+					Labels: map[string]string{
+						constants.KubernetesServiceNameLabel: "lb-cluster4",
+					},
+					Annotations: map[string]string{},
+				},
+				AddressType: "IPv4",
+				Endpoints: []discoveryv1.Endpoint{
+					{
+						Addresses: []string{"10.100.0.4"},
+						NodeName:  &nodes[0],
+						Conditions: discoveryv1.EndpointConditions{
+							Ready: &endpointReady,
+						},
+					},
+				},
+			},
+		}
+		for _, eps := range epsList {
+			err := k8sClient.Create(ctx, eps)
+			Expect(err).NotTo(HaveOccurred())
+		}
+
 		By("getting BGPAdvertisements")
 		Eventually(func() error {
 			for _, svc := range svcList {
 				adv := &sartv1alpha1.BGPAdvertisement{}
-				if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: constants.Namespace, Name: svcToAdvertisementName(svc, "ipv4")}, adv); err != nil {
+				if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: svc.Namespace, Name: svcToAdvertisementName(svc, "ipv4")}, adv); err != nil {
 					return err
 				}
 			}
@@ -1139,13 +1289,13 @@ var _ = Describe("handle BGPPeer", func() {
 		advs := []*sartv1alpha1.BGPAdvertisement{}
 		for _, svc := range svcList {
 			adv := &sartv1alpha1.BGPAdvertisement{}
-			err := k8sClient.Get(ctx, types.NamespacedName{Namespace: constants.Namespace, Name: svcToAdvertisementName(svc, "ipv4")}, adv)
+			err := k8sClient.Get(ctx, types.NamespacedName{Namespace: svc.Namespace, Name: svcToAdvertisementName(svc, "ipv4")}, adv)
 			Expect(err).NotTo(HaveOccurred())
 			advs = append(advs, adv)
 		}
 		for _, adv := range advs {
 			newAdv := adv.DeepCopy()
-			newAdv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionAdvertised
+			newAdv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionAvailable
 			err = k8sClient.Status().Update(ctx, newAdv)
 			Expect(err).NotTo(HaveOccurred())
 		}
@@ -1178,7 +1328,7 @@ var _ = Describe("handle BGPPeer", func() {
 		}).Should(Succeed())
 
 		By("deleting lb-cluster3")
-		relasedAlloc, _ := allocMap[types.NamespacedName{Namespace: svcList[1].Namespace, Name: svcList[1].Name}.String()]
+		releasedAlloc := allocMap[types.NamespacedName{Namespace: svcList[1].Namespace, Name: svcList[1].Name}.String()]
 		err = k8sClient.Delete(ctx, svcList[1])
 		Expect(err).NotTo(HaveOccurred())
 
@@ -1242,12 +1392,70 @@ var _ = Describe("handle BGPPeer", func() {
 			err := k8sClient.Create(ctx, svc)
 			Expect(err).NotTo(HaveOccurred())
 		}
+		By("creating EndpointSlices")
+		newEpsList := []*discoveryv1.EndpointSlice{
+			{
+				ObjectMeta: corev1.ObjectMeta{
+					Name:      "lb-local5",
+					Namespace: "default2",
+					Labels: map[string]string{
+						constants.KubernetesServiceNameLabel: "lb-local5",
+					},
+					Annotations: map[string]string{},
+				},
+				AddressType: "IPv4",
+				Endpoints: []discoveryv1.Endpoint{
+					{
+						Addresses: []string{"10.100.0.1"},
+						NodeName:  &nodes[0],
+						Conditions: discoveryv1.EndpointConditions{
+							Ready: &endpointReady,
+						},
+					},
+					{
+						Addresses: []string{"10.100.0.2"},
+						NodeName:  &nodes[1],
+						Conditions: discoveryv1.EndpointConditions{
+							Ready: &endpointReady,
+						},
+					},
+				},
+			},
+			{
+				ObjectMeta: corev1.ObjectMeta{
+					Name:      "lb-local6",
+					Namespace: "default",
+					Labels: map[string]string{
+						constants.KubernetesServiceNameLabel: "lb-local6",
+					},
+					Annotations: map[string]string{},
+				},
+				AddressType: "IPv4",
+				Endpoints: []discoveryv1.Endpoint{
+					{
+						Addresses: []string{"10.100.0.1"},
+						NodeName:  &nodes[0],
+						Conditions: discoveryv1.EndpointConditions{
+							Ready: &endpointReady,
+						},
+					},
+					{
+						Addresses: []string{"10.100.0.2"},
+						NodeName:  &nodes[1],
+					},
+				},
+			},
+		}
+		for _, eps := range newEpsList {
+			err = k8sClient.Create(ctx, eps)
+			Expect(err).NotTo(HaveOccurred())
+		}
 
 		By("getting BGPAdvertisements")
 		Eventually(func() error {
 			for _, svc := range newSvcList {
 				adv := &sartv1alpha1.BGPAdvertisement{}
-				if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: constants.Namespace, Name: svcToAdvertisementName(svc, "ipv4")}, adv); err != nil {
+				if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: svc.Namespace, Name: svcToAdvertisementName(svc, "ipv4")}, adv); err != nil {
 					return err
 				}
 			}
@@ -1258,13 +1466,13 @@ var _ = Describe("handle BGPPeer", func() {
 		newAdvs := []*sartv1alpha1.BGPAdvertisement{}
 		for _, svc := range newSvcList {
 			adv := &sartv1alpha1.BGPAdvertisement{}
-			err := k8sClient.Get(ctx, types.NamespacedName{Namespace: constants.Namespace, Name: svcToAdvertisementName(svc, "ipv4")}, adv)
+			err := k8sClient.Get(ctx, types.NamespacedName{Namespace: svc.Namespace, Name: svcToAdvertisementName(svc, "ipv4")}, adv)
 			Expect(err).NotTo(HaveOccurred())
 			newAdvs = append(newAdvs, adv)
 		}
 		for _, adv := range newAdvs {
 			newAdv := adv.DeepCopy()
-			newAdv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionAdvertised
+			newAdv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionAvailable
 			err = k8sClient.Status().Update(ctx, newAdv)
 			Expect(err).NotTo(HaveOccurred())
 		}
@@ -1278,9 +1486,10 @@ var _ = Describe("handle BGPPeer", func() {
 			allocInfo := a[0]
 			newLbAddrs = append(newLbAddrs, allocInfo.addr.String())
 		}
+		sort.Strings(newLbAddrs)
 
 		By("checking LB addresses are assigned correctly")
-		Expect(newLbAddrs[0]).To(Equal(relasedAlloc[0].addr.String()))
+		Expect(newLbAddrs[0]).To(Equal(releasedAlloc[0].addr.String()))
 
 	})
 

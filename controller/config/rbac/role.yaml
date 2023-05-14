@@ -157,6 +157,13 @@ rules:
 - apiGroups:
   - sart.terassyi.net
   resources:
+  - bgppeer/status
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - sart.terassyi.net
+  resources:
   - bgppeers
   verbs:
   - create

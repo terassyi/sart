@@ -43,27 +43,22 @@ type BGPAdvertisementSpec struct {
 	//+kubebuilder:default:=igp
 	Origin string `json:"origin,omitempty"`
 
-	LocalPref uint32   `json:"localPref,omitempty"`
-	Nodes     []string `json:"nodes,omitempty"` // list of node names
+	LocalPref uint32 `json:"localPref,omitempty"`
+
+	Nodes []string `json:"nodes,omitempty"`
 }
 
 // BGPAdvertisementStatus defines the observed state of BGPAdvertisement
 type BGPAdvertisementStatus struct {
-	// +kubebuilder:default:=Advertising
+	// +kubebuilder:default:=Unavailable
 	Condition BGPAdvertisementCondition `json:"condition"`
-	// +kubebuilder:default:=0
-	Advertising uint32 `json:"advertising,omitempty"`
-	// +kubebuilder:default:=0
-	Advertised uint32 `json:"advertised,omitempty"`
 }
 
 type BGPAdvertisementCondition string
 
 var (
-	BGPAdvertisementConditionAdvertising = BGPAdvertisementCondition("Advertising")
-	BGPAdvertisementConditionAdvertised  = BGPAdvertisementCondition("Advertised")
-	BGPAdvertisementConditionUpdated     = BGPAdvertisementCondition("Updated")
-	BGPAdvertisementConditionWithdrawn   = BGPAdvertisementCondition("Withdrawn")
+	BGPAdvertisementConditionAvailable   BGPAdvertisementCondition = "Available"
+	BGPAdvertisementConditionUnavailable BGPAdvertisementCondition = "Unavailable"
 )
 
 //+kubebuilder:object:root=true
@@ -71,8 +66,6 @@ var (
 // +kubebuilder:printcolumn:name="Network",type="string",JSONPath=".spec.network"
 // +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.serviceType"
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.condition"
-// +kubebuilder:printcolumn:name="Advertising",type="integer",JSONPath=".status.advertising"
-// +kubebuilder:printcolumn:name="Advertised",type="integer",JSONPath=".status.advertised"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // BGPAdvertisement is the Schema for the bgpadvertisements API
@@ -81,7 +74,8 @@ type BGPAdvertisement struct {
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	Spec BGPAdvertisementSpec `json:"spec,omitempty"`
-	// +kubebuilder:default:={condition:Advertising}
+
+	// +kubebuilder:default:={condition:Unavailable}
 	Status BGPAdvertisementStatus `json:"status,omitempty"`
 }
 

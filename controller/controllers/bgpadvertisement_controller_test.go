@@ -189,10 +189,16 @@ var _ = Describe("handle BGPAdvertisement", func() {
 		err := k8sClient.Create(ctx, adv)
 		Expect(err).NotTo(HaveOccurred())
 
-		By("checking status is advertising")
-		err = k8sClient.Get(ctx, types.NamespacedName{Namespace: adv.Namespace, Name: adv.Name}, adv)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(adv.Status.Condition).To(Equal(sartv1alpha1.BGPAdvertisementConditionAdvertising))
+		By("checking status is available")
+		Eventually(func() error {
+			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: adv.Namespace, Name: adv.Name}, adv); err != nil {
+				return err
+			}
+			if adv.Status.Condition != sartv1alpha1.BGPAdvertisementConditionAvailable {
+				return fmt.Errorf("available is expected")
+			}
+			return nil
+		}).Should(Succeed())
 
 		By("peer has advertised path information")
 
@@ -211,18 +217,6 @@ var _ = Describe("handle BGPAdvertisement", func() {
 		Eventually(func() error {
 			if _, err := speaker.GetMockSpeakerPath(fmt.Sprintf("%s:5000", peer1.Spec.LocalRouterId), "10.0.10.1/32"); err != nil {
 				return err
-			}
-			return nil
-		}).Should(Succeed())
-
-		By("checking the status is advertised")
-		Eventually(func() error {
-			a := &sartv1alpha1.BGPAdvertisement{}
-			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: adv.Namespace, Name: adv.Name}, a); err != nil {
-				return err
-			}
-			if a.Status.Condition != sartv1alpha1.BGPAdvertisementConditionAdvertised {
-				return fmt.Errorf("advertised is expected")
 			}
 			return nil
 		}).Should(Succeed())
@@ -249,10 +243,16 @@ var _ = Describe("handle BGPAdvertisement", func() {
 		err := k8sClient.Create(ctx, adv)
 		Expect(err).NotTo(HaveOccurred())
 
-		By("checking status is advertising")
-		err = k8sClient.Get(ctx, types.NamespacedName{Namespace: adv.Namespace, Name: adv.Name}, adv)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(adv.Status.Condition).To(Equal(sartv1alpha1.BGPAdvertisementConditionAdvertising))
+		By("checking status is available")
+		Eventually(func() error {
+			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: adv.Namespace, Name: adv.Name}, adv); err != nil {
+				return err
+			}
+			if adv.Status.Condition != sartv1alpha1.BGPAdvertisementConditionAvailable {
+				return fmt.Errorf("available is expected")
+			}
+			return nil
+		}).Should(Succeed())
 
 		By("peer has advertised path information")
 
@@ -271,18 +271,6 @@ var _ = Describe("handle BGPAdvertisement", func() {
 		Eventually(func() error {
 			if _, err := speaker.GetMockSpeakerPath(fmt.Sprintf("%s:5000", peer1.Spec.LocalRouterId), "10.0.10.2/32"); err != nil {
 				return err
-			}
-			return nil
-		}).Should(Succeed())
-
-		By("checking the status is advertised")
-		Eventually(func() error {
-			a := &sartv1alpha1.BGPAdvertisement{}
-			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: adv.Namespace, Name: adv.Name}, a); err != nil {
-				return err
-			}
-			if a.Status.Condition != sartv1alpha1.BGPAdvertisementConditionAdvertised {
-				return fmt.Errorf("advertised is expected")
 			}
 			return nil
 		}).Should(Succeed())
@@ -308,15 +296,15 @@ var _ = Describe("handle BGPAdvertisement", func() {
 		err := k8sClient.Create(ctx, adv)
 		Expect(err).NotTo(HaveOccurred())
 
-		By("getting and the advertisement and checking its status is advertised")
+		By("getting and the advertisement and checking its status is available")
 		adv = &sartv1alpha1.BGPAdvertisement{}
 		Eventually(func() error {
 			err = k8sClient.Get(ctx, types.NamespacedName{Namespace: constants.Namespace, Name: "adv3"}, adv)
 			if err != nil {
 				return err
 			}
-			if adv.Status.Condition != sartv1alpha1.BGPAdvertisementConditionAdvertised {
-				return fmt.Errorf("status is not advertised")
+			if adv.Status.Condition != sartv1alpha1.BGPAdvertisementConditionAvailable {
+				return fmt.Errorf("status is not available")
 			}
 			return nil
 		}).Should(Succeed())
@@ -384,14 +372,14 @@ var _ = Describe("handle BGPAdvertisement", func() {
 		err := k8sClient.Create(ctx, adv)
 		Expect(err).NotTo(HaveOccurred())
 
-		By("getting and the advertisement and checking its status is advertised")
+		By("getting and the advertisement and checking its status is available")
 		adv = &sartv1alpha1.BGPAdvertisement{}
 		Eventually(func() error {
 			err = k8sClient.Get(ctx, types.NamespacedName{Namespace: constants.Namespace, Name: "adv4"}, adv)
 			if err != nil {
 				return err
 			}
-			if adv.Status.Condition != sartv1alpha1.BGPAdvertisementConditionAdvertised {
+			if adv.Status.Condition != sartv1alpha1.BGPAdvertisementConditionAvailable {
 				return fmt.Errorf("status is not advertised")
 			}
 			return nil
@@ -404,7 +392,6 @@ var _ = Describe("handle BGPAdvertisement", func() {
 		}
 		err = k8sClient.Update(ctx, adv)
 		Expect(err).NotTo(HaveOccurred())
-		adv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionUpdated
 		err = k8sClient.Status().Update(ctx, adv)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -520,7 +507,7 @@ func TestAdvDiff(t *testing.T) {
 					Nodes:   []string{"node1", "node2"},
 				},
 				Status: sartv1alpha1.BGPAdvertisementStatus{
-					Condition: sartv1alpha1.BGPAdvertisementConditionAdvertising,
+					Condition: sartv1alpha1.BGPAdvertisementConditionAvailable,
 				},
 			},
 			added:   []string{},
@@ -570,7 +557,7 @@ func TestAdvDiff(t *testing.T) {
 					Nodes:   []string{"node2", "node3"},
 				},
 				Status: sartv1alpha1.BGPAdvertisementStatus{
-					Condition: sartv1alpha1.BGPAdvertisementConditionAdvertising,
+					Condition: sartv1alpha1.BGPAdvertisementConditionAvailable,
 				},
 			},
 			added:   []string{"peer3"},
