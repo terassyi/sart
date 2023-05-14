@@ -120,7 +120,7 @@ func testSartController() {
 			if err := json.Unmarshal(advOut, adv); err != nil {
 				return err
 			}
-			if adv.Status.Condition != sartv1alpha1.BGPAdvertisementCondition {
+			if adv.Status.Condition != sartv1alpha1.BGPAdvertisementConditionAvailable {
 				return fmt.Errorf("advertisement status is %s", adv.Status.Condition)
 			}
 			return nil

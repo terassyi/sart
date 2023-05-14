@@ -1122,6 +1122,7 @@ var _ = Describe("handle BGPPeer", func() {
 			}
 			return nil
 		}).Should(Succeed())
+
 		By("creating LoadBalancers")
 		svcList := []*v1.Service{
 			{
@@ -1490,7 +1491,716 @@ var _ = Describe("handle BGPPeer", func() {
 
 		By("checking LB addresses are assigned correctly")
 		Expect(newLbAddrs[0]).To(Equal(releasedAlloc[0].addr.String()))
+	})
 
+	It("should create multiple AddressPools", func() {
+		By("creating an test1 address pool")
+		pool1 := &sartv1alpha1.AddressPool{
+			ObjectMeta: corev1.ObjectMeta{
+				Name: "test1",
+			},
+			Spec: sartv1alpha1.AddressPoolSpec{
+				Type: "lb",
+				Cidrs: []sartv1alpha1.Cdir{
+					{
+						Protocol: "ipv4",
+						Prefix:   "10.0.10.0/24",
+					},
+				},
+				Disable: false,
+			},
+		}
+		err := k8sClient.Create(ctx, pool1)
+		Expect(err).NotTo(HaveOccurred())
+
+		pool1 = &sartv1alpha1.AddressPool{}
+		Eventually(func() error {
+			if err := k8sClient.Get(ctx, client.ObjectKey{Name: "test1"}, pool1); err != nil {
+				return err
+			}
+			return nil
+		}).Should(Succeed())
+
+		By("existing an allocator for test1")
+		cidr1, err := netip.ParsePrefix("10.0.10.0/24")
+		Expect(err).NotTo(HaveOccurred())
+		Eventually(func() error {
+			allocators, ok := allocatorMap["test1"]
+			if !ok {
+				return fmt.Errorf("should get allocator")
+			}
+			ipv4Allocator, ok := allocators["ipv4"]
+			if !ok {
+				return fmt.Errorf("should get ipv4")
+			}
+			if !reflect.DeepEqual(ipv4Allocator, allocator.New(&cidr1)) {
+				return fmt.Errorf("should equal")
+			}
+			return nil
+		}).WithPolling(1 * time.Second).Should(Succeed())
+
+		By("creating an test1 address pool")
+		pool2 := &sartv1alpha1.AddressPool{
+			ObjectMeta: corev1.ObjectMeta{
+				Name: "test2",
+			},
+			Spec: sartv1alpha1.AddressPoolSpec{
+				Type: "lb",
+				Cidrs: []sartv1alpha1.Cdir{
+					{
+						Protocol: "ipv4",
+						Prefix:   "10.0.20.0/24",
+					},
+				},
+				Disable: false,
+			},
+		}
+		err = k8sClient.Create(ctx, pool2)
+		Expect(err).NotTo(HaveOccurred())
+
+		pool2 = &sartv1alpha1.AddressPool{}
+		Eventually(func() error {
+			if err := k8sClient.Get(ctx, client.ObjectKey{Name: "test2"}, pool2); err != nil {
+				return err
+			}
+			return nil
+		}).Should(Succeed())
+
+		By("existing an allocator for test1")
+		cidr2, err := netip.ParsePrefix("10.0.20.0/24")
+		Expect(err).NotTo(HaveOccurred())
+		Eventually(func() error {
+			allocators, ok := allocatorMap["test2"]
+			if !ok {
+				return fmt.Errorf("should get allocator")
+			}
+			ipv4Allocator, ok := allocators["ipv4"]
+			if !ok {
+				return fmt.Errorf("should get ipv4")
+			}
+			if !reflect.DeepEqual(ipv4Allocator, allocator.New(&cidr2)) {
+				return fmt.Errorf("should equal")
+			}
+			return nil
+		}).WithPolling(1 * time.Second).Should(Succeed())
+
+		By("deleting AddressPools")
+		err = k8sClient.Delete(ctx, pool1)
+		Expect(err).NotTo(HaveOccurred())
+		err = k8sClient.Delete(ctx, pool2)
+		Expect(err).NotTo(HaveOccurred())
+
+		By("not existing an allocator")
+		Eventually(func() error {
+			_, ok := allocatorMap["test1"]
+			if ok {
+				return fmt.Errorf("should not get allocator for test1")
+			}
+			_, ok = allocatorMap["test2"]
+			if ok {
+				return fmt.Errorf("should not get allocator for test2")
+			}
+			return nil
+		}).WithPolling(1 * time.Second).Should(Succeed())
+	})
+
+	It("should create multiple LoadBalancers with multiple AddressPools", func() {
+
+		nodes := []string{"node2", "node3"}
+
+		By("creating address pools")
+		pools := []*sartv1alpha1.AddressPool{
+			{
+				ObjectMeta: corev1.ObjectMeta{
+					Name: "default",
+				},
+				Spec: sartv1alpha1.AddressPoolSpec{
+					Type: "lb",
+					Cidrs: []sartv1alpha1.Cdir{
+						{
+							Protocol: "ipv4",
+							Prefix:   "10.0.10.0/24",
+						},
+					},
+					Disable: false,
+				},
+			},
+			{
+				ObjectMeta: corev1.ObjectMeta{
+					Name: "not-default",
+				},
+				Spec: sartv1alpha1.AddressPoolSpec{
+					Type: "lb",
+					Cidrs: []sartv1alpha1.Cdir{
+						{
+							Protocol: "ipv4",
+							Prefix:   "10.0.20.0/24",
+						},
+					},
+					Disable: false,
+				},
+			},
+		}
+		for _, pool := range pools {
+			err := k8sClient.Create(ctx, pool)
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		defer func() {
+			for _, pool := range pools {
+				if err := k8sClient.Delete(ctx, pool); err != nil {
+					Fail(err.Error())
+				}
+			}
+		}()
+
+		By("creating LoadBalancers")
+		svcList := []*v1.Service{
+			{
+				ObjectMeta: corev1.ObjectMeta{
+					Name:      "lb-local7",
+					Namespace: "default",
+					Annotations: map[string]string{
+						constants.AnnotationAddressPool: "default",
+					},
+				},
+				Spec: v1.ServiceSpec{
+					Ports: []v1.ServicePort{
+						{
+							Name:       "http",
+							Port:       80,
+							TargetPort: intstr.IntOrString{IntVal: 80},
+						},
+					},
+					Selector: map[string]string{
+						"app": "app2",
+					},
+					Type:                  v1.ServiceTypeLoadBalancer,
+					ExternalTrafficPolicy: v1.ServiceExternalTrafficPolicyTypeLocal,
+				},
+			},
+			{
+				ObjectMeta: corev1.ObjectMeta{
+					Name:      "lb-cluster5",
+					Namespace: "default",
+					Annotations: map[string]string{
+						constants.AnnotationAddressPool: "not-default",
+					},
+				},
+				Spec: v1.ServiceSpec{
+					Ports: []v1.ServicePort{
+						{
+							Name:       "http",
+							Port:       80,
+							TargetPort: intstr.IntOrString{IntVal: 80},
+						},
+					},
+					Selector: map[string]string{
+						"app": "app3",
+					},
+					Type:                  v1.ServiceTypeLoadBalancer,
+					ExternalTrafficPolicy: v1.ServiceExternalTrafficPolicyTypeCluster,
+				},
+			},
+		}
+		for _, svc := range svcList {
+			err := k8sClient.Create(ctx, svc)
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		By("creating EndpointSlices")
+		epsList := []*discoveryv1.EndpointSlice{
+			{
+				ObjectMeta: corev1.ObjectMeta{
+					Name:      "lb-local7",
+					Namespace: "default",
+					Labels: map[string]string{
+						constants.KubernetesServiceNameLabel: "lb-local7",
+					},
+					Annotations: map[string]string{},
+				},
+				AddressType: "IPv4",
+				Endpoints: []discoveryv1.Endpoint{
+					{
+						Addresses: []string{"10.100.0.1"},
+						NodeName:  &nodes[0],
+						Conditions: discoveryv1.EndpointConditions{
+							Ready: &endpointReady,
+						},
+					},
+					{
+						Addresses: []string{"10.100.0.2"},
+						NodeName:  &nodes[1],
+						Conditions: discoveryv1.EndpointConditions{
+							Ready: &endpointReady,
+						},
+					},
+				},
+			},
+			{
+				ObjectMeta: corev1.ObjectMeta{
+					Name:      "lb-cluster5",
+					Namespace: "default",
+					Labels: map[string]string{
+						constants.KubernetesServiceNameLabel: "lb-cluster5",
+					},
+					Annotations: map[string]string{},
+				},
+				AddressType: "IPv4",
+				Endpoints: []discoveryv1.Endpoint{
+					{
+						Addresses: []string{"10.100.0.4"},
+						NodeName:  &nodes[0],
+						Conditions: discoveryv1.EndpointConditions{
+							Ready: &endpointReady,
+						},
+					},
+				},
+			},
+		}
+		for _, eps := range epsList {
+			err := k8sClient.Create(ctx, eps)
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		By("getting BGPAdvertisements")
+		Eventually(func() error {
+			for _, svc := range svcList {
+				adv := &sartv1alpha1.BGPAdvertisement{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: svc.Namespace, Name: svcToAdvertisementName(svc, "ipv4")}, adv); err != nil {
+					return err
+				}
+			}
+			return nil
+		}).Should(Succeed())
+
+		By("changing BGPAdvertisement status")
+		advs := []*sartv1alpha1.BGPAdvertisement{}
+		for _, svc := range svcList {
+			adv := &sartv1alpha1.BGPAdvertisement{}
+			err := k8sClient.Get(ctx, types.NamespacedName{Namespace: svc.Namespace, Name: svcToAdvertisementName(svc, "ipv4")}, adv)
+			Expect(err).NotTo(HaveOccurred())
+			advs = append(advs, adv)
+		}
+		for _, adv := range advs {
+			newAdv := adv.DeepCopy()
+			newAdv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionAvailable
+			err := k8sClient.Status().Update(ctx, newAdv)
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		By("collecting assigned addresses")
+		lbAddrs := []string{}
+		for _, svc := range svcList {
+			a, ok := allocMap[types.NamespacedName{Namespace: svc.Namespace, Name: svc.Name}.String()]
+			Expect(ok).To(BeTrue())
+			Expect(len(a)).To(Equal(1))
+			allocInfo := a[0]
+			lbAddrs = append(lbAddrs, allocInfo.addr.String())
+		}
+
+		By("checking the address cidr")
+		Expect(len(lbAddrs)).To(Equal(2))
+		pool1Cidr, err := netip.ParsePrefix("10.0.10.0/24")
+		Expect(err).NotTo(HaveOccurred())
+		pool2Cidr, err := netip.ParsePrefix("10.0.20.0/24")
+		Expect(err).NotTo(HaveOccurred())
+		cidrs := []netip.Prefix{pool1Cidr, pool2Cidr}
+		for i := 0; i < len(lbAddrs); i++ {
+			addr, err := netip.ParseAddr(lbAddrs[i])
+			Expect(err).NotTo(HaveOccurred())
+			res := cidrs[i].Contains(addr)
+			Expect(res).To(BeTrue())
+		}
+
+		By("checking assigned correctly")
+		Eventually(func() error {
+			for i := 0; i < len(svcList); i++ {
+				svc := &v1.Service{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: svcList[i].Namespace, Name: svcList[i].Name}, svc); err != nil {
+					return err
+				}
+				if len(svc.Status.LoadBalancer.Ingress) < 1 {
+					return fmt.Errorf("expected at least one entry")
+				}
+				if svc.Status.LoadBalancer.Ingress[0].IP != lbAddrs[i] {
+					return fmt.Errorf("assinged address is not matched: svc: %s, want: %s, got: %s", types.NamespacedName{Namespace: svcList[i].Namespace, Name: svcList[i].Name}, lbAddrs[i], svc.Status.LoadBalancer.Ingress[0].IP)
+				}
+			}
+			return nil
+		}).Should(Succeed())
+	})
+
+	It("should change externalTrafficPolicy from Cluster to Local", func() {
+		By("creating an address pool")
+		pool := &sartv1alpha1.AddressPool{
+			ObjectMeta: corev1.ObjectMeta{
+				Name: "default",
+			},
+			Spec: sartv1alpha1.AddressPoolSpec{
+				Type: "lb",
+				Cidrs: []sartv1alpha1.Cdir{
+					{
+						Protocol: "ipv4",
+						Prefix:   "10.0.10.0/24",
+					},
+				},
+				Disable: false,
+			},
+		}
+		err := k8sClient.Create(ctx, pool)
+		Expect(err).NotTo(HaveOccurred())
+
+		defer func() {
+			if err := k8sClient.Delete(ctx, pool); err != nil {
+				Fail(err.Error())
+			}
+		}()
+
+		pool = &sartv1alpha1.AddressPool{}
+		Eventually(func() error {
+			if err := k8sClient.Get(ctx, client.ObjectKey{Name: "default"}, pool); err != nil {
+				return err
+			}
+			return nil
+		}).Should(Succeed())
+
+		By("creating LoadBalancer")
+		svc := &v1.Service{
+			ObjectMeta: corev1.ObjectMeta{
+				Name:      "lb-cluster6",
+				Namespace: "default",
+				Annotations: map[string]string{
+					constants.AnnotationAddressPool: "default",
+				},
+			},
+			Spec: v1.ServiceSpec{
+				Ports: []v1.ServicePort{
+					{
+						Name:       "http",
+						Port:       80,
+						TargetPort: intstr.IntOrString{IntVal: 80},
+					},
+				},
+				Selector: map[string]string{
+					"app": "app1",
+				},
+				Type:                  v1.ServiceTypeLoadBalancer,
+				ExternalTrafficPolicy: v1.ServiceExternalTrafficPolicyTypeCluster,
+			},
+		}
+		err = k8sClient.Create(ctx, svc)
+		Expect(err).NotTo(HaveOccurred())
+
+		By("creating EndpointSlice")
+		nodes := []string{"node1", "node2"}
+		eps := &discoveryv1.EndpointSlice{
+			ObjectMeta: corev1.ObjectMeta{
+				Name:      "lb-cluster6",
+				Namespace: "default",
+				Labels: map[string]string{
+					constants.KubernetesServiceNameLabel: "lb-cluster6",
+				},
+				Annotations: map[string]string{},
+			},
+			AddressType: "IPv4",
+			Endpoints: []discoveryv1.Endpoint{
+				{
+					Addresses: []string{"10.100.0.1"},
+					NodeName:  &nodes[0],
+					Conditions: discoveryv1.EndpointConditions{
+						Ready: &endpointReady,
+					},
+				},
+				{
+					Addresses: []string{"10.100.0.2"},
+					NodeName:  &nodes[1],
+					Conditions: discoveryv1.EndpointConditions{
+						Ready: &endpointReady,
+					},
+				},
+			},
+		}
+		err = k8sClient.Create(ctx, eps)
+		Expect(err).NotTo(HaveOccurred())
+
+		By("getting service")
+		svc = &v1.Service{}
+		Eventually(func() error {
+			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: "default", Name: "lb-cluster6"}, svc); err != nil {
+				return err
+			}
+			pool, ok := svc.Annotations[constants.AnnotationAllocatedFromPool]
+			if !ok {
+				return fmt.Errorf("not allocated")
+			}
+			if pool != "default" {
+				return fmt.Errorf("pool name is not matched")
+			}
+			return nil
+		}).Should(Succeed())
+
+		By("existing an advertisement")
+		adv := &sartv1alpha1.BGPAdvertisement{}
+		advertisedNodes := []string{"node1", "node2", "node3"}
+		Eventually(func() error {
+			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: "default", Name: svcToAdvertisementName(svc, "ipv4")}, adv); err != nil {
+				return err
+			}
+			if adv.Status.Condition != sartv1alpha1.BGPAdvertisementConditionUnavailable {
+				return fmt.Errorf("advertisement status is not advertising: got %v", adv.Status.Condition)
+			}
+			sort.Strings(adv.Spec.Nodes)
+			if !reflect.DeepEqual(adv.Spec.Nodes, advertisedNodes) {
+				return fmt.Errorf("want: %v, got: %v", advertisedNodes, adv.Spec.Nodes)
+			}
+			return nil
+		}).Should(Succeed())
+
+		By("checking the allocator and allocation info")
+		a, ok := allocMap[types.NamespacedName{Namespace: svc.Namespace, Name: svc.Name}.String()]
+		Expect(ok).To(BeTrue())
+		Expect(len(a)).To(Equal(1))
+		allocInfo := a[0]
+
+		protocolAllocator, ok := allocatorMap["default"]
+		Expect(ok).To(BeTrue())
+		allocator, ok := protocolAllocator["ipv4"]
+		Expect(ok).To(BeTrue())
+		Expect(allocator.IsAllocated(allocInfo.addr)).To(BeTrue())
+
+		By("changing the advertisement status to available")
+		adv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionAvailable
+		err = k8sClient.Status().Update(ctx, adv)
+		Expect(err).NotTo(HaveOccurred())
+
+		By("assigning an address to Service")
+		svc = &v1.Service{}
+		Eventually(func() error {
+			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: "default", Name: "lb-cluster6"}, svc); err != nil {
+				return err
+			}
+			if len(svc.Status.Conditions) < 1 {
+				return fmt.Errorf("expected at least one condition")
+			}
+			assignedCondition := svc.Status.Conditions[len(svc.Status.Conditions)-1]
+			if assignedCondition.Type != ServiceConditionTypeAdvertised {
+				return fmt.Errorf("want: %v, got: %v", corev1.ConditionStatus(ServiceConditionReasonAdvertised), assignedCondition.Reason)
+			}
+			if len(svc.Status.LoadBalancer.Ingress) == 0 {
+				return fmt.Errorf("expected at least one ingress")
+			}
+			lbStatus := svc.Status.LoadBalancer.Ingress[0]
+			if lbStatus.IP != allocInfo.addr.String() {
+				return fmt.Errorf("want: %s, got: %s", allocInfo.addr, lbStatus.IP)
+			}
+			return nil
+		}).Should(Succeed())
+
+		By("changing the externalTrafficPolicy to Local")
+		svc.Spec.ExternalTrafficPolicy = v1.ServiceExternalTrafficPolicyTypeLocal
+		err = k8sClient.Update(ctx, svc)
+		Expect(err).NotTo(HaveOccurred())
+
+		By("checking advertised nodes are changed")
+		adv = &sartv1alpha1.BGPAdvertisement{}
+		Eventually(func() error {
+			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: "default", Name: svcToAdvertisementName(svc, "ipv4")}, adv); err != nil {
+				return err
+			}
+			sort.Strings(adv.Spec.Nodes)
+			if !reflect.DeepEqual(adv.Spec.Nodes, nodes) {
+				return fmt.Errorf("want: %v, got: %v", nodes, adv.Spec.Nodes)
+			}
+			return nil
+		}).Should(Succeed())
+	})
+
+	It("should change externalTrafficPolicy from Local to Cluster", func() {
+
+		allNodes := []string{"node1", "node2", "node3"}
+
+		By("creating an address pool")
+		pool := &sartv1alpha1.AddressPool{
+			ObjectMeta: corev1.ObjectMeta{
+				Name: "default",
+			},
+			Spec: sartv1alpha1.AddressPoolSpec{
+				Type: "lb",
+				Cidrs: []sartv1alpha1.Cdir{
+					{
+						Protocol: "ipv4",
+						Prefix:   "10.0.10.0/24",
+					},
+				},
+				Disable: false,
+			},
+		}
+		err := k8sClient.Create(ctx, pool)
+		Expect(err).NotTo(HaveOccurred())
+
+		defer func() {
+			if err := k8sClient.Delete(ctx, pool); err != nil {
+				Fail(err.Error())
+			}
+		}()
+
+		pool = &sartv1alpha1.AddressPool{}
+		Eventually(func() error {
+			if err := k8sClient.Get(ctx, client.ObjectKey{Name: "default"}, pool); err != nil {
+				return err
+			}
+			return nil
+		}).Should(Succeed())
+
+		By("creating LoadBalancer")
+		svc := &v1.Service{
+			ObjectMeta: corev1.ObjectMeta{
+				Name:      "lb-local8",
+				Namespace: "default",
+				Annotations: map[string]string{
+					constants.AnnotationAddressPool: "default",
+				},
+			},
+			Spec: v1.ServiceSpec{
+				Ports: []v1.ServicePort{
+					{
+						Name:       "http",
+						Port:       80,
+						TargetPort: intstr.IntOrString{IntVal: 80},
+					},
+				},
+				Selector: map[string]string{
+					"app": "app2",
+				},
+				Type:                  v1.ServiceTypeLoadBalancer,
+				ExternalTrafficPolicy: v1.ServiceExternalTrafficPolicyTypeLocal,
+			},
+		}
+		err = k8sClient.Create(ctx, svc)
+		Expect(err).NotTo(HaveOccurred())
+
+		By("creating EndpointSlice")
+		nodes := []string{"node1", "node2"}
+		eps := &discoveryv1.EndpointSlice{
+			ObjectMeta: corev1.ObjectMeta{
+				Name:      "lb-local8",
+				Namespace: "default",
+				Labels: map[string]string{
+					constants.KubernetesServiceNameLabel: "lb-local8",
+				},
+				Annotations: map[string]string{},
+			},
+			AddressType: "IPv4",
+			Endpoints: []discoveryv1.Endpoint{
+				{
+					Addresses: []string{"10.100.0.1"},
+					NodeName:  &nodes[0],
+					Conditions: discoveryv1.EndpointConditions{
+						Ready: &endpointReady,
+					},
+				},
+				{
+					Addresses: []string{"10.100.0.2"},
+					NodeName:  &nodes[1],
+					Conditions: discoveryv1.EndpointConditions{
+						Ready: &endpointReady,
+					},
+				},
+			},
+		}
+		err = k8sClient.Create(ctx, eps)
+		Expect(err).NotTo(HaveOccurred())
+
+		By("getting service")
+		svc = &v1.Service{}
+		Eventually(func() error {
+			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: "default", Name: "lb-local8"}, svc); err != nil {
+				return err
+			}
+			pool, ok := svc.Annotations[constants.AnnotationAllocatedFromPool]
+			if !ok {
+				return fmt.Errorf("not allocated")
+			}
+			if pool != "default" {
+				return fmt.Errorf("pool name is not matched")
+			}
+			return nil
+		}).Should(Succeed())
+
+		By("existing an advertisement")
+		adv := &sartv1alpha1.BGPAdvertisement{}
+		Eventually(func() error {
+			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: "default", Name: svcToAdvertisementName(svc, "ipv4")}, adv); err != nil {
+				return err
+			}
+			if adv.Status.Condition != sartv1alpha1.BGPAdvertisementConditionUnavailable {
+				return fmt.Errorf("advertisement status is not unavailable : got %v", adv.Status.Condition)
+			}
+			sort.Strings(adv.Spec.Nodes)
+			if !reflect.DeepEqual(adv.Spec.Nodes, nodes) {
+				return fmt.Errorf("want: %v, got: %v", nodes, adv.Spec.Nodes)
+			}
+			return nil
+		}).Should(Succeed())
+
+		By("checking the allocator and allocation info")
+		a, ok := allocMap[types.NamespacedName{Namespace: svc.Namespace, Name: svc.Name}.String()]
+		Expect(ok).To(BeTrue())
+		Expect(len(a)).To(Equal(1))
+		allocInfo := a[0]
+
+		protocolAllocator, ok := allocatorMap["default"]
+		Expect(ok).To(BeTrue())
+		allocator, ok := protocolAllocator["ipv4"]
+		Expect(ok).To(BeTrue())
+		Expect(allocator.IsAllocated(allocInfo.addr)).To(BeTrue())
+
+		By("changing the advertisement status to advertised")
+		adv.Status.Condition = sartv1alpha1.BGPAdvertisementConditionAvailable
+		err = k8sClient.Status().Update(ctx, adv)
+		Expect(err).NotTo(HaveOccurred())
+
+		By("assigning an address to Service")
+		svc = &v1.Service{}
+		Eventually(func() error {
+			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: "default", Name: "lb-local8"}, svc); err != nil {
+				return err
+			}
+			if len(svc.Status.Conditions) < 1 {
+				return fmt.Errorf("expected at least one condition")
+			}
+			assignedCondition := svc.Status.Conditions[len(svc.Status.Conditions)-1]
+			if assignedCondition.Type != ServiceConditionTypeAdvertised {
+				return fmt.Errorf("want: %v, got: %v", corev1.ConditionStatus(ServiceConditionReasonAdvertised), assignedCondition.Reason)
+			}
+			if len(svc.Status.LoadBalancer.Ingress) == 0 {
+				return fmt.Errorf("expected at least one ingress")
+			}
+			lbStatus := svc.Status.LoadBalancer.Ingress[0]
+			if lbStatus.IP != allocInfo.addr.String() {
+				return fmt.Errorf("want: %s, got: %s", allocInfo.addr, lbStatus.IP)
+			}
+			return nil
+		}).Should(Succeed())
+
+		By("changing the externalTrafficPolicy to Cluster")
+		svc.Spec.ExternalTrafficPolicy = v1.ServiceExternalTrafficPolicyTypeCluster
+		err = k8sClient.Update(ctx, svc)
+		Expect(err).NotTo(HaveOccurred())
+
+		By("checking advertised nodes are changed")
+		adv = &sartv1alpha1.BGPAdvertisement{}
+		Eventually(func() error {
+			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: "default", Name: svcToAdvertisementName(svc, "ipv4")}, adv); err != nil {
+				return err
+			}
+			sort.Strings(adv.Spec.Nodes)
+			if !reflect.DeepEqual(adv.Spec.Nodes, allNodes) {
+				return fmt.Errorf("want: %v, got: %v", allNodes, adv.Spec.Nodes)
+			}
+			return nil
+		}).Should(Succeed())
 	})
 
 })
