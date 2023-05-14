@@ -44,6 +44,8 @@ type BGPAdvertisementSpec struct {
 	Origin string `json:"origin,omitempty"`
 
 	LocalPref uint32 `json:"localPref,omitempty"`
+
+	Nodes []string `json:"nodes,omitempty"`
 }
 
 // BGPAdvertisementStatus defines the observed state of BGPAdvertisement

@@ -158,7 +158,7 @@ func (r *BGPAdvertisementReconciler) handleNewAdvertisement(ctx context.Context,
 	}
 
 	for _, p := range peerList.Items {
-		for _, target := range advertisement.Status.Nodes {
+		for _, target := range advertisement.Spec.Nodes {
 			if p.Spec.Node == target {
 				logger.Info("advertise new path", "Node", target, "Prefix", advertisement.Spec.Network)
 				peerAvailable, err := r.advertise(ctx, &p, advertisement)
@@ -424,7 +424,7 @@ func advDiff(peerList sartv1alpha1.BGPPeerList, advertisement *sartv1alpha1.BGPA
 	removed := []sartv1alpha1.BGPPeer{}
 	added := []sartv1alpha1.BGPPeer{}
 
-	for _, an := range advertisement.Status.Nodes {
+	for _, an := range advertisement.Spec.Nodes {
 		_, ok := oldMap[an]
 		if !ok {
 			added = append(added, peerMap[an])

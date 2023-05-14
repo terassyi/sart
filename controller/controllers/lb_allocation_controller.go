@@ -428,10 +428,10 @@ func (r *LBAllocationReconciler) handleEndpointUpdate(ctx context.Context, svc *
 	}
 
 	for _, adv := range advertisements {
-		if reflect.DeepEqual(adv.Status.Nodes, nodes) {
+		if reflect.DeepEqual(adv.Spec.Nodes, nodes) {
 			return nil
 		}
-		logger.Info("need to update endpoints", "old", adv.Status.Nodes, "new", nodes)
+		logger.Info("need to update endpoints", "old", adv.Spec.Nodes, "new", nodes)
 		newAdv := adv.DeepCopy()
 		newAdv.Spec.Nodes = nodes
 		if err := r.Client.Patch(ctx, newAdv, client.MergeFrom(adv)); err != nil {
@@ -674,6 +674,7 @@ func (r *LBAllocationReconciler) createOrUpdateAdvertisement(ctx context.Context
 				Protocol:  protocolFromAddr(lbAddr),
 				Origin:    "",
 				LocalPref: 0,
+				Nodes:     endpointNodes,
 			}
 			advertisement.Spec = spec
 			// set owner reference
