@@ -25,6 +25,8 @@ NODE3_ADDR ?= ""
 CLIENT_ADDR ?= ""
 LB_CIDR ?= 10.69.0.0/24
 ESCAPED_LB_CIDR ?= "10.69.0.0\/24"
+ANOTHER_LB_CIDR ?= 10.69.10.0/24
+ANOTHER_ESCAPED_LB_CIDR ?= "10.69.10.0\/24"
 
 .PHONY: start
 start: $(KIND) $(KUBECTL) $(KUSTOMIZE)
@@ -64,11 +66,15 @@ configure:
 	sed -e s/LB_CIDR/'${ESCAPED_LB_CIDR}'/g \
 		./manifests/templates/addresspool.yaml.tmpl > ./manifests/addresspool.yaml
 
+	sed -e s/ANOTHER_LB_CIDR/'${ANOTHER_ESCAPED_LB_CIDR}'/g \
+		./manifests/templates/another_addresspool.yaml.tmpl > ./manifests/another_addresspool.yaml
+
 	sed -e s/EXTERNAL_BGP_ASN/${EXTERNAL_BGP_ASN}/g -e s/EXTERNAL_BGP_ADDR/${EXTERNAL_BGP_ADDR}/g \
 		./manifests/templates/peer.yaml.tmpl > ./manifests/peer.yaml
 
 	docker exec -d external-bgp gobgpd -f /etc/frr/gobgp.conf
 	docker exec external-client ip route add ${LB_CIDR} via ${EXTERNAL_BGP_ADDR}
+	docker exec external-client ip route add ${ANOTHER_LB_CIDR} via ${EXTERNAL_BGP_ADDR}
 
 
 .PHONY: install

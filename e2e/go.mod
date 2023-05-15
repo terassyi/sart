@@ -6,7 +6,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.9.4
 	github.com/onsi/gomega v1.27.6
 	github.com/stretchr/testify v1.8.2
-	github.com/terassyi/sart/controller v0.0.0-20230506023118-07d83983fb1d
+	github.com/terassyi/sart/controller v0.0.0-20230514135845-3de220b7af4d
 	k8s.io/api v0.27.1
 	k8s.io/apimachinery v0.27.1
 )
