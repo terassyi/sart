@@ -11,6 +11,7 @@ import (
 	sartv1alpha1 "github.com/terassyi/sart/controller/api/v1alpha1"
 	"github.com/terassyi/sart/e2e/container"
 	"github.com/terassyi/sart/e2e/sartd"
+	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	"k8s.io/apimachinery/pkg/util/json"
@@ -113,7 +114,7 @@ func testSartController() {
 		Eventually(func() error {
 
 			adv := &sartv1alpha1.BGPAdvertisement{}
-			advOut, err := kubectl(nil, "get", "bgpadvertisement", "-n", "kube-system", fmt.Sprintf("%s-%s-ipv4", svc.Namespace, svc.Name), "-o", "json")
+			advOut, err := kubectl(nil, "get", "bgpadvertisement", "-n", svc.Namespace, fmt.Sprintf("%s-ipv4", svc.Name), "-o", "json")
 			if err != nil {
 				return err
 			}
@@ -146,8 +147,9 @@ func testSartController() {
 		Expect(svc.Status.LoadBalancer.Ingress[0].IP).To(Equal(expectedAddr))
 
 		By("communicating with the app")
-		err = container.RunCommandInContainer(ctx, "external-client", false, []string{"curl", fmt.Sprintf("http://%s", expectedAddr)})
-		Expect(err).NotTo(HaveOccurred())
+		Eventually(func() error {
+			return container.RunCommandInContainer(ctx, "external-client", false, []string{"curl", "-m", "1", fmt.Sprintf("http://%s", expectedAddr)})
+		}).WithPolling(1 * time.Second).WithTimeout(1 * time.Minute).Should(Succeed())
 	})
 
 	It("should handle LoadBalancer externalTrafficPolicy=Local", func() {
@@ -177,7 +179,7 @@ func testSartController() {
 		Eventually(func() error {
 
 			adv := &sartv1alpha1.BGPAdvertisement{}
-			advOut, err := kubectl(nil, "get", "bgpadvertisement", "-n", "kube-system", fmt.Sprintf("%s-%s-ipv4", svc.Namespace, svc.Name), "-o", "json")
+			advOut, err := kubectl(nil, "get", "bgpadvertisement", "-n", svc.Namespace, fmt.Sprintf("%s-ipv4", svc.Name), "-o", "json")
 			if err != nil {
 				return err
 			}
@@ -221,8 +223,9 @@ func testSartController() {
 		Expect(svc.Status.LoadBalancer.Ingress[0].IP).To(Equal(expectedAddr))
 
 		By("communicating with the app")
-		err = container.RunCommandInContainer(ctx, "external-client", false, []string{"curl", fmt.Sprintf("http://%s", expectedAddr)})
-		Expect(err).NotTo(HaveOccurred())
+		Eventually(func() error {
+			return container.RunCommandInContainer(ctx, "external-client", false, []string{"curl", "-m", "1", fmt.Sprintf("http://%s", expectedAddr)})
+		}).WithPolling(1 * time.Second).WithTimeout(1 * time.Minute).Should(Succeed())
 	})
 
 	It("should release LB address", func() {
@@ -241,7 +244,7 @@ func testSartController() {
 
 		By("getting the advertisement")
 		adv := &sartv1alpha1.BGPAdvertisement{}
-		advOut, err := kubectl(nil, "get", "-n", "kube-system", "bgpadvertisement", fmt.Sprintf("%s-%s-ipv4", svc.Namespace, svc.Name), "-o", "json")
+		advOut, err := kubectl(nil, "get", "-n", svc.Namespace, "bgpadvertisement", fmt.Sprintf("%s-ipv4", svc.Name), "-o", "json")
 		Expect(err).NotTo(HaveOccurred())
 		err = json.Unmarshal(advOut, adv)
 		Expect(err).NotTo(HaveOccurred())
@@ -252,7 +255,7 @@ func testSartController() {
 
 		By("not getting the advertisement")
 		adv = &sartv1alpha1.BGPAdvertisement{}
-		_, err = kubectl(nil, "get", "-n", "kube-system", "bgpadvertisement", fmt.Sprintf("%s-%s-ipv4", svc.Namespace, svc.Name), "-o", "json")
+		_, err = kubectl(nil, "get", "-n", svc.Namespace, "bgpadvertisement", fmt.Sprintf("%s-ipv4", svc.Name), "-o", "json")
 		Expect(err).To(HaveOccurred())
 
 		By("not getting the path from external BGP speaker")
@@ -305,7 +308,7 @@ func testSartController() {
 		Eventually(func() error {
 
 			adv := &sartv1alpha1.BGPAdvertisement{}
-			advOut, err := kubectl(nil, "get", "bgpadvertisement", "-n", "kube-system", fmt.Sprintf("%s-%s-ipv4", svc.Namespace, svc.Name), "-o", "json")
+			advOut, err := kubectl(nil, "get", "bgpadvertisement", "-n", svc.Namespace, fmt.Sprintf("%s-ipv4", svc.Name), "-o", "json")
 			if err != nil {
 				return err
 			}
@@ -338,8 +341,9 @@ func testSartController() {
 		Expect(svc.Status.LoadBalancer.Ingress[0].IP).To(Equal(expectedAddr))
 
 		By("communicating with the app")
-		err = container.RunCommandInContainer(ctx, "external-client", false, []string{"curl", "-m", "2", fmt.Sprintf("http://%s", expectedAddr)})
-		Expect(err).NotTo(HaveOccurred())
+		Eventually(func() error {
+			return container.RunCommandInContainer(ctx, "external-client", false, []string{"curl", "-m", "1", fmt.Sprintf("http://%s", expectedAddr)})
+		}).WithPolling(1 * time.Second).WithTimeout(1 * time.Minute).Should(Succeed())
 	})
 
 	It("should update endpoints", func() {
@@ -407,8 +411,6 @@ func testSartController() {
 		By("comparing endpoints and paths")
 		Expect(len(addrMap)).To(Equal(len(paths)))
 		for _, p := range paths {
-			fmt.Println(addrMap)
-			fmt.Println(paths)
 			_, ok := addrMap[p.Source]
 			Expect(ok).To(BeTrue())
 		}
@@ -471,7 +473,169 @@ func testSartController() {
 		}
 
 		By("communicating with the app")
-		err = container.RunCommandInContainer(ctx, "external-client", false, []string{"curl", fmt.Sprintf("http://%s", expectedAddr)})
+		Eventually(func() error {
+			return container.RunCommandInContainer(ctx, "external-client", false, []string{"curl", "-m", "1", fmt.Sprintf("http://%s", expectedAddr)})
+		}).WithPolling(1 * time.Second).WithTimeout(1 * time.Minute).Should(Succeed())
+	})
+
+	It("should change externalTrafficPolicy", func() {
+		expectedAddr := "10.69.0.0"
+		expectedPrefix := "10.69.0.0/32"
+
+		ctx := context.Background()
+
+		By("getting Deployment")
+		deply := &appsv1.Deployment{}
+		dpOut, err := kubectl(nil, "get", "-n", "test", "deployment", "app-cluster", "-o", "json")
 		Expect(err).NotTo(HaveOccurred())
+		err = json.Unmarshal(dpOut, deply)
+		Expect(err).NotTo(HaveOccurred())
+
+		By("getting Service")
+		svc := &v1.Service{}
+		svcOut, err := kubectl(nil, "get", "-n", "test", "svc", "app-svc-cluster", "-o", "json")
+		Expect(err).NotTo(HaveOccurred())
+		err = json.Unmarshal(svcOut, svc)
+		Expect(err).NotTo(HaveOccurred())
+
+		By("communicating with the app")
+		Eventually(func() error {
+			return container.RunCommandInContainer(ctx, "external-client", false, []string{"curl", "-m", "1", fmt.Sprintf("http://%s", expectedAddr)})
+		}).WithPolling(1 * time.Second).WithTimeout(1 * time.Minute).Should(Succeed())
+
+		By("changing externalTrafficPolicy from Cluster to Local")
+		_, err = kubectl(nil, "patch", "-n", "test", "svc", "app-svc-cluster", "--patch-file", "manifests/patch_app-svc-cluster.yaml")
+		Expect(err).NotTo(HaveOccurred())
+
+		By("checking that the eTP is updated")
+		Eventually(func() error {
+			svcOut, err := kubectl(nil, "get", "-n", "test", "svc", "app-svc-cluster", "-o", "json")
+			if err != nil {
+				return err
+			}
+			if err := json.Unmarshal(svcOut, svc); err != nil {
+				return err
+			}
+			if svc.Spec.ExternalTrafficPolicy != v1.ServiceExternalTrafficPolicyLocal {
+				return fmt.Errorf("expected: Local, got: %s", svc.Spec.ExternalTrafficPolicy)
+			}
+			return nil
+		}).Should(Succeed())
+
+		By("updating BGPAdvertisement for LB")
+		Eventually(func() error {
+			adv := &sartv1alpha1.BGPAdvertisement{}
+			advOut, err := kubectl(nil, "get", "bgpadvertisement", "-n", svc.Namespace, fmt.Sprintf("%s-ipv4", svc.Name), "-o", "json")
+			if err != nil {
+				return err
+			}
+			if err := json.Unmarshal(advOut, adv); err != nil {
+				return err
+			}
+			if adv.Status.Condition != sartv1alpha1.BGPAdvertisementConditionAvailable {
+				return fmt.Errorf("advertisement status is %s", adv.Status.Condition)
+			}
+			if len(adv.Spec.Nodes) != int(*deply.Spec.Replicas) {
+				return fmt.Errorf("want: %d, got: %d", int(*deply.Spec.Replicas), len(adv.Spec.Nodes))
+			}
+			return nil
+		}).Should(Succeed())
+
+		By("receiving a path information by external bgp speaker")
+		res, err := container.RunCommandInContainerWithOutput(ctx, "external-bgp", []string{"gobgp", "global", "rib", "-j"})
+		Expect(err).NotTo(HaveOccurred())
+		pathMap := make(map[string][]sartd.GoBGPPath)
+		err = json.Unmarshal(res, &pathMap)
+		Expect(err).NotTo(HaveOccurred())
+		paths, ok := pathMap[expectedPrefix]
+		Expect(ok).To(BeTrue())
+		Expect(len(paths)).To(Equal(2))
+
+		By("communicating with the app again")
+		Eventually(func() error {
+			return container.RunCommandInContainer(ctx, "external-client", false, []string{"curl", "-m", "1", fmt.Sprintf("http://%s", expectedAddr)})
+		}).WithPolling(1 * time.Second).WithTimeout(1 * time.Minute).Should(Succeed())
+	})
+
+	It("should create another AddressPool", func() {
+		By("creating another address pool")
+		_, err := kubectl(nil, "apply", "-f", "manifests/another_addresspool.yaml")
+		Expect(err).NotTo(HaveOccurred())
+	})
+
+	It("should handle LoadBalancer with another-lb-pool", func() {
+		expectedAddr := "10.69.10.0"
+		expectedPrefix := "10.69.10.0/32"
+
+		ctx := context.Background()
+
+		By("applying Deployment and Service")
+		_, err := kubectl(nil, "apply", "-f", "manifests/lb_local_another_pool.yaml")
+		Expect(err).NotTo(HaveOccurred())
+
+		By("getting Service")
+		svc := &v1.Service{}
+		Eventually(func() error {
+			svcOut, err := kubectl(nil, "get", "-n", "test", "svc", "app-svc-local-another", "-o", "json")
+			if err != nil {
+				return err
+			}
+			if err := json.Unmarshal(svcOut, svc); err != nil {
+				return err
+			}
+			return nil
+		}).Should(Succeed())
+
+		By("existing BGPAdvertisement for LB")
+		Eventually(func() error {
+
+			adv := &sartv1alpha1.BGPAdvertisement{}
+			advOut, err := kubectl(nil, "get", "bgpadvertisement", "-n", svc.Namespace, fmt.Sprintf("%s-ipv4", svc.Name), "-o", "json")
+			if err != nil {
+				return err
+			}
+			if err := json.Unmarshal(advOut, adv); err != nil {
+				return err
+			}
+			if adv.Status.Condition != sartv1alpha1.BGPAdvertisementConditionAvailable {
+				return fmt.Errorf("advertisement status is %s", adv.Status.Condition)
+			}
+			return nil
+		}).Should(Succeed())
+
+		By("receiving path information by external bgp speaker")
+		Eventually(func() error {
+			res, err := container.RunCommandInContainerWithOutput(ctx, "external-bgp", []string{"gobgp", "global", "rib", "-j"})
+			if err != nil {
+				return err
+			}
+			pathMap := make(map[string][]sartd.GoBGPPath)
+			err = json.Unmarshal(res, &pathMap)
+			if err != nil {
+				return err
+			}
+			paths, ok := pathMap[expectedPrefix]
+			if !ok {
+				return fmt.Errorf("path not found")
+			}
+			if len(paths) != 2 {
+				return fmt.Errorf("want: 2, got: %d", len(paths))
+			}
+			return nil
+		}).Should(Succeed())
+
+		By("assigning LB address to Service")
+		svcOut, err := kubectl(nil, "get", "-n", svc.Namespace, "svc", svc.Name, "-o", "json")
+		Expect(err).NotTo(HaveOccurred())
+		svc = &v1.Service{}
+		err = json.Unmarshal(svcOut, svc)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(len(svc.Status.LoadBalancer.Ingress)).To(Equal(1))
+		Expect(svc.Status.LoadBalancer.Ingress[0].IP).To(Equal(expectedAddr))
+
+		By("communicating with the app")
+		Eventually(func() error {
+			return container.RunCommandInContainer(ctx, "external-client", false, []string{"curl", "-m", "1", fmt.Sprintf("http://%s", expectedAddr)})
+		}).WithPolling(1 * time.Second).WithTimeout(1 * time.Minute).Should(Succeed())
 	})
 }
