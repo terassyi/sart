@@ -345,12 +345,16 @@ func (r *LBAllocationReconciler) handleService(ctx context.Context, svc *v1.Serv
 	// if there are no healthy endpoints
 	if len(endpoints) == 0 {
 		logger.Info("There are no ready endpoints")
+		if len(svc.Status.Conditions) > 0 && svc.Status.Conditions[len(svc.Status.Conditions)-1].Type == ServiceConditionTypeNotReady {
+			return nil
+		}
 		newSvc := svc.DeepCopy()
 		newSvc.Status.Conditions = append(newSvc.Status.Conditions, metav1.Condition{
-			Type:    ServiceConditionTypeNotReady,
-			Status:  metav1.ConditionFalse,
-			Reason:  ServiceConditionReasonNotReady,
-			Message: "There are no ready endpoints",
+			LastTransitionTime: metav1.Now(),
+			Type:               ServiceConditionTypeNotReady,
+			Status:             metav1.ConditionFalse,
+			Reason:             ServiceConditionReasonNotReady,
+			Message:            "There are no ready endpoints",
 		})
 		if err := r.Client.Status().Patch(ctx, newSvc, client.MergeFrom(svc)); err != nil {
 			return err
@@ -388,10 +392,11 @@ func (r *LBAllocationReconciler) handleService(ctx context.Context, svc *v1.Serv
 	newSvc := svc.DeepCopy()
 
 	newSvc.Status.Conditions = append(newSvc.Status.Conditions, metav1.Condition{
-		Type:    ServiceConditionTypeAdvertising,
-		Status:  metav1.ConditionFalse,
-		Reason:  ServiceConditionReasonAdvertising,
-		Message: "LB addresses are allocated internally",
+		LastTransitionTime: metav1.Now(),
+		Type:               ServiceConditionTypeAdvertising,
+		Status:             metav1.ConditionFalse,
+		Reason:             ServiceConditionReasonAdvertising,
+		Message:            "LB addresses are allocated internally",
 	})
 	newSvc.Annotations[constants.AnnotationAllocatedFromPool] = pool
 
@@ -525,10 +530,11 @@ func (r *LBAllocationReconciler) assign(ctx context.Context, svc *v1.Service) er
 	}
 	if assigned {
 		newSvc.Status.Conditions = append(newSvc.Status.Conditions, metav1.Condition{
-			Type:    ServiceConditionTypeAdvertised,
-			Status:  metav1.ConditionTrue,
-			Reason:  ServiceConditionReasonAdvertised,
-			Message: "allocated addresses are advertised and assigned",
+			LastTransitionTime: metav1.Now(),
+			Type:               ServiceConditionTypeAdvertised,
+			Status:             metav1.ConditionTrue,
+			Reason:             ServiceConditionReasonAdvertised,
+			Message:            "allocated addresses are advertised and assigned",
 		})
 	}
 
