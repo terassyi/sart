@@ -143,6 +143,7 @@ func main() {
 
 	if err = (&controllers.NodeWatcher{
 		Client:              mgr.GetClient(),
+		Scheme:              mgr.GetScheme(),
 		SpeakerEndpointPort: uint32(speakerEndpointPort),
 		SpeakerType:         speakerType,
 	}).SetupWithManager(mgr); err != nil {
@@ -159,6 +160,14 @@ func main() {
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AddressRequest")
+		os.Exit(1)
+	}
+	if err = (&sartterassyinetv1alpha1.NodeBGP{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "NodeBGP")
+		os.Exit(1)
+	}
+	if err = (&sartterassyinetv1alpha1.BGPAdvertisement{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "BGPAdvertisement")
 		os.Exit(1)
 	}
 	//+kubebuilder:scaffold:builder

@@ -68,6 +68,16 @@ func testSartController() {
 			return nil
 		}).Should(Succeed())
 
+		By("checking NodeBGPs has ownerReference")
+		nodeBGPList := &sartv1alpha1.NodeBGPList{}
+		nodeBGPListOut, err := kubectl(nil, "get", "-n", "kube-system", "nodebgp", "-o", "json")
+		Expect(err).NotTo(HaveOccurred())
+		err = json.Unmarshal(nodeBGPListOut, nodeBGPList)
+		Expect(err).NotTo(HaveOccurred())
+		for _, nb := range nodeBGPList.Items {
+			Expect(nb.OwnerReferences).To(HaveLen(1))
+		}
+
 		By("establishing BGPPeer")
 		Eventually(func() error {
 			peerList := &sartv1alpha1.BGPPeerList{}

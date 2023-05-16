@@ -26,6 +26,7 @@ var _ = Describe("NodeBGP Reconciler", func() {
 
 		nodeWatcher := &NodeWatcher{
 			Client:              k8sClient,
+			Scheme:              scheme,
 			SpeakerEndpointPort: 5000,
 			SpeakerType:         speaker.SpeakerTypeMock,
 		}

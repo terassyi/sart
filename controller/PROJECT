@@ -32,6 +32,9 @@ resources:
   kind: NodeBGP
   path: github.com/terassyi/sart/controller/api/v1alpha1
   version: v1alpha1
+  webhooks:
+    validation: true
+    webhookVersion: v1
 - api:
     crdVersion: v1
     namespaced: true
@@ -39,6 +42,9 @@ resources:
   kind: BGPAdvertisement
   path: github.com/terassyi/sart/controller/api/v1alpha1
   version: v1alpha1
+  webhooks:
+    validation: true
+    webhookVersion: v1
 - api:
     crdVersion: v1
   controller: true
