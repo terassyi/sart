@@ -10,8 +10,10 @@ import (
 	"github.com/terassyi/sart/controller/pkg/speaker"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/source"
@@ -19,6 +21,7 @@ import (
 
 type NodeWatcher struct {
 	client.Client
+	Scheme              *runtime.Scheme
 	SpeakerEndpointPort uint32
 	SpeakerType         speaker.SpeakerType
 }
@@ -108,6 +111,9 @@ func (n *NodeWatcher) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Res
 				Asn:      uint32(asn),
 				RouterId: internalIp,
 			},
+		}
+		if controllerutil.SetOwnerReference(&node, nodeBgp, n.Scheme); err != nil {
+			return ctrl.Result{}, err
 		}
 		logger.Info("create resource", "NodeBGP", nodeBgp)
 		if err := n.Client.Create(ctx, nodeBgp); err != nil {

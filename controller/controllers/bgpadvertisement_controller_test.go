@@ -176,6 +176,14 @@ var _ = Describe("handle BGPAdvertisement", func() {
 			ObjectMeta: corev1.ObjectMeta{
 				Name:      "adv1",
 				Namespace: constants.Namespace,
+				OwnerReferences: []corev1.OwnerReference{
+					{
+						APIVersion: "v1",
+						Kind:       "Service",
+						Name:       "test",
+						UID:        "test",
+					},
+				},
 			},
 			Spec: sartv1alpha1.BGPAdvertisementSpec{
 				Network:  "10.0.10.1/32",
@@ -228,6 +236,14 @@ var _ = Describe("handle BGPAdvertisement", func() {
 			ObjectMeta: corev1.ObjectMeta{
 				Name:      "adv2",
 				Namespace: constants.Namespace,
+				OwnerReferences: []corev1.OwnerReference{
+					{
+						APIVersion: "v1",
+						Kind:       "Service",
+						Name:       "test",
+						UID:        "test",
+					},
+				},
 			},
 			Spec: sartv1alpha1.BGPAdvertisementSpec{
 				Network:  "10.0.10.2/32",
@@ -282,6 +298,14 @@ var _ = Describe("handle BGPAdvertisement", func() {
 			ObjectMeta: corev1.ObjectMeta{
 				Name:      "adv3",
 				Namespace: constants.Namespace,
+				OwnerReferences: []corev1.OwnerReference{
+					{
+						APIVersion: "v1",
+						Kind:       "Service",
+						Name:       "test",
+						UID:        "test",
+					},
+				},
 			},
 			Spec: sartv1alpha1.BGPAdvertisementSpec{
 				Network:  "10.0.10.3/32",
@@ -358,6 +382,14 @@ var _ = Describe("handle BGPAdvertisement", func() {
 			ObjectMeta: corev1.ObjectMeta{
 				Name:      "adv4",
 				Namespace: constants.Namespace,
+				OwnerReferences: []corev1.OwnerReference{
+					{
+						APIVersion: "v1",
+						Kind:       "Service",
+						Name:       "test",
+						UID:        "test",
+					},
+				},
 			},
 			Spec: sartv1alpha1.BGPAdvertisementSpec{
 				Network:  "10.0.10.4/32",
@@ -580,4 +612,13 @@ func TestAdvDiff(t *testing.T) {
 		})
 	}
 
+}
+
+func hasOwnerReferenceByService(adv *sartv1alpha1.BGPAdvertisement) bool {
+	for _, ref := range adv.OwnerReferences {
+		if ref.Kind == "Service" {
+			return true
+		}
+	}
+	return false
 }

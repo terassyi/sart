@@ -101,6 +101,7 @@ build-dev-image:
 	docker build -t sart:${IMAGE_VERSION} -f Dockerfile.dev .
 
 
+CERT_MANAGER_VERSION := 1.11.2
 BUILD ?= false
 REGISTORY_URL ?= localhost:5005
 DEVENV_BGP_ASN ?= 65000
@@ -141,7 +142,8 @@ devenv:
 	kubectl label nodes --overwrite devenv-control-plane sart.terassyi.net/asn=${NODE0_ASN}
 	kubectl label nodes --overwrite devenv-worker sart.terassyi.net/asn=${NODE1_ASN}
 	kubectl label nodes --overwrite devenv-worker2 sart.terassyi.net/asn=${NODE2_ASN}
-	kubectl label nodes --overwrite devenv-worker3 sart.terassyi.net/asn=${NODE3_ASN}
+	kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v$(CERT_MANAGER_VERSION)/cert-manager.yaml
+	kubectl -n cert-manager wait --for=condition=available --timeout=180s --all deploymentskubectl label nodes --overwrite devenv-worker3 sart.terassyi.net/asn=${NODE3_ASN}
 
 	$(eval NODE0_ADDR = $(shell kubectl get nodes devenv-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'))
 	$(eval NODE1_ADDR = $(shell kubectl get nodes devenv-worker -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'))
