@@ -26,11 +26,15 @@ Sart-controller is a Kubernetes load balancer like [metallb](https://github.com/
 - Sart
   - [Design](docs/sartd/design.md)
   - [Installation](docs/sartd/install.md)
-  - Configuration
-  - Quick Start
+  - [How to Use](docs/sartd/how_to_use.md)
+  - [Quick Start](docs/sartd/quick_start.md)
 - Sart Controller
   - [Design](docs/controller/design.md)
   - [Installation](docs/controller/install.md)
-  - Custom Resource Definition
-  - Configuration
-  - Quick Start
+  - [Custom Resource Definition](docs/controller/crd.md)
+  - [How to Use](docs/controller/how_to_use.md)
+  - [Quick Start](docs/controller/quick_start.md)
+
+## License
+
+Sart is licensed under the Apache License, Version 2.0. See [LICENSE](https://github.com/terassyi/sart/blob/main/LICENSE) for the full license text.

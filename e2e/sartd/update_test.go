@@ -1,4 +1,4 @@
-package sartd
+package main
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/terassyi/sart/e2e/container"
+	"github.com/terassyi/sart/e2e/gobgp"
 )
 
 func testUpdate() {
@@ -30,7 +31,7 @@ func testUpdate() {
 			if err != nil {
 				return err
 			}
-			node2State := &GoBGPNeighbor{}
+			node2State := &gobgp.GoBGPNeighbor{}
 			if err := json.Unmarshal(res, node2State); err != nil {
 				return err
 			}
@@ -46,7 +47,7 @@ func testUpdate() {
 			if err != nil {
 				return err
 			}
-			node3State := &GoBGPNeighbor{}
+			node3State := &gobgp.GoBGPNeighbor{}
 			if err := json.Unmarshal(res, node3State); err != nil {
 				return err
 			}
@@ -62,7 +63,7 @@ func testUpdate() {
 
 		res, err := container.RunCommandInContainerWithOutput(ctx, "node3", []string{"gobgp", "global", "rib", "-a", "ipv4", "-j"})
 		Expect(err).NotTo(HaveOccurred())
-		pathMap := make(map[string][]GoBGPPath)
+		pathMap := make(map[string][]gobgp.GoBGPPath)
 		err = json.Unmarshal(res, &pathMap)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -89,7 +90,7 @@ func testUpdate() {
 
 		res, err = container.RunCommandInContainerWithOutput(ctx, "node2", []string{"gobgp", "global", "rib", "-a", "ipv4", "-j"})
 		Expect(err).NotTo(HaveOccurred())
-		pathMap = make(map[string][]GoBGPPath)
+		pathMap = make(map[string][]gobgp.GoBGPPath)
 		err = json.Unmarshal(res, &pathMap)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -99,7 +100,7 @@ func testUpdate() {
 
 		res, err = container.RunCommandInContainerWithOutput(ctx, "node3", []string{"gobgp", "global", "rib", "-a", "ipv4", "-j"})
 		Expect(err).NotTo(HaveOccurred())
-		pathMap = make(map[string][]GoBGPPath)
+		pathMap = make(map[string][]gobgp.GoBGPPath)
 		err = json.Unmarshal(res, &pathMap)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -143,7 +144,7 @@ func testUpdate() {
 			if err != nil {
 				return err
 			}
-			node2State := &GoBGPNeighbor{}
+			node2State := &gobgp.GoBGPNeighbor{}
 			if err := json.Unmarshal(res, node2State); err != nil {
 				return err
 			}
@@ -159,7 +160,7 @@ func testUpdate() {
 			if err != nil {
 				return err
 			}
-			node3State := &GoBGPNeighbor{}
+			node3State := &gobgp.GoBGPNeighbor{}
 			if err := json.Unmarshal(res, node3State); err != nil {
 				return err
 			}
@@ -189,7 +190,7 @@ func testUpdate() {
 
 		res, err = container.RunCommandInContainerWithOutput(ctx, "node2", []string{"gobgp", "global", "rib", "-a", "ipv4", "-j"})
 		Expect(err).NotTo(HaveOccurred())
-		pathMap2 := make(map[string][]GoBGPPath)
+		pathMap2 := make(map[string][]gobgp.GoBGPPath)
 		err = json.Unmarshal(res, &pathMap2)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -199,7 +200,7 @@ func testUpdate() {
 
 		res, err = container.RunCommandInContainerWithOutput(ctx, "node3", []string{"gobgp", "global", "rib", "-a", "ipv4", "-j"})
 		Expect(err).NotTo(HaveOccurred())
-		pathMap2 = make(map[string][]GoBGPPath)
+		pathMap2 = make(map[string][]gobgp.GoBGPPath)
 		err = json.Unmarshal(res, &pathMap2)
 		Expect(err).NotTo(HaveOccurred())
 

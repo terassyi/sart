@@ -10,7 +10,7 @@ import (
 
 	sartv1alpha1 "github.com/terassyi/sart/controller/api/v1alpha1"
 	"github.com/terassyi/sart/e2e/container"
-	"github.com/terassyi/sart/e2e/sartd"
+	"github.com/terassyi/sart/e2e/gobgp"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
@@ -140,7 +140,7 @@ func testSartController() {
 		By("receiving a path information by external bgp speaker")
 		res, err := container.RunCommandInContainerWithOutput(ctx, "external-bgp", []string{"gobgp", "global", "rib", "-j"})
 		Expect(err).NotTo(HaveOccurred())
-		pathMap := make(map[string][]sartd.GoBGPPath)
+		pathMap := make(map[string][]gobgp.GoBGPPath)
 		err = json.Unmarshal(res, &pathMap)
 		Expect(err).NotTo(HaveOccurred())
 		paths, ok := pathMap[expectedPrefix]
@@ -208,7 +208,7 @@ func testSartController() {
 			if err != nil {
 				return err
 			}
-			pathMap := make(map[string][]sartd.GoBGPPath)
+			pathMap := make(map[string][]gobgp.GoBGPPath)
 			err = json.Unmarshal(res, &pathMap)
 			if err != nil {
 				return err
@@ -274,7 +274,7 @@ func testSartController() {
 			if err != nil {
 				return err
 			}
-			pathMap := make(map[string][]sartd.GoBGPPath)
+			pathMap := make(map[string][]gobgp.GoBGPPath)
 			if err := json.Unmarshal(res, &pathMap); err != nil {
 				return err
 			}
@@ -334,7 +334,7 @@ func testSartController() {
 		By("receiving a path information by external bgp speaker")
 		res, err := container.RunCommandInContainerWithOutput(ctx, "external-bgp", []string{"gobgp", "global", "rib", "-j"})
 		Expect(err).NotTo(HaveOccurred())
-		pathMap := make(map[string][]sartd.GoBGPPath)
+		pathMap := make(map[string][]gobgp.GoBGPPath)
 		err = json.Unmarshal(res, &pathMap)
 		Expect(err).NotTo(HaveOccurred())
 		paths, ok := pathMap[expectedPrefix]
@@ -411,7 +411,7 @@ func testSartController() {
 		By("getting paths from external BGP speaker")
 		res, err := container.RunCommandInContainerWithOutput(ctx, "external-bgp", []string{"gobgp", "global", "rib", "-j"})
 		Expect(err).NotTo(HaveOccurred())
-		pathMap := make(map[string][]sartd.GoBGPPath)
+		pathMap := make(map[string][]gobgp.GoBGPPath)
 		err = json.Unmarshal(res, &pathMap)
 		Expect(err).NotTo(HaveOccurred())
 		paths, ok := pathMap[expectedPrefix]
@@ -451,7 +451,7 @@ func testSartController() {
 		By("getting updated paths")
 		updatedRes, err := container.RunCommandInContainerWithOutput(ctx, "external-bgp", []string{"gobgp", "global", "rib", "-j"})
 		Expect(err).NotTo(HaveOccurred())
-		updatedPathMap := make(map[string][]sartd.GoBGPPath)
+		updatedPathMap := make(map[string][]gobgp.GoBGPPath)
 		err = json.Unmarshal(updatedRes, &updatedPathMap)
 		Expect(err).NotTo(HaveOccurred())
 		updatedPaths, ok := updatedPathMap[expectedPrefix]
@@ -554,7 +554,7 @@ func testSartController() {
 		By("receiving a path information by external bgp speaker")
 		res, err := container.RunCommandInContainerWithOutput(ctx, "external-bgp", []string{"gobgp", "global", "rib", "-j"})
 		Expect(err).NotTo(HaveOccurred())
-		pathMap := make(map[string][]sartd.GoBGPPath)
+		pathMap := make(map[string][]gobgp.GoBGPPath)
 		err = json.Unmarshal(res, &pathMap)
 		Expect(err).NotTo(HaveOccurred())
 		paths, ok := pathMap[expectedPrefix]
@@ -619,7 +619,7 @@ func testSartController() {
 			if err != nil {
 				return err
 			}
-			pathMap := make(map[string][]sartd.GoBGPPath)
+			pathMap := make(map[string][]gobgp.GoBGPPath)
 			err = json.Unmarshal(res, &pathMap)
 			if err != nil {
 				return err
