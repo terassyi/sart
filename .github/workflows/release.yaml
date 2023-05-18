@@ -87,16 +87,25 @@ jobs:
           tags: ghcr.io/terassyi/sart-controller:${{ steps.set-tag.outputs.RELEASE_TAG }}
   release:
     name: Release on GitHub
-    needs: image
+    needs:
+      - sart-image
+      - sart-controller-image
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v3
+      - name: Kustomize build
+        uses: karancode/kustomize-github-action@master
+        with:
+          kustomize_version: '5.0.1'
+          kustomize_build_dir: controller/config/release
+          kustomize_comment: false
+          kustomize_output_file: ./sart-controller.yaml
       - name: Create release
+        uses: softprops/action-gh-release@v1
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/} # Don't remove "v" prefix.
-          if echo ${VERSION} | grep -q -e '-'; then PRERELEASE_FLAG=-p; fi
-          gh release create $VERSION $PRERELEASE_FLAG \
-            -t "Release $VERSION"  \
-            -n "See [CHANGELOG.md](./CHANGELOG.md) for details."
+        with:
+          tag_name: ${{ github.ref }}
+          name: Release v${{ github.ref }}
+          body_path: ${{ github.workspace }}-CHANGELOG.md
+          files: sart-controller.yaml

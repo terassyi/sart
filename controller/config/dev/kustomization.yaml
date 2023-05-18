@@ -3,3 +3,11 @@ resources:
 patchesStrategicMerge:
   - ./manager.yaml
   - ./speaker.yaml
+
+images:
+  - name: sart:dev
+    newName: localhost:5005/sart
+    newTag: dev
+  - name: sart-controller:dev
+    newName: localhost:5005/sart-controller
+    newTag: dev

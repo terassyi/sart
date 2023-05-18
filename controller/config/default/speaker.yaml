@@ -28,7 +28,7 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: status.hostIP
-          image: localhost:5005/sart:dev
+          image: sart:dev
           imagePullPolicy: IfNotPresent
           name: sartd
           securityContext:

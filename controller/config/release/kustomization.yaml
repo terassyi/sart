@@ -1,0 +1,10 @@
+resources:
+  - ../default
+
+images:
+  - name: sart:dev
+    newName: ghcr.io/terassyi/sart
+    newTag: 0.0.1-pre
+  - name: sart-controller:dev
+    newName: ghcr.io/terassyi/sart-controller
+    newTag: 0.0.1-pre
