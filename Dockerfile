@@ -7,7 +7,17 @@ COPY . /home/
 
 RUN apt update -y && \
 	apt install -y protobuf-compiler libprotobuf-dev
-RUN make release-build
+
+ARG TARGETPLATFORM
+RUN case "$TARGETPLATFORM" in \
+	"linux/arm64") echo aarch64-unknown-linux-musl > /rust_target.txt ;; \
+	"linux/amd64") echo x86_64-unknown-linux-musl > /rust_target.txt ;; \
+	*) exit 1 ;; \
+	esac
+RUN rustup target add $(cat /rust_target.txt)
+
+RUN cd sartd; cargo build --release --target ${TARGETPLATFORM}
+RUN cd sart; cargo build --release --target ${TARGETPLATFORM}
 
 FROM debian:stable
 
