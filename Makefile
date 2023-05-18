@@ -17,7 +17,7 @@ release-pr: validate-release-version cargo-bump
 	cd sartd; $(CARGO) bump $(RELEASE_VERSION)
 	cd sart; $(CARGO) bump $(RELEASE_VERSION)
 
-	gh pr create --base master --head bump-v$(RELEASE_VERSION) --title "Bump v$(RELEASE_VERSION)" --body ""
+	gh pr create --base main --head bump-v$(RELEASE_VERSION) --title "Bump v$(RELEASE_VERSION)" --body ""
 
 .PHONY: release
 release: validate-release-version
