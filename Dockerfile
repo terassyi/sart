@@ -1,6 +1,8 @@
 ARG RUST_VERSION=1.68.0
 
-FROM rust:${RUST_VERSION} as builder
+# BUILDPLATFORM = linux/amd64
+
+FROM --platform=$BUILDPLATFORM rust:${RUST_VERSION} as builder
 
 WORKDIR /home
 COPY ./sartd /home/sartd
