@@ -82,7 +82,7 @@ jobs:
         uses: docker/build-push-action@v3
         with:
           context: ./controller
-          platforms: linux/amd64,linux/arm64/v8
+          platforms: linux/arm64/v8
           push: true
           tags: ghcr.io/terassyi/sart-controller:${{ steps.set-tag.outputs.RELEASE_TAG }}
   release:
