@@ -20,7 +20,7 @@ release-pr: validate-release-version cargo-bump
 	git add .
 	git commit -m "bump v$(RELEASE_VERSION)" --allow-empty
 
-	gh pr create --base main --head bump-v$(RELEASE_VERSION) --title "Bump v$(RELEASE_VERSION)" --body ""
+	gh pr create --base main --title "Bump v$(RELEASE_VERSION)" --body ""
 
 .PHONY: release
 release: validate-release-version
