@@ -31,7 +31,6 @@ Sart-controller is a Kubernetes load balancer like [metallb](https://github.com/
 - Sart Controller
   - [Design](docs/controller/design.md)
   - [Installation](docs/controller/install.md)
-  - [Custom Resource Definition](docs/controller/crd.md)
   - [How to Use](docs/controller/how_to_use.md)
   - [Quick Start](docs/controller/quick_start.md)
 
