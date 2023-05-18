@@ -1,4 +1,4 @@
-package sartd
+package main
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/terassyi/sart/e2e/container"
+	"github.com/terassyi/sart/e2e/gobgp"
 )
 
 func testEstablish() {
@@ -30,7 +31,7 @@ func testEstablish() {
 			if err != nil {
 				return err
 			}
-			node2State := &GoBGPNeighbor{}
+			node2State := &gobgp.GoBGPNeighbor{}
 			if err := json.Unmarshal(res, node2State); err != nil {
 				return err
 			}
@@ -46,7 +47,7 @@ func testEstablish() {
 			if err != nil {
 				return err
 			}
-			node3State := &GoBGPNeighbor{}
+			node3State := &gobgp.GoBGPNeighbor{}
 			if err := json.Unmarshal(res, node3State); err != nil {
 				return err
 			}
@@ -85,7 +86,7 @@ func testEstablish() {
 			if err != nil {
 				return err
 			}
-			node2State := &GoBGPNeighbor{}
+			node2State := &gobgp.GoBGPNeighbor{}
 			if err := json.Unmarshal(res, node2State); err != nil {
 				return err
 			}
@@ -101,7 +102,7 @@ func testEstablish() {
 			if err != nil {
 				return err
 			}
-			node3State := &GoBGPNeighbor{}
+			node3State := &gobgp.GoBGPNeighbor{}
 			if err := json.Unmarshal(res, node3State); err != nil {
 				return err
 			}

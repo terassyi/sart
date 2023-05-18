@@ -1,6 +1,22 @@
-package sartd
+package main
 
-import "github.com/terassyi/sart/e2e/topology"
+import (
+	"context"
+	"fmt"
+	"sort"
+
+	"github.com/spf13/cobra"
+	"github.com/terassyi/sart/e2e/topology"
+)
+
+var TopologyMap = map[string]topology.Topology{
+	"simple":                      simpleTopology,
+	"simple-without-config":       simpleTopologyWithoutConfig,
+	"simple-with-zebra":           simpleTopologyWithZebra,
+	"simple-ibgp-with-zebra":      simpleTopologyIBGPWithZebra,
+	"simple-multipath":            multiPathSimple,
+	"simple-multipath-with-zebra": multiPathSimpleWithZebra,
+}
 
 var simpleTopology topology.Topology = topology.Topology{
 	Name: "simple",
@@ -768,4 +784,84 @@ var multiPathSimpleWithZebra topology.Topology = topology.Topology{
 			Cidr: "10.0.11.0/24",
 		},
 	},
+}
+
+var topologyName string
+
+var rootCmd = &cobra.Command{
+	Use:   "topology_builder",
+	Short: "Topology builder for testing sart",
+	Long:  "Topology builder for testing sart",
+}
+
+var buildCmd = &cobra.Command{
+	Use:     "build",
+	Short:   "Build topology",
+	Long:    "Build topology",
+	Example: "topology_builder build simple",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 || len(args) > 1 {
+			return fmt.Errorf("Required one argument. Please run list command.")
+		}
+		name := args[0]
+		topology, ok := TopologyMap[name]
+		if !ok {
+			return fmt.Errorf("Specified topology is not found. Please run list command.")
+		}
+
+		if err := topology.Build(context.Background()); err != nil {
+			return err
+		}
+		return nil
+	},
+}
+
+var cleanCmd = &cobra.Command{
+	Use:     "clean",
+	Short:   "Clean topology",
+	Long:    "Clean topology",
+	Example: "topology_builder clean simple",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 || len(args) > 1 {
+			return fmt.Errorf("Required one argument. Please run list command.")
+		}
+		name := args[0]
+		topology, ok := TopologyMap[name]
+		if !ok {
+			return fmt.Errorf("Specified topology is not found. Please run list command.")
+		}
+
+		if err := topology.Remove(context.Background()); err != nil {
+			return err
+		}
+		return nil
+	},
+}
+
+var listCmd = &cobra.Command{
+	Use:     "list",
+	Short:   "List available topologies",
+	Long:    "List topologies",
+	Example: "topology_builder list",
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Println("Available topology list")
+		names := []string{}
+		for name := range TopologyMap {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			fmt.Printf("\t%s\n", name)
+		}
+	},
+}
+
+func init() {
+	rootCmd.AddCommand(buildCmd)
+	rootCmd.AddCommand(cleanCmd)
+	rootCmd.AddCommand(listCmd)
+}
+
+func main() {
+	rootCmd.Execute()
 }

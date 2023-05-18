@@ -1,4 +1,4 @@
-package main
+package gobgp
 
 type GoBGPNeighbor struct {
 	State GoBGPState `json:"state"`

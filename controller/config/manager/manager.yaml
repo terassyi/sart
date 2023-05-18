@@ -48,7 +48,7 @@ spec:
         - name: sart-controller
           command:
             - /manager
-          image: localhost:5005/sart-controller:dev
+          image: sart-controller:dev
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

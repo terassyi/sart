@@ -1,4 +1,4 @@
-package sartd
+package main
 
 import (
 	"fmt"

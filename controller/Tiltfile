@@ -37,8 +37,7 @@ local_resource('controller image',
     deps=['Dockerfile', './bin/manager'] )
 
 docker_build_with_restart(
-    'sart-controller:dev', '.',
-    # 'localhost:5005/sart-controller:dev', '.',
+    'localhost:5005/sart-controller:dev', '.',
     dockerfile_contents=DOCKERFILE,
     entrypoint=['/manager'],
     only=['./bin/manager'],
@@ -60,13 +59,6 @@ local_resource(
     'kubectl apply -f ./config/samples/_v1alpha1_bgppeer.yaml',
     deps=[
         "./config/samples/_v1alpha1_bgppeer.yaml"
-        ])
-
-local_resource(
-    'Sample BGPAdvertisement Manifests',
-    'kubectl apply -f ./config/samples/_v1alpha1_bgpadvertisement.yaml',
-    deps=[
-        "./config/samples/_v1alpha1_bgpadvertisement.yaml"
         ])
 
 local_resource(

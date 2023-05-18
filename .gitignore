@@ -8,3 +8,8 @@
 staticd.conf
 gobgp.conf
 logs*
+e2e/controller/manifests/addresspool.yaml
+e2e/controller/manifests/another_addresspool.yaml
+e2e/controller/manifests/peer.yaml
+controller/config/samples/_v1alpha1_bgppeer.yaml
+controller/config/samples/_v1alpha1_addresspool.yaml
