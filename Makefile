@@ -17,6 +17,9 @@ release-pr: validate-release-version cargo-bump
 	cd sartd; $(CARGO) bump $(RELEASE_VERSION)
 	cd sart; $(CARGO) bump $(RELEASE_VERSION)
 
+	git add .
+	git commit -m "bump v$(RELEASE_VERSION)" --allow-empty
+
 	gh pr create --base main --head bump-v$(RELEASE_VERSION) --title "Bump v$(RELEASE_VERSION)" --body ""
 
 .PHONY: release
