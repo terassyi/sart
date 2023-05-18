@@ -10,7 +10,15 @@ COPY ./sart /home/sart
 COPY ./proto /home/proto
 
 RUN apt update -y && \
-	apt install -y protobuf-compiler libprotobuf-dev
+	apt install -y protobuf-compiler libprotobuf-dev && \
+
+	ENV CC_aarch64_unknown_linux_musl=clang
+ENV AR_aarch64_unknown_linux_musl=llvm-ar
+ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="-Clink-self-contained=yes -Clinker=rust-lld"
+
+ENV CC_x86_64_unknown_linux_musl=clang
+ENV AR_x86_64_unknown_linux_musl=llvm-ar
+ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="-Clink-self-contained=yes -Clinker=rust-lld"
 
 ARG TARGETPLATFORM
 RUN case "$TARGETPLATFORM" in \
@@ -21,10 +29,12 @@ RUN case "$TARGETPLATFORM" in \
 
 RUN rustup target add $(cat /rust_target.txt)
 
-RUN cd sartd; cargo build --release --target $(cat /rust_target.txt)
-RUN cd sart; cargo build --release --target $(cat /rust_target.txt)
+RUN cd sartd; cargo build --release --target $(cat /rust_target.txt) && \
+	cp /home/sartd/target/$(cat /rust_target.txt)/release/sartd /usr/local/bin/sartd
+RUN cd sart; cargo build --release --target $(cat /rust_target.txt) && \
+	cp /home/sartd/target/$(cat /rust_target.txt)/release/sart /usr/local/bin/sart
 
 FROM debian:stable
 
-COPY --from=builder /home/sartd/target/$(cat /rust_target.txt)/release/sartd /usr/local/bin/sartd
-COPY --from=builder /home/sart/target/$(cat /rust_target.txt)/release/sart /usr/local/bin/sart
+COPY --from=builder /usr/local/bin/sartd /usr/local/bin/sartd
+COPY --from=builder /usr/local/bin/sart /usr/local/bin/sart
