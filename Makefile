@@ -5,6 +5,42 @@ GRPCURL_VERSION := 1.8.7
 IMAGE_VERSION := dev
 PROJECT := github.com/terassyi/sart
 
+RELEASE_VERSION=
+.PHONY: release-pr
+release-pr: validate-release-version cargo-bump
+
+	git checkout main
+	git pull origin main
+	git checkout -b bump-v$(RELEASE_VERSION)
+
+	yq -i '.images[].newTag="$(RELEASE_VERSION)"' controller/config/release/kustomization.yaml
+	cd sartd; $(CARGO) bump $(RELEASE_VERSION)
+	cd sart; $(CARGO) bump $(RELEASE_VERSION)
+
+	gh pr create --base master --head bump-v$(RELEASE_VERSION) --title "Bump v$(RELEASE_VERSION)" --body ""
+
+.PHONY: release
+release: validate-release-version
+	git checkout main
+	git pull origin main
+
+ifeq ($(shell git log --pretty=format:"%s" -1 --grep="$(RELEASE_VERSION)"),)
+	echo "Leatest commit is not release PR"
+	exit 1
+endif
+
+	git tag -a -m "Release v$(RELEASE_VERSION)" "v$(RELEASE_VERSION)"
+	git tag -ln | grep v$(RELEASE_VERSION)
+	git tag push origin "v$(RELEASE_VERSION)"
+
+validate-release-version:
+ifndef RELEASE_VERSION
+	echo "Please specify a release version"
+	exit 1
+endif
+		
+
+
 .PHONY: setup
 setup: setup-rust-tools setup-grpc
 
@@ -197,3 +233,12 @@ clean-devenv:
 	docker rm -f devenv-bgp
 	docker rm -f client
 	rm -f ./devenv/frr/staticd.conf || true
+
+CARGO_BUMP ?= cargo-bump
+
+.PHONY: cargo-bump
+cargo-bump:
+$(CARGO_BUMP):
+ifeq ($(shell which ${CARGO_BUMP}),)
+	cargo install cargo-bump
+endif

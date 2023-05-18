@@ -822,7 +822,7 @@ checksum = "7b4b9743ed687d4b4bcedf9ff5eaa7398495ae14e61cba0a295704edbc7decde"
 
 [[package]]
 name = "sart"
-version = "0.0.1"
+version = "0.0.1-pre"
 dependencies = [
  "clap",
  "prost",

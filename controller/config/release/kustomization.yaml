@@ -1,6 +1,5 @@
 resources:
   - ../default
-
 images:
   - name: sart:dev
     newName: ghcr.io/terassyi/sart
