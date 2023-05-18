@@ -1,6 +1,6 @@
-[![GitHub release](https://img.shields.io/github/release/terassyi/sart.svg?maxAge=60)][releases]
-![CI](https://github.com/terassyi/sart/workflows/CI/badge.svg)
-[![Go Report Card](https://goreportcard.com/badge/github.com/terassyi/sart/controller)](https://goreportcard.com/report/github.com/terassyi/sart/controller)
+![GitHub release](https://img.shields.io/github/release/terassyi/sart.svg?maxAge=60)
+![CI](https://github.com/terassyi/sart/workflows/ci/badge.svg)
+![Go Report Card](https://goreportcard.com/badge/github.com/terassyi/sart/controller)
 
 
 # Sart
