@@ -1,9 +1,0 @@
-apiVersion: sart.terassyi.net/v1alpha1
-kind: AddressPool
-metadata:
-  name: another-lb-pool
-spec:
-  type: lb
-  cidrs:
-    - protocol: ipv4
-      prefix: "10.69.10.0/24"
