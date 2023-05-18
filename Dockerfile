@@ -10,9 +10,9 @@ COPY ./sart /home/sart
 COPY ./proto /home/proto
 
 RUN apt update -y && \
-	apt install -y protobuf-compiler libprotobuf-dev && \
+	apt install -y protobuf-compiler libprotobuf-dev
 
-	ENV CC_aarch64_unknown_linux_musl=clang
+ENV CC_aarch64_unknown_linux_musl=clang
 ENV AR_aarch64_unknown_linux_musl=llvm-ar
 ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="-Clink-self-contained=yes -Clinker=rust-lld"
 
