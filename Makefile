@@ -14,8 +14,8 @@ release-pr: validate-release-version cargo-bump
 	git checkout -b bump-v$(RELEASE_VERSION)
 
 	yq -i '.images[].newTag="$(RELEASE_VERSION)"' controller/config/release/kustomization.yaml
-	cd sartd; $(CARGO) bump $(RELEASE_VERSION)
-	cd sart; $(CARGO) bump $(RELEASE_VERSION)
+	cd sartd; $(CARGO) bump $(RELEASE_VERSION) && $(CARGO) update
+	cd sart; $(CARGO) bump $(RELEASE_VERSION) && $(CARGO) update
 
 	git add .
 	git commit -m "bump v$(RELEASE_VERSION)" --allow-empty
@@ -41,7 +41,7 @@ ifndef RELEASE_VERSION
 	echo "Please specify a release version"
 	exit 1
 endif
-		
+
 
 
 .PHONY: setup
