@@ -1105,11 +1105,7 @@ checksum = "f91339c0467de62360649f8d3e185ca8de4224ff281f66000de5eb2a77a79041"
 
 [[package]]
 name = "sartd"
-<<<<<<< HEAD
-version = "0.0.1"
-=======
 version = "0.0.2"
->>>>>>> cfceb58da14083be524ddcf51272bc583036f0cc
 dependencies = [
  "byteorder",
  "bytes 1.4.0",
