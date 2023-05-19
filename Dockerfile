@@ -32,7 +32,7 @@ RUN rustup target add $(cat /rust_target.txt)
 RUN cd sartd; cargo build --release --target $(cat /rust_target.txt) && \
 	cp /home/sartd/target/$(cat /rust_target.txt)/release/sartd /usr/local/bin/sartd
 RUN cd sart; cargo build --release --target $(cat /rust_target.txt) && \
-	cp /home/sartd/target/$(cat /rust_target.txt)/release/sart /usr/local/bin/sart
+	cp /home/sart/target/$(cat /rust_target.txt)/release/sart /usr/local/bin/sart
 
 FROM debian:stable
 
