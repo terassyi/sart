@@ -24,10 +24,6 @@ jobs:
             ${{ github.ref }}-${{ github.sha }}
             ${{ github.ref }}
             refs/head/main
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
-        with:
-          platforms: linux/amd64,linux/arm64/v8
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
       - name: Login to GitHub Container Registry
@@ -43,7 +39,7 @@ jobs:
         uses: docker/build-push-action@v2
         with:
           context: .
-          platforms: linux/amd64,linux/arm64/v8
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/terassyi/sart:${{ steps.set-tag.outputs.RELEASE_TAG }}
   sart-controller-image:
@@ -57,7 +53,7 @@ jobs:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
         with:
-          platforms: linux/amd64,linux/arm64/v8
+          platforms: linux/amd64,linux/arm64
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
       - name: Cache tools
@@ -82,7 +78,7 @@ jobs:
         uses: docker/build-push-action@v3
         with:
           context: ./controller
-          platforms: linux/amd64,linux/arm64/v8
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/terassyi/sart-controller:${{ steps.set-tag.outputs.RELEASE_TAG }}
   release:
@@ -96,7 +92,7 @@ jobs:
       - name: Kustomize build
         uses: karancode/kustomize-github-action@master
         with:
-          kustomize_version: '5.0.1'
+          kustomize_version: "5.0.1"
           kustomize_build_dir: controller/config/release
           kustomize_comment: false
           kustomize_output_file: ./sart-controller.yaml
