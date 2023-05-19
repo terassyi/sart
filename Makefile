@@ -34,7 +34,7 @@ endif
 
 	git tag -a -m "Release v$(RELEASE_VERSION)" "v$(RELEASE_VERSION)"
 	git tag -ln | grep v$(RELEASE_VERSION)
-	git tag push origin "v$(RELEASE_VERSION)"
+	git push origin "v$(RELEASE_VERSION)"
 
 validate-release-version:
 ifndef RELEASE_VERSION

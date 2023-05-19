@@ -79,14 +79,17 @@ configure:
 
 
 .PHONY: install
-install:
+install: install-cert-manager
 	$(KIND) load docker-image --name sart sart:dev
 	$(KIND) load docker-image --name sart sart-controller:dev
 	$(KIND) load docker-image --name sart test-app:dev
-	$(KUBECTL) apply -f https://github.com/jetstack/cert-manager/releases/download/v$(CERT_MANAGER_VERSION)/cert-manager.yaml
-	$(KUBECTL) -n cert-manager wait --for=condition=available --timeout=180s --all deployments
 	$(KUSTOMIZE) build --load-restrictor=LoadRestrictionsNone . | $(KUBECTL) apply -f -
 	$(KUBECTL) -n kube-system wait --timeout=3m --for=condition=available deployment/sart-controller
+
+.PHONY: install-cert-manager
+install-cert-manager:
+	$(KUBECTL) apply -f https://github.com/jetstack/cert-manager/releases/download/v$(CERT_MANAGER_VERSION)/cert-manager.yaml
+	$(KUBECTL) -n cert-manager wait --for=condition=available --timeout=180s --all deployments
 
 .PHONY: stop
 stop: $(KIND)
