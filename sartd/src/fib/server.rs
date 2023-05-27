@@ -23,22 +23,15 @@ pub(crate) struct Fib {
 
 impl Fib {
     pub fn new(endpoint: String, config: Config) -> Fib {
-        Fib { 
-            endpoint,
-            config,
-        }
+        Fib { endpoint, config }
     }
 
     pub async fn run(&self, trace_config: TraceConfig) {
         prepare_tracing(trace_config);
 
-
-
         // rt_netlink
         let (conn, handler, _rx) = rtnetlink::new_connection().unwrap();
         tokio::spawn(conn);
-
-
 
         // run gRPC fi server
         let endpoint = self.endpoint.clone();
