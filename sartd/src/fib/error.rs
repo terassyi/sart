@@ -2,6 +2,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub(crate) enum Error {
+    #[error("std::io::Error")]
+    StdIoErr(#[from] std::io::Error),
     #[error("failed to communicate with rtnetlink: {}", e)]
     FailedToCommunicateWithNetlink {
         #[from]
@@ -21,4 +23,20 @@ pub(crate) enum Error {
     FailedToParseAddress,
     #[error("destination not found")]
     DestinationNotFound,
+    #[error("config error")]
+    Config(#[from] ConfigError),
+    #[error("failed to insert")]
+    FailedToInsert,
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum ConfigError {
+    #[error("already configured")]
+    AlreadyConfigured,
+    #[error("failed to load")]
+    FailedToLoad,
+    #[error("invalid argument")]
+    InvalidArgument,
+    #[error("invalid data")]
+    InvalidData,
 }

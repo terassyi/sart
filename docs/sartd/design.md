@@ -76,3 +76,8 @@ stateDiagram-v2
 
 This figure is a basic model of BGP RIB.
 ![rib-model](rib-model.drawio.svg)
+
+## Fib
+
+Sartd-fib is the FIB(Forwarding Information Base) manager.
+This component subscribes routes from some protocols and publishes to other protocols.

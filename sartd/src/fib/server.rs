@@ -4,10 +4,10 @@ use crate::{
     trace::{prepare_tracing, TraceConfig},
 };
 
-use super::api_server::FibServer;
+use super::{api_server::FibServer, config::Config};
 
-pub(crate) fn start(endpoint: String, trace: TraceConfig) {
-    let server = Fib::new(endpoint);
+pub(crate) fn start(endpoint: String, config: Config, trace: TraceConfig) {
+    let server = Fib::new(endpoint, config);
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -18,19 +18,27 @@ pub(crate) fn start(endpoint: String, trace: TraceConfig) {
 #[derive(Debug)]
 pub(crate) struct Fib {
     endpoint: String,
+    config: Config,
 }
 
 impl Fib {
-    pub fn new(endpoint: String) -> Fib {
-        Fib { endpoint }
+    pub fn new(endpoint: String, config: Config) -> Fib {
+        Fib { 
+            endpoint,
+            config,
+        }
     }
 
     pub async fn run(&self, trace_config: TraceConfig) {
         prepare_tracing(trace_config);
 
+
+
         // rt_netlink
         let (conn, handler, _rx) = rtnetlink::new_connection().unwrap();
         tokio::spawn(conn);
+
+
 
         // run gRPC fi server
         let endpoint = self.endpoint.clone();
