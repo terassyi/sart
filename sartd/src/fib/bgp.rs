@@ -1,13 +1,19 @@
+use std::net::IpAddr;
+
+use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::mpsc::Sender;
 
+use crate::fib::rib::RequestType;
 use crate::{
     fib::api_server::api,
     proto::sart::fib_api_server::{FibApi, FibApiServer},
 };
 
 use super::error::Error;
+use super::rib::NextHop;
+use super::rib::NextHopFlags;
 
 use tonic::{Request, Response, Status};
 
@@ -29,8 +35,8 @@ impl Bgp {
         Self { endpoint }
     }
 
-    pub async fn subscribe(&self) -> Result<(Receiver<Route>), Error> {
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<Route>(128);
+    pub async fn subscribe(&self) -> Result<(Receiver<(RequestType, Route)>), Error> {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<(RequestType, Route)>(128);
 
         let sock_addr = self.endpoint.parse().unwrap();
         let reflection = tonic_reflection::server::Builder::configure()
@@ -48,17 +54,18 @@ impl Bgp {
         Ok(rx)
     }
 
-    pub fn publish(&self) -> Result<(), Error> {
+    pub async fn publish(&self, route: Route) -> Result<(), Error> {
         Ok(())
     }
 }
 
+
 struct BgpSubscriber {
-    queue: Sender<Route>,
+    queue: Sender<(RequestType, Route)>,
 }
 
 impl BgpSubscriber {
-    pub fn new(queue: Sender<Route>) -> Self {
+    pub fn new(queue: Sender<(RequestType, Route)>) -> Self {
         Self { queue }
     }
 }
@@ -70,16 +77,6 @@ impl FibApi for BgpSubscriber {
         &self,
         req: Request<GetRouteRequest>,
     ) -> Result<Response<GetRouteResponse>, Status> {
-        let table_id = req.get_ref().table;
-        let ver = match ip_version_from(req.get_ref().version as u32) {
-            Ok(ver) => ver,
-            Err(_) => return Err(Status::aborted("invalid ip version")),
-        };
-        let dst = if req.get_ref().destination == "default" {
-            "0.0.0.0"
-        } else {
-            &req.get_ref().destination
-        };
         Ok(Response::new(GetRouteResponse { route: None }))
     }
 
@@ -88,27 +85,43 @@ impl FibApi for BgpSubscriber {
         &self,
         req: Request<ListRoutesRequest>,
     ) -> Result<Response<ListRoutesResponse>, Status> {
-        let table_id = req.get_ref().table;
-        let ver = match ip_version_from(req.get_ref().version as u32) {
-            Ok(ver) => ver,
-            Err(_) => return Err(Status::aborted("invalid ip version")),
-        };
         Ok(Response::new(ListRoutesResponse { routes: vec![] }))
     }
 
     #[tracing::instrument(skip(self, req))]
     async fn add_route(&self, req: Request<AddRouteRequest>) -> Result<Response<()>, Status> {
-        Ok(Response::new(()))
+        if let Some(route) = &req.get_ref().route {
+            let route = match Route::try_from(route) {
+                Ok(route) => route,
+                Err(e) => return Err(Status::aborted(format!("{e}")))
+            };
+            match self.queue.send((RequestType::AddRoute, route)).await {
+                Ok(_) => Ok(Response::new(())),
+                Err(e) => Err(Status::internal(format!("{e}")))
+            }
+        } else {
+            Err(Status::aborted("route is required"))
+        }
     }
 
     #[tracing::instrument(skip(self, req))]
     async fn delete_route(&self, req: Request<DeleteRouteRequest>) -> Result<Response<()>, Status> {
-        let table_id = req.get_ref().table as u8;
         let ver = match ip_version_from(req.get_ref().version as u32) {
             Ok(ver) => ver,
             Err(_) => return Err(Status::aborted("invalid ip version")),
         };
-        Ok(Response::new(()))
+        let dst: IpNet = match req.get_ref().destination.parse() {
+            Ok(dst) => dst,
+            Err(e) => return Err(Status::aborted("invalid destination prefix"))
+        };
+        let mut route = Route::default();
+        route.destination = dst;
+        route.version = ver;
+
+        match self.queue.send((RequestType::DeleteRoute, route)).await {
+                Ok(_) => Ok(Response::new(())),
+                Err(e) => Err(Status::internal(format!("{e}")))
+        }
     }
 
     #[tracing::instrument(skip(self, req))]
@@ -116,24 +129,72 @@ impl FibApi for BgpSubscriber {
         &self,
         req: Request<AddMultiPathRouteRequest>,
     ) -> Result<Response<()>, Status> {
-        let table = req.get_ref().table as u8;
         let ver = match ip_version_from(req.get_ref().version as u32) {
             Ok(ver) => ver,
             Err(_) => return Err(Status::aborted("invalid ip version")),
         };
-        Ok(Response::new(()))
+        let dst: IpNet = match req.get_ref().destination.parse() {
+            Ok(dst) => dst,
+            Err(e) => return Err(Status::aborted("invalid destination prefix"))
+        };
+
+        let mut route = Route::default();
+        route.destination = dst;
+        route.version = ver;
+        let next_hops = &req.get_ref().next_hops;
+
+        for mut next_hop in next_hops.iter() {
+            let mut nh = match NextHop::try_from(next_hop) {
+                Ok(nh) => nh,
+                Err(e) => return Err(Status::aborted(format!("{e}")))
+            };
+            nh.weight = 1; // TODO: not to use fixed weight(=1)
+
+            route.next_hops.push(nh);
+        }
+
+        match self.queue.send((RequestType::AddMultiPathRoute, route)).await {
+                Ok(_) => Ok(Response::new(())),
+                Err(e) => Err(Status::internal(format!("{e}")))
+        }
     }
 
     async fn delete_multi_path_route(
         &self,
         req: Request<DeleteMultiPathRouteRequest>,
     ) -> Result<Response<()>, Status> {
-        let table = req.get_ref().table as u8;
         let ver = match ip_version_from(req.get_ref().version as u32) {
             Ok(ver) => ver,
             Err(_) => return Err(Status::aborted("invalid ip version")),
         };
+        let dst: IpNet = match req.get_ref().destination.parse() {
+            Ok(dst) => dst,
+            Err(e) => return Err(Status::aborted("invalid destination prefix"))
+        };
 
-        Ok(Response::new(()))
+        let mut route = Route::default();
+        route.destination = dst;
+        route.version = ver;
+        let gateways = &req.get_ref().gateways;
+
+        for gw in gateways.iter() {
+            let addr: IpAddr = match gw.parse() {
+                Ok(addr) => addr,
+                Err(e) => return Err(Status::aborted(format!("{e}")))
+            };
+            let nh = NextHop{
+                gateway: addr,
+                flags: NextHopFlags::Empty,
+                weight: 1,
+                interface: 0,
+            };
+            
+            route.next_hops.push(nh);
+        }
+
+        match self.queue.send((RequestType::DeleteMultiPathRoute, route)).await {
+                Ok(_) => Ok(Response::new(())),
+                Err(e) => Err(Status::internal(format!("{e}")))
+        }
     }
 }

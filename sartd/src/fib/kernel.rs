@@ -1,7 +1,8 @@
 
 use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc::Receiver;
 
-use super::error::Error;
+use super::{error::Error, rib::{RequestType, Route}};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct Kernel {
@@ -13,11 +14,12 @@ impl Kernel {
 		Self { tables: table_ids }
 	}
 
-	pub fn subscribe(&self) -> Result<(), Error> {
-		Ok(())
+	pub async fn subscribe(&self) -> Result<Receiver<(RequestType, Route)>, Error> {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<(RequestType, Route)>(128);
+		Ok(rx)
 	}
 
-	pub fn publish(&self) -> Result<(), Error> {
+	pub async fn publish(&self) -> Result<(), Error> {
 		Ok(())
 	}
 }

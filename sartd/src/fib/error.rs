@@ -19,6 +19,14 @@ pub(crate) enum Error {
     InvalidADValue,
     #[error("invalid protocol")]
     InvalidProtocol,
+    #[error("invalid scope")]
+    InvalidScope,
+    #[error("invalid type")]
+    InvalidType,
+    #[error("invalid ip version")]
+    InvalidIpVersion,
+    #[error("invalid next hop flag")]
+    InvalidNextHopFlag,
     #[error("failed to parse address")]
     FailedToParseAddress,
     #[error("destination not found")]
@@ -27,6 +35,8 @@ pub(crate) enum Error {
     Config(#[from] ConfigError),
     #[error("failed to insert")]
     FailedToInsert,
+    #[error("failed to remove")]
+    FailedToRemove,
 }
 
 #[derive(Debug, Error)]
