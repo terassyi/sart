@@ -1,7 +1,7 @@
 use futures::FutureExt;
-use tokio::sync::mpsc::channel;
 use std::sync::Arc;
 use std::sync::Mutex;
+use tokio::sync::mpsc::channel;
 use tokio_stream::StreamExt;
 
 use crate::fib::bgp;
@@ -14,7 +14,7 @@ use super::error::Error;
 use super::kernel::KernelRtPoller;
 use super::rib::RequestType;
 use super::rib::Rib;
-use super::rib::Route;
+use super::route::Route;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub(crate) struct Channel {
@@ -36,18 +36,20 @@ pub(crate) enum Protocol {
 }
 
 impl Protocol {
-    pub(crate) async fn publish(&self, route: Route) -> Result<(), Error> {
+    pub(crate) async fn publish(&self, req: RequestType, route: Route) -> Result<(), Error> {
         match self {
             Protocol::Bgp(b) => b.publish(route).await,
-            Protocol::Kernel(k) => k.publish().await,
+            Protocol::Kernel(k) => k.publish(req, route).await,
         }
     }
 }
 
 impl Channel {
-
     #[tracing::instrument(skip(self, poller))]
-    pub async fn register(&mut self, poller: &mut KernelRtPoller) -> Result<Vec<Receiver<(RequestType, Route)>>, Error> {
+    pub async fn register(
+        &mut self,
+        poller: &mut KernelRtPoller,
+    ) -> Result<Vec<Receiver<(RequestType, Route)>>, Error> {
         let mut receivers: Vec<Receiver<(RequestType, Route)>> = Vec::new();
         for s in self.subscribers.iter() {
             let rx = match s {
@@ -57,7 +59,7 @@ impl Channel {
                     tracing::info!(subscriber=?k,"register to poller");
                     poller.register(k, kernel_tx)?;
                     k.subscribe(kernel_rx).await
-                },
+                }
             }?;
             receivers.push(rx);
         }

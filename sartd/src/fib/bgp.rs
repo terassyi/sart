@@ -12,8 +12,9 @@ use crate::{
 };
 
 use super::error::Error;
-use super::rib::NextHop;
-use super::rib::NextHopFlags;
+use super::route::NextHop;
+use super::route::NextHopFlags;
+use super::route::Route;
 
 use tonic::{Request, Response, Status};
 
@@ -22,8 +23,7 @@ use crate::proto::sart::{
     GetRouteRequest, GetRouteResponse, ListRoutesRequest, ListRoutesResponse,
 };
 
-use super::rib::Route;
-use super::route::{ip_version_from, RtClient};
+use super::route::ip_version_from;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub(crate) struct Bgp {

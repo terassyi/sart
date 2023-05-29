@@ -63,7 +63,7 @@ impl Fib {
                                 match res {
                                     Ok(route) => {
                                         for p in ch.publishers.iter() {
-                                            match p.publish(route.clone()).await {
+                                            match p.publish(request.0, route.clone()).await {
                                                 Ok(_) => {},
                                                 Err(e) => tracing::error!(error=?e, "failed to publish the route")
                                             }
@@ -83,7 +83,6 @@ impl Fib {
         tokio::spawn(async move {
             poller.run().await.unwrap();
         });
-        
 
         // rt_netlink
         let (conn, handler, _rx) = rtnetlink::new_connection().unwrap();

@@ -7,11 +7,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{Receiver, Sender, UnboundedReceiver};
 use tokio_stream::StreamExt;
 
-use super::{
-    channel::Channel,
-    error::Error,
-    rib::{RequestType, Route},
-};
+use super::{channel::Channel, error::Error, rib::RequestType, route::Route, rt_client::RtClient};
 
 use rtnetlink::{constants::*, new_connection};
 
@@ -26,31 +22,40 @@ impl Kernel {
     }
 
     #[tracing::instrument(skip(self, kernel_rx))]
-    pub async fn subscribe(&self, mut kernel_rx: Receiver<(RequestType, Route)>) -> Result<Receiver<(RequestType, Route)>, Error> {
+    pub async fn subscribe(
+        &self,
+        mut kernel_rx: Receiver<(RequestType, Route)>,
+    ) -> Result<Receiver<(RequestType, Route)>, Error> {
         let (tx, rx) = tokio::sync::mpsc::channel::<(RequestType, Route)>(128);
 
-        // tokio_stream::wrappers::ReceiverStream::new
-
         tokio::spawn(async move {
-            tracing::info!("hogehoge");
             while let Some((req, route)) = kernel_rx.recv().await {
-                tracing::info!(request=?req, route=?route,"subscribe route");
-
                 // send to rib
                 match tx.send((req, route)).await {
-                    Ok(_) => {},
+                    Ok(_) => {}
                     Err(e) => {
                         tracing::error!(error=?e,"failed to send to the rib channel")
                     }
                 }
             }
-
         });
 
         Ok(rx)
     }
 
-    pub async fn publish(&self) -> Result<(), Error> {
+    pub async fn publish(&self, req: RequestType, route: Route) -> Result<(), Error> {
+        let (conn, handler, _rx) = rtnetlink::new_connection().unwrap();
+        tokio::spawn(conn);
+
+        let rt = RtClient::new(handler);
+
+        match req {
+            // RequestType::AddRoute => rt.add_route(&route, false),
+            RequestType::AddRoute => {}
+            RequestType::AddMultiPathRoute => {}
+            RequestType::DeleteRoute => {}
+            RequestType::DeleteMultiPathRoute => {}
+        }
         Ok(())
     }
 }
@@ -82,7 +87,7 @@ impl KernelRtPoller {
         subscriber_tx: Sender<(RequestType, Route)>,
     ) -> Result<(), Error> {
         for id in kernel.tables.iter() {
-            tracing::info!(id=id,"register");
+            tracing::info!(id = id, "register");
             self.tx_map.insert(*id, subscriber_tx.clone());
         }
         Ok(())
@@ -97,7 +102,6 @@ impl KernelRtPoller {
             .bind(&addr)
             .map_err(Error::StdIoErr)?;
 
-        tracing::info!("start to poll netlink socket");
         tokio::spawn(conn);
 
         tracing::info!("start to poll kernel rtnetlink event");
@@ -112,50 +116,45 @@ impl KernelRtPoller {
                 NetlinkPayload::Ack(_am) => {}
                 NetlinkPayload::Noop => {}
                 NetlinkPayload::Overrun(_bytes) => {}
-                NetlinkPayload::InnerMessage(msg) => {
-                    tracing::info!(message=?msg, "netlink message");
-                    match msg {
-                        RtnlMessage::NewRoute(msg) => {
-                            let table = msg.header.table as u32;
-                            if let Some(tx) = self.tx_map.get(&table) {
-                                let route = match Route::try_from(msg) {
-                                    Ok(route) => route,
-                                    Err(e) => {
-                                        tracing::error!(error=?e, "failed to parse new route message");
-                                        continue;
-                                    },
-                                };
-                                match tx.send((RequestType::AddRoute, route)).await {
-                                    Ok(_) => {},
-                                    Err(e) => {
-                                        tracing::error!(error=?e,"failed to send to rib");
-                                    }
+                NetlinkPayload::InnerMessage(msg) => match msg {
+                    RtnlMessage::NewRoute(msg) => {
+                        let table = msg.header.table as u32;
+                        if let Some(tx) = self.tx_map.get(&table) {
+                            let route = match Route::try_from(msg) {
+                                Ok(route) => route,
+                                Err(e) => {
+                                    tracing::error!(error=?e, "failed to parse new route message");
+                                    continue;
+                                }
+                            };
+                            match tx.send((RequestType::AddRoute, route)).await {
+                                Ok(_) => {}
+                                Err(e) => {
+                                    tracing::error!(error=?e,"failed to send to rib");
                                 }
                             }
-                        }
-                        RtnlMessage::DelRoute(msg) => {
-                            let table = msg.header.table as u32;
-                            if let Some(tx) = self.tx_map.get(&table) {
-                                let route = match Route::try_from(msg) {
-                                    Ok(route) => route,
-                                    Err(e) => {
-                                        tracing::error!(error=?e, "failed to parse new route message");
-                                        continue;
-                                    },
-                                };
-                                match tx.send((RequestType::DeleteRoute, route)).await {
-                                    Ok(_) => {},
-                                    Err(e) => {
-                                        tracing::error!(error=?e,"failed to send to rib");
-                                    }
-                                }
-                            }
-                        }
-                        _ => {
-                            tracing::info!("other type netlink message");
                         }
                     }
-                }
+                    RtnlMessage::DelRoute(msg) => {
+                        let table = msg.header.table as u32;
+                        if let Some(tx) = self.tx_map.get(&table) {
+                            let route = match Route::try_from(msg) {
+                                Ok(route) => route,
+                                Err(e) => {
+                                    tracing::error!(error=?e, "failed to parse new route message");
+                                    continue;
+                                }
+                            };
+                            match tx.send((RequestType::DeleteRoute, route)).await {
+                                Ok(_) => {}
+                                Err(e) => {
+                                    tracing::error!(error=?e,"failed to send to rib");
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                },
                 _ => {}
             }
         }

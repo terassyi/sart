@@ -2,318 +2,306 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use futures::TryStreamExt;
 use ipnet::IpNet;
-use netlink_packet_route::route::{NextHop, NextHopFlags, Nla};
+use netlink_packet_route::{route::Nla, RouteMessage};
+// use netlink_packet_route::route::{NextHop, NextHopFlags, Nla};
 
 use crate::proto;
 
 use super::error::Error;
 
-#[derive(Debug)]
-pub(crate) struct RtClient {
-    handler: rtnetlink::Handle,
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub(crate) struct Route {
+    pub destination: IpNet,
+    pub version: rtnetlink::IpVersion,
+    pub protocol: Protocol,
+    pub scope: Scope,
+    pub kind: Kind,
+    pub next_hops: Vec<NextHop>,
+    pub source: Option<IpAddr>,
+    pub priority: u32,
+    pub ad: AdministrativeDistance,
+    pub table: u8,
 }
 
-impl RtClient {
-    pub fn new(handler: rtnetlink::Handle) -> RtClient {
-        RtClient { handler }
+impl Default for Route {
+    fn default() -> Self {
+        Self {
+            destination: "0.0.0.0/0".parse().unwrap(),
+            version: rtnetlink::IpVersion::V4,
+            protocol: Protocol::Unspec,
+            scope: Scope::Universe,
+            kind: Kind::UnspecType,
+            next_hops: Vec::new(),
+            source: None,
+            priority: 0,
+            ad: AdministrativeDistance::Static,
+            table: 0,
+        }
     }
+}
 
-    #[tracing::instrument(skip(self))]
-    pub async fn list_routes(
-        &self,
-        table: u8,
-        ip_version: rtnetlink::IpVersion,
-    ) -> Result<Vec<proto::sart::Route>, Error> {
-        let routes = self.handler.route();
-        let mut res = routes.get(ip_version.clone()).execute();
+impl Ord for Route {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.ad.cmp(&other.ad)
+    }
+}
 
-        tracing::info!("get routes");
+impl PartialOrd for Route {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
 
-        let mut proto_routes = Vec::new();
-        while let Some(route) = res.try_next().await? {
-            if route.header.table != table
-                || route.header.address_family != ip_version_into(&ip_version)
-            {
-                continue;
-            }
-            let prefix = match route.destination_prefix() {
-                Some(prefix) => {
-                    let prefix = ipnet::IpNet::new(prefix.0, prefix.1)
-                        .map_err(|_| Error::FailedToGetPrefix)?;
-                    prefix.to_string()
-                }
-                None => "0.0.0.0".to_string(),
-            };
-            let source = match route.source_prefix() {
-                Some((addr, _prefix_len)) => addr.to_string(),
-                None => String::new(),
-            };
+impl TryFrom<RouteMessage> for Route {
+    type Error = Error;
+    fn try_from(msg: RouteMessage) -> Result<Self, Self::Error> {
+        let destination = match msg.destination_prefix() {
+            Some((addr, prefix_len)) => IpNet::new(addr, prefix_len),
+            None => return Err(Error::FailedToGetPrefix),
+        }
+        .map_err(|_| Error::FailedToGetPrefix)?;
+        let version = match msg.header.address_family {
+            2 => rtnetlink::IpVersion::V4,
+            10 => rtnetlink::IpVersion::V6,
+            _ => return Err(Error::InvalidIpVersion),
+        };
 
-            let ad = AdministrativeDistance::from_protocol(
-                Protocol::try_from(route.header.protocol)?,
-                false,
-            );
+        let protocol = Protocol::try_from(msg.header.protocol)?;
+        let mut route = Route {
+            destination,
+            version,
+            protocol,
+            scope: Scope::try_from(msg.header.scope as i32)?,
+            kind: Kind::try_from(msg.header.kind as i32)?,
+            next_hops: Vec::new(),
+            source: msg.source_prefix().map(|(addr, _)| addr),
+            priority: 0,
+            ad: AdministrativeDistance::from_protocol(protocol, false),
+            table: msg.header.table,
+        };
 
-            let mut proto_route = proto::sart::Route {
-                table: route.header.table as u32,
-                version: route.header.address_family as i32,
-                destination: prefix,
-                protocol: route.header.protocol as i32,
-                scope: route.header.scope as i32,
-                r#type: route.header.kind as i32,
-                next_hops: Vec::new(),
-                source,
-                ad: ad as i32,
-                priority: 0,
-                ibgp: false,
-            };
-
-            if route
-                .nlas
-                .iter()
-                .any(|nla| matches!(&nla, Nla::MultiPath(_)))
-            {
-                // multi path
-                for nla in route.nlas.iter() {
-                    match nla {
-                        Nla::Priority(p) => proto_route.priority = *p,
-                        Nla::MultiPath(hops) => {
-                            for h in hops.iter() {
-                                let mut next_hop = next_hop_default();
-                                next_hop.weight = h.hops as u32;
-                                next_hop.interface = h.interface_id;
-                                next_hop.flags = h.flags.bits() as i32;
-                                for nnla in h.nlas.iter() {
-                                    match nnla {
-                                        Nla::Gateway(g) => {
-                                            next_hop.gateway = parse_ipaddr(g)?.to_string()
-                                        }
-                                        Nla::Oif(i) => next_hop.interface = *i,
-                                        _ => {}
+        if msg.nlas.iter().any(|nla| matches!(&nla, Nla::MultiPath(_))) {
+            // multi path
+            for nla in msg.nlas.iter() {
+                match nla {
+                    Nla::Priority(p) => route.priority = *p,
+                    Nla::MultiPath(hops) => {
+                        for h in hops.iter() {
+                            let mut next_hop = NextHop {
+                                gateway: "0.0.0.0".parse().unwrap(),
+                                weight: h.hops as u32,
+                                flags: NextHopFlags::try_from(h.flags.bits() as i32)?,
+                                interface: h.interface_id,
+                            };
+                            for nnla in h.nlas.iter() {
+                                match nnla {
+                                    Nla::Gateway(g) => {
+                                        next_hop.gateway = parse_ipaddr(g)?;
                                     }
+                                    Nla::Oif(i) => next_hop.interface = *i,
+                                    _ => {}
                                 }
-                                proto_route.next_hops.push(next_hop);
                             }
+                            route.next_hops.push(next_hop);
                         }
-                        _ => {}
                     }
+                    _ => {}
                 }
-            } else {
-                let mut next_hop = next_hop_default();
-                for nla in route.nlas.iter() {
-                    match nla {
-                        Nla::Priority(p) => proto_route.priority = *p,
-                        Nla::Gateway(g) => next_hop.gateway = parse_ipaddr(g)?.to_string(),
-                        Nla::PrefSource(p) => next_hop.gateway = parse_ipaddr(p)?.to_string(),
-                        Nla::Oif(i) => next_hop.interface = *i,
-                        _ => {}
-                    }
-                }
-                proto_route.next_hops.push(next_hop);
             }
-            proto_routes.push(proto_route);
+        } else {
+            let mut next_hop = NextHop {
+                gateway: "0.0.0.0".parse().unwrap(),
+                weight: 0,
+                flags: NextHopFlags::Empty,
+                interface: 0,
+            };
+            for nla in msg.nlas.iter() {
+                match nla {
+                    Nla::Priority(p) => route.priority = *p,
+                    Nla::Gateway(g) => next_hop.gateway = parse_ipaddr(g)?,
+                    Nla::PrefSource(p) => next_hop.gateway = parse_ipaddr(p)?,
+                    Nla::Oif(i) => next_hop.interface = *i,
+                    _ => {}
+                }
+            }
+            route.next_hops.push(next_hop);
         }
-        Ok(proto_routes)
+        Ok(route)
     }
+}
 
-    #[tracing::instrument(skip(self))]
-    pub async fn get_route(
-        &self,
-        table: u8,
-        ip_version: rtnetlink::IpVersion,
-        destination: &str,
-    ) -> Result<proto::sart::Route, Error> {
-        tracing::info!("get route");
-        let routes = self.list_routes(table, ip_version).await?;
-        match routes.into_iter().find(|r| r.destination.eq(destination)) {
-            Some(route) => Ok(route),
-            None => Err(Error::DestinationNotFound),
-        }
-    }
-
-    #[tracing::instrument(skip(self))]
-    pub async fn add_route(&self, route: &proto::sart::Route, replace: bool) -> Result<(), Error> {
-        tracing::info!("add a route");
-        let rt = self.handler.route();
-        let ip_version = ip_version_from(route.version as u32)?;
-
-        // look up existing routes
-        let destination: IpNet = route
+impl TryFrom<&crate::proto::sart::Route> for Route {
+    type Error = Error;
+    fn try_from(value: &proto::sart::Route) -> Result<Self, Self::Error> {
+        let dst: IpNet = value
             .destination
             .parse()
             .map_err(|_| Error::FailedToParseAddress)?;
-
-        let mut exist = false;
-        let mut res = rt.get(ip_version.clone()).execute();
-        while let Some(r) = res.try_next().await? {
-            if let Some((dst, prefix_len)) = r.destination_prefix() {
-                if destination.prefix_len() == prefix_len
-                    && destination.addr().eq(&dst)
-                    && r.header.table == route.table as u8
-                {
-                    // compare priority by ad value
-                    tracing::info!("an existing route is found");
-                    // delete the old route
-                    let existing_ad = AdministrativeDistance::from_protocol(
-                        Protocol::try_from(r.header.protocol)?,
-                        false,
-                    );
-                    let new_ad = AdministrativeDistance::try_from(route.ad as u8)?;
-                    if existing_ad >= new_ad {
-                        tracing::info!(existing_ad=?existing_ad,new_ad=?new_ad, "replace it");
-                        rt.del(r).execute().await?;
-                        exist = true;
-                    } else {
-                        tracing::info!("the existing route has lower ad value. nothing to do.");
-                        return Ok(());
-                    }
-                }
-            }
+        let ip_version = match value.version {
+            2 => rtnetlink::IpVersion::V4,
+            10 => rtnetlink::IpVersion::V6,
+            _ => return Err(Error::InvalidIpVersion),
+        };
+        let mut next_hops = Vec::new();
+        for n in value.next_hops.iter() {
+            next_hops.push(NextHop::try_from(n)?);
         }
+        let source = match value.source.parse() {
+            Ok(a) => Some(a),
+            Err(_) => None,
+        };
 
-        if !replace && exist {
-            return Err(Error::AlreadyExists);
-        }
-        let mut req = rt
-            .add()
-            .table(route.table as u8)
-            .kind(route.r#type as u8)
-            .protocol(route.protocol as u8)
-            .scope(route.scope as u8);
-
-        let msg = req.message_mut();
-        msg.header.address_family = ip_version_into(&ip_version);
-
-        // destination
-        msg.header.destination_prefix_length = destination.prefix_len();
-        match destination.addr() {
-            IpAddr::V4(a) => msg.nlas.push(Nla::Destination(a.octets().to_vec())),
-            IpAddr::V6(a) => msg.nlas.push(Nla::Destination(a.octets().to_vec())),
-        }
-
-        // source
-        if let Ok(src) = route.source.parse::<IpAddr>() {
-            match src {
-                IpAddr::V4(addr) => msg.nlas.push(Nla::Source(addr.octets().to_vec())),
-                IpAddr::V6(addr) => msg.nlas.push(Nla::Source(addr.octets().to_vec())),
-            }
-        }
-
-        if route.priority != 0 {
-            msg.nlas.push(Nla::Priority(route.priority));
-        }
-        // next hop
-        if route.next_hops.len() > 1 {
-            // multi_path
-            let n = route
-                .next_hops
-                .iter()
-                .map(|h| {
-                    let mut next = NextHop::default();
-                    next.flags = NextHopFlags::from_bits_truncate(h.flags as u8);
-                    if h.weight > 0 {
-                        next.hops = (h.weight - 1) as u8;
-                    }
-                    if h.interface != 0 {
-                        next.interface_id = h.interface;
-                    }
-                    if let Ok(gateway) = h.gateway.parse::<IpAddr>() {
-                        match gateway {
-                            IpAddr::V4(addr) => {
-                                next.nlas.push(Nla::Gateway(addr.octets().to_vec()))
-                            }
-                            IpAddr::V6(addr) => {
-                                next.nlas.push(Nla::Gateway(addr.octets().to_vec()))
-                            }
-                        }
-                    }
-                    next
-                })
-                .collect();
-            msg.nlas.push(Nla::MultiPath(n));
-        } else if route.next_hops.is_empty() {
-            // no next_hop
-            return Err(Error::GatewayNotFound);
-        } else if let Ok(gateway) = route.next_hops[0].gateway.parse::<IpAddr>() {
-            match gateway {
-                IpAddr::V4(addr) => msg.nlas.push(Nla::Gateway(addr.octets().to_vec())),
-                IpAddr::V6(addr) => msg.nlas.push(Nla::Gateway(addr.octets().to_vec())),
-            }
-        }
-
-        match ip_version {
-            rtnetlink::IpVersion::V4 => req.v4().execute().await?,
-            rtnetlink::IpVersion::V6 => req.v6().execute().await?,
-        }
-
-        Ok(())
-    }
-
-    #[tracing::instrument(skip(self))]
-    pub async fn delete_route(
-        &self,
-        table: u8,
-        ip_version: rtnetlink::IpVersion,
-        destination: IpNet,
-    ) -> Result<(), Error> {
-        tracing::info!("delete a route");
-        let rt = self.handler.route();
-
-        let mut res = rt.get(ip_version).execute();
-        while let Some(route) = res.try_next().await? {
-            if let Some((dst, prefix_len)) = route.destination_prefix() {
-                if destination.prefix_len() == prefix_len
-                    && destination.addr().eq(&dst)
-                    && route.header.table == table
-                {
-                    rt.del(route).execute().await?;
-                    return Ok(());
-                }
-            }
-        }
-        Err(Error::DestinationNotFound)
-    }
-
-    #[tracing::instrument(skip(self))]
-    pub async fn add_multi_path_route(
-        &self,
-        table: u8,
-        ip_version: rtnetlink::IpVersion,
-        destination: IpNet,
-        next_hops: Vec<proto::sart::NextHop>,
-    ) -> Result<(), Error> {
-        tracing::info!("add multiple path to the route");
-        let mut route = self
-            .get_route(table, ip_version, &destination.to_string())
-            .await?;
-        for mut next_hop in next_hops.into_iter() {
-            next_hop.weight = 1; // TODO: not to use fixed weight(=1)
-            route.next_hops.push(next_hop);
-        }
-
-        self.add_route(&route, true).await
-    }
-
-    pub async fn delete_multi_path_route(
-        &self,
-        table: u8,
-        ip_version: rtnetlink::IpVersion,
-        destination: IpNet,
-        gateways: Vec<IpAddr>,
-    ) -> Result<(), Error> {
-        tracing::info!("add multiple path to the route");
-        let mut route = self
-            .get_route(table, ip_version, &destination.to_string())
-            .await?;
-        route
-            .next_hops
-            .retain(|n| gateways.iter().any(|g| n.gateway != g.to_string()));
-
-        self.add_route(&route, true).await
+        Ok(Route {
+            destination: dst,
+            version: ip_version,
+            protocol: Protocol::try_from(value.protocol as u8)?,
+            scope: Scope::try_from(value.scope)?,
+            kind: Kind::try_from(value.r#type)?,
+            next_hops,
+            source,
+            priority: value.priority,
+            ad: AdministrativeDistance::try_from(value.ad as u8)?,
+            table: value.table as u8,
+        })
     }
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Eq, Ord)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Clone)]
+pub(crate) struct NextHop {
+    pub gateway: IpAddr,
+    pub weight: u32,
+    pub flags: NextHopFlags,
+    pub interface: u32,
+}
+
+impl Default for NextHop {
+    fn default() -> Self {
+        Self {
+            gateway: "0.0.0.0".parse().unwrap(),
+            weight: 0,
+            flags: NextHopFlags::Empty,
+            interface: 0,
+        }
+    }
+}
+
+impl TryFrom<&proto::sart::NextHop> for NextHop {
+    type Error = Error;
+    fn try_from(value: &proto::sart::NextHop) -> Result<Self, Self::Error> {
+        let gateway = value
+            .gateway
+            .parse()
+            .map_err(|_| Error::FailedToParseAddress)?;
+
+        Ok(NextHop {
+            gateway,
+            weight: value.weight,
+            flags: NextHopFlags::try_from(value.flags)?,
+            interface: value.interface,
+        })
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Clone, Copy)]
+pub(crate) enum NextHopFlags {
+    Empty = 0,
+    Dead = 1,
+    Pervasive = 2,
+    Onlink = 3,
+    Offload = 4,
+    Linkdown = 16,
+    Unresolved = 32,
+}
+
+impl TryFrom<i32> for NextHopFlags {
+    type Error = Error;
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(NextHopFlags::Empty),
+            1 => Ok(NextHopFlags::Dead),
+            2 => Ok(NextHopFlags::Pervasive),
+            3 => Ok(NextHopFlags::Onlink),
+            4 => Ok(NextHopFlags::Offload),
+            16 => Ok(NextHopFlags::Linkdown),
+            32 => Ok(NextHopFlags::Unresolved),
+            _ => Err(Error::InvalidNextHopFlag),
+        }
+    }
+}
+
+impl Into<u8> for NextHopFlags {
+    fn into(self) -> u8 {
+        match self {
+            NextHopFlags::Empty => 0,
+            NextHopFlags::Dead => 1,
+            NextHopFlags::Pervasive => 2,
+            NextHopFlags::Onlink => 3,
+            NextHopFlags::Offload => 4,
+            NextHopFlags::Linkdown => 16,
+            NextHopFlags::Unresolved => 32,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+pub(crate) enum Scope {
+    Universe = 0,
+    Site = 200,
+    Link = 253,
+    Host = 254,
+    Nowhere = 255,
+}
+
+impl TryFrom<i32> for Scope {
+    type Error = Error;
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Scope::Universe),
+            200 => Ok(Scope::Site),
+            253 => Ok(Scope::Link),
+            254 => Ok(Scope::Host),
+            255 => Ok(Scope::Nowhere),
+            _ => Err(Error::InvalidScope),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+pub(crate) enum Kind {
+    UnspecType = 0,
+    Unicast = 1,
+    Local = 2,
+    Broadcast = 3,
+    Anycast = 4,
+    Multicast = 5,
+    Blackhole = 6,
+    Unreachable = 7,
+    Prohibit = 8,
+    Throw = 9,
+    Nat = 10,
+}
+
+impl TryFrom<i32> for Kind {
+    type Error = Error;
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Kind::UnspecType),
+            1 => Ok(Kind::Unicast),
+            2 => Ok(Kind::Local),
+            3 => Ok(Kind::Broadcast),
+            4 => Ok(Kind::Anycast),
+            5 => Ok(Kind::Multicast),
+            6 => Ok(Kind::Blackhole),
+            7 => Ok(Kind::Unreachable),
+            8 => Ok(Kind::Prohibit),
+            9 => Ok(Kind::Throw),
+            10 => Ok(Kind::Nat),
+            _ => Err(Error::InvalidType),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Clone, Copy)]
 pub(crate) enum AdministrativeDistance {
     Connected = 0,
     Static = 1,
@@ -337,7 +325,7 @@ impl std::fmt::Display for AdministrativeDistance {
 }
 
 impl AdministrativeDistance {
-    fn from_protocol(protocol: Protocol, internal: bool) -> AdministrativeDistance {
+    pub(crate) fn from_protocol(protocol: Protocol, internal: bool) -> AdministrativeDistance {
         match protocol {
             Protocol::Unspec | Protocol::Redirect | Protocol::Kernel | Protocol::Boot => {
                 AdministrativeDistance::Connected
@@ -371,6 +359,7 @@ impl TryFrom<u8> for AdministrativeDistance {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub(crate) enum Protocol {
     Unspec = 0,
     Redirect = 1,
@@ -380,6 +369,21 @@ pub(crate) enum Protocol {
     Bgp = 186,
     Ospf = 188,
     Rip = 189,
+}
+
+impl Into<u8> for Protocol {
+    fn into(self) -> u8 {
+        match self {
+            Protocol::Unspec => 0,
+            Protocol::Redirect => 1,
+            Protocol::Kernel => 2,
+            Protocol::Boot => 3,
+            Protocol::Static => 4,
+            Protocol::Bgp => 186,
+            Protocol::Ospf => 188,
+            Protocol::Rip => 189,
+        }
+    }
 }
 
 impl TryFrom<u8> for Protocol {
@@ -396,15 +400,6 @@ impl TryFrom<u8> for Protocol {
             189 => Ok(Self::Rip),
             _ => Err(Error::InvalidProtocol),
         }
-    }
-}
-
-fn next_hop_default() -> proto::sart::NextHop {
-    proto::sart::NextHop {
-        gateway: String::new(),
-        weight: 0,
-        flags: 0,
-        interface: 0,
     }
 }
 
@@ -438,385 +433,5 @@ pub(crate) fn parse_ipaddr(data: &Vec<u8>) -> Result<IpAddr, Error> {
         Ok(IpAddr::V6(Ipv6Addr::from(a)))
     } else {
         Err(Error::FailedToGetPrefix)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::proto;
-    use core::panic;
-    use futures::TryStreamExt;
-    use netlink_packet_route::route::Nla;
-    use std::{
-        net::{IpAddr, Ipv4Addr},
-        os::fd::AsRawFd,
-    };
-
-    use super::{parse_ipaddr, RtClient};
-
-    #[tokio::test]
-    async fn test_rt_client() {
-        // prepare netns
-        let ns = netns_rs::NetNs::new("test-rt-client").unwrap();
-        let fd = ns.file().as_raw_fd();
-
-        // prepare rtnetlink handler
-        let (conn, handler, _rx) = rtnetlink::new_connection().unwrap();
-        tokio::spawn(conn);
-
-        let rt = RtClient::new(handler);
-
-        // prepare links
-        let (v0, p0) = ("v0".to_string(), "p0".to_string());
-        let (v1, p1) = ("v1".to_string(), "p1".to_string());
-        rt.handler
-            .link()
-            .add()
-            .veth(v0.clone(), p0)
-            .execute()
-            .await
-            .unwrap();
-        rt.handler
-            .link()
-            .add()
-            .veth(v1.clone(), p1)
-            .execute()
-            .await
-            .unwrap();
-
-        let mut v0_idx = 0;
-        let mut v1_idx = 0;
-        let mut v0_l = rt.handler.link().get().match_name(v0.clone()).execute();
-        while let Some(l) = v0_l.try_next().await.unwrap() {
-            v0_idx = l.header.index;
-        }
-        let mut v1_l = rt.handler.link().get().match_name(v1.clone()).execute();
-        while let Some(l) = v1_l.try_next().await.unwrap() {
-            v1_idx = l.header.index;
-        }
-
-        // set ns
-        rt.handler
-            .link()
-            .set(v0_idx)
-            .setns_by_fd(fd)
-            .execute()
-            .await
-            .unwrap();
-        rt.handler
-            .link()
-            .set(v1_idx)
-            .setns_by_fd(fd)
-            .execute()
-            .await
-            .unwrap();
-
-        ns.enter().unwrap();
-        let (ns_conn, ns_handler, _rx) = rtnetlink::new_connection().unwrap();
-        tokio::spawn(ns_conn);
-
-        // set addr
-        let mut v0_l = ns_handler.link().get().match_index(v0_idx).execute();
-        while let Some(l) = v0_l.try_next().await.map_err(|e| format!("{e}")).unwrap() {
-            v0_idx = l.header.index;
-        }
-        let mut v1_l = ns_handler.link().get().match_name(v1).execute();
-        while let Some(l) = v1_l.try_next().await.map_err(|e| format!("{e}")).unwrap() {
-            v1_idx = l.header.index;
-        }
-        ns_handler
-            .address()
-            .add(v0_idx, "10.0.0.1".parse().unwrap(), 24)
-            .execute()
-            .await
-            .map_err(|e| format!("{e}"))
-            .unwrap();
-        ns_handler
-            .address()
-            .add(v1_idx, "10.0.1.1".parse().unwrap(), 24)
-            .execute()
-            .await
-            .map_err(|e| format!("{e}"))
-            .unwrap();
-
-        // set up
-        ns_handler.link().set(1).up().execute().await.unwrap();
-        ns_handler.link().set(v0_idx).up().execute().await.unwrap();
-        ns_handler.link().set(v1_idx).up().execute().await.unwrap();
-
-        let ns_rt = RtClient::new(ns_handler);
-
-        ns_rt
-            .add_route(
-                &proto::sart::Route {
-                    table: 254,
-                    version: 2,
-                    destination: "10.10.0.0/24".to_string(),
-                    protocol: 186,
-                    scope: 0,
-                    r#type: 1,
-                    next_hops: vec![proto::sart::NextHop {
-                        gateway: "10.0.0.1".to_string(),
-                        weight: 20,
-                        flags: 0,
-                        interface: 0,
-                    }],
-                    source: String::new(),
-                    ad: 20,
-                    priority: 20,
-                    ibgp: false,
-                },
-                false,
-            )
-            .await
-            .unwrap();
-
-        let mut a = ns_rt
-            .handler
-            .route()
-            .get(rtnetlink::IpVersion::V4)
-            .execute();
-        let mut existing = false;
-        while let Some(route) = a.try_next().await.unwrap() {
-            let (addr, prefix_len) = route.destination_prefix().unwrap();
-            if addr.to_string() == "10.10.0.0" && prefix_len == 24 {
-                assert_eq!(
-                    route.gateway().unwrap(),
-                    "10.0.0.1".parse::<Ipv4Addr>().unwrap()
-                );
-                existing = true;
-            }
-        }
-        if !existing {
-            panic!("a route should exist");
-        }
-
-        // replace
-        ns_rt
-            .add_route(
-                &proto::sart::Route {
-                    table: 254,
-                    version: 2,
-                    destination: "10.10.0.0/24".to_string(),
-                    protocol: 186,
-                    scope: 0,
-                    r#type: 1,
-                    next_hops: vec![proto::sart::NextHop {
-                        gateway: "10.0.1.1".to_string(),
-                        weight: 20,
-                        flags: 0,
-                        interface: 0,
-                    }],
-                    source: String::new(),
-                    ad: 20,
-                    priority: 20,
-                    ibgp: false,
-                },
-                true,
-            )
-            .await
-            .map_err(|e| format!("{e}"))
-            .unwrap();
-
-        let mut a = ns_rt
-            .handler
-            .route()
-            .get(rtnetlink::IpVersion::V4)
-            .execute();
-        existing = false;
-        while let Some(route) = a.try_next().await.unwrap() {
-            let (addr, prefix_len) = route.destination_prefix().unwrap();
-            if addr.to_string() == "10.10.0.0" && prefix_len == 24 {
-                assert_eq!(
-                    route.gateway().unwrap(),
-                    "10.0.1.1".parse::<Ipv4Addr>().unwrap()
-                );
-                existing = true;
-            }
-        }
-        if !existing {
-            panic!("a route should exist");
-        }
-
-        // delete route
-        ns_rt
-            .delete_route(
-                254,
-                rtnetlink::IpVersion::V4,
-                "10.10.0.0/24".parse().unwrap(),
-            )
-            .await
-            .unwrap();
-        let mut a = ns_rt
-            .handler
-            .route()
-            .get(rtnetlink::IpVersion::V4)
-            .execute();
-        existing = false;
-        while let Some(route) = a.try_next().await.unwrap() {
-            let (addr, prefix_len) = route.destination_prefix().unwrap();
-            if addr.to_string() == "10.10.0.0" && prefix_len == 24 {
-                assert_eq!(
-                    route.gateway().unwrap(),
-                    "10.0.1.1".parse::<Ipv4Addr>().unwrap()
-                );
-                existing = true;
-            }
-        }
-        if existing {
-            panic!("a route should not exist");
-        }
-
-        // add a route that has multiple path
-        ns_rt
-            .add_route(
-                &proto::sart::Route {
-                    table: 254,
-                    version: 2,
-                    destination: "10.100.0.0/24".to_string(),
-                    protocol: 186,
-                    scope: 0,
-                    r#type: 1,
-                    next_hops: vec![
-                        proto::sart::NextHop {
-                            gateway: "10.0.0.1".to_string(),
-                            weight: 1,
-                            flags: 0,
-                            interface: 0,
-                        },
-                        proto::sart::NextHop {
-                            gateway: "10.0.1.1".to_string(),
-                            weight: 1,
-                            flags: 0,
-                            interface: 0,
-                        },
-                    ],
-                    source: String::new(),
-                    ad: 20,
-                    priority: 20,
-                    ibgp: false,
-                },
-                false,
-            )
-            .await
-            .map_err(|e| format!("{e}"))
-            .unwrap();
-
-        let mut a = ns_rt
-            .handler
-            .route()
-            .get(rtnetlink::IpVersion::V4)
-            .execute();
-        let mut existing = 0;
-        let expected: Vec<IpAddr> = vec!["10.0.0.1".parse().unwrap(), "10.0.1.1".parse().unwrap()];
-        while let Some(route) = a.try_next().await.unwrap() {
-            let (addr, prefix_len) = route.destination_prefix().unwrap();
-            if addr.to_string() == "10.100.0.0" && prefix_len == 24 {
-                for nla in route.nlas.iter() {
-                    if let Nla::MultiPath(multi) = nla {
-                        for m in multi.iter() {
-                            for n in m.nlas.iter() {
-                                if let Nla::Gateway(g) = n {
-                                    let gaddr = parse_ipaddr(g).unwrap();
-                                    if !expected.iter().any(|a| a.eq(&gaddr)) {
-                                        panic!("found unexpected gateway address")
-                                    }
-                                    existing += 1;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        if existing != 2 {
-            panic!("a route should have two gateways");
-        }
-
-        // delete multi path route
-        ns_rt
-            .delete_multi_path_route(
-                254,
-                rtnetlink::IpVersion::V4,
-                "10.100.0.0/24".parse().unwrap(),
-                vec!["10.0.0.1".parse().unwrap()],
-            )
-            .await
-            .map_err(|e| format!("{e}"))
-            .unwrap();
-
-        let mut a = ns_rt
-            .handler
-            .route()
-            .get(rtnetlink::IpVersion::V4)
-            .execute();
-        let mut existing = false;
-        while let Some(route) = a.try_next().await.unwrap() {
-            let (addr, prefix_len) = route.destination_prefix().unwrap();
-            if addr.to_string() == "10.100.0.0" && prefix_len == 24 {
-                for nla in route.nlas.iter() {
-                    match nla {
-                        Nla::MultiPath(_) => panic!("multi path is not expected"),
-                        Nla::Gateway(g) => {
-                            let a = parse_ipaddr(g).unwrap();
-                            existing = a.eq(&"10.0.1.1".parse::<IpAddr>().unwrap());
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
-        if !existing {
-            panic!("a route should have one gateway");
-        }
-
-        // add multi path route
-        ns_rt
-            .add_multi_path_route(
-                254,
-                rtnetlink::IpVersion::V4,
-                "10.100.0.0/24".parse().unwrap(),
-                vec![proto::sart::NextHop {
-                    gateway: "10.0.0.1".to_string(),
-                    weight: 1,
-                    flags: 0,
-                    interface: 0,
-                }],
-            )
-            .await
-            .unwrap();
-
-        let mut a = ns_rt
-            .handler
-            .route()
-            .get(rtnetlink::IpVersion::V4)
-            .execute();
-        let mut existing = 0;
-        let expected: Vec<IpAddr> = vec!["10.0.0.1".parse().unwrap(), "10.0.1.1".parse().unwrap()];
-        while let Some(route) = a.try_next().await.unwrap() {
-            let (addr, prefix_len) = route.destination_prefix().unwrap();
-            if addr.to_string() == "10.100.0.0" && prefix_len == 24 {
-                for nla in route.nlas.iter() {
-                    if let Nla::MultiPath(multi) = nla {
-                        for m in multi.iter() {
-                            for n in m.nlas.iter() {
-                                if let Nla::Gateway(g) = n {
-                                    let gaddr = parse_ipaddr(g).unwrap();
-                                    if !expected.iter().any(|a| a.eq(&gaddr)) {
-                                        panic!("found unexpected gateway address")
-                                    }
-                                    existing += 1;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        if existing != 2 {
-            panic!("a route should have two gateways");
-        }
-
-        ns.remove().unwrap();
     }
 }

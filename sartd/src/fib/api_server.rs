@@ -5,7 +5,7 @@ use crate::proto::sart::{
     DeleteRouteRequest, GetRouteRequest, GetRouteResponse, ListRoutesRequest, ListRoutesResponse,
 };
 
-use super::route::{ip_version_from, RtClient};
+use super::{route::ip_version_from, rt_client::RtClient};
 
 pub mod api {
     pub(crate) const FILE_DESCRIPTOR_SET: &[u8] = tonic::include_file_descriptor_set!("sartd");
