@@ -29,11 +29,21 @@ impl Fib {
     pub async fn run(&self, trace_config: TraceConfig) {
         prepare_tracing(trace_config);
 
+        let channels = self.config.channels.clone();
+
+        for mut ch in channels.into_iter() {
+            tokio::spawn(async move {
+                ch.run().await.unwrap();
+            });
+        }
+
         // rt_netlink
         let (conn, handler, _rx) = rtnetlink::new_connection().unwrap();
         tokio::spawn(conn);
 
         // run gRPC fi server
+
+        tracing::info!("API server start to listen at {}", self.endpoint);
         let endpoint = self.endpoint.clone();
         let sock_addr = endpoint.parse().unwrap();
 

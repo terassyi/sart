@@ -25,7 +25,7 @@ use crate::proto::sart::{
 use super::rib::Route;
 use super::route::{ip_version_from, RtClient};
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub(crate) struct Bgp {
     pub endpoint: String,
 }
@@ -38,6 +38,7 @@ impl Bgp {
     pub async fn subscribe(&self) -> Result<(Receiver<(RequestType, Route)>), Error> {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<(RequestType, Route)>(128);
 
+        tracing::info!(endpoint = self.endpoint, "subscribe BGP at");
         let sock_addr = self.endpoint.parse().unwrap();
         let reflection = tonic_reflection::server::Builder::configure()
             .register_encoded_file_descriptor_set(api::FILE_DESCRIPTOR_SET)
@@ -58,7 +59,6 @@ impl Bgp {
         Ok(())
     }
 }
-
 
 struct BgpSubscriber {
     queue: Sender<(RequestType, Route)>,
@@ -93,11 +93,11 @@ impl FibApi for BgpSubscriber {
         if let Some(route) = &req.get_ref().route {
             let route = match Route::try_from(route) {
                 Ok(route) => route,
-                Err(e) => return Err(Status::aborted(format!("{e}")))
+                Err(e) => return Err(Status::aborted(format!("{e}"))),
             };
             match self.queue.send((RequestType::AddRoute, route)).await {
                 Ok(_) => Ok(Response::new(())),
-                Err(e) => Err(Status::internal(format!("{e}")))
+                Err(e) => Err(Status::internal(format!("{e}"))),
             }
         } else {
             Err(Status::aborted("route is required"))
@@ -112,15 +112,15 @@ impl FibApi for BgpSubscriber {
         };
         let dst: IpNet = match req.get_ref().destination.parse() {
             Ok(dst) => dst,
-            Err(e) => return Err(Status::aborted("invalid destination prefix"))
+            Err(e) => return Err(Status::aborted("invalid destination prefix")),
         };
         let mut route = Route::default();
         route.destination = dst;
         route.version = ver;
 
         match self.queue.send((RequestType::DeleteRoute, route)).await {
-                Ok(_) => Ok(Response::new(())),
-                Err(e) => Err(Status::internal(format!("{e}")))
+            Ok(_) => Ok(Response::new(())),
+            Err(e) => Err(Status::internal(format!("{e}"))),
         }
     }
 
@@ -135,7 +135,7 @@ impl FibApi for BgpSubscriber {
         };
         let dst: IpNet = match req.get_ref().destination.parse() {
             Ok(dst) => dst,
-            Err(e) => return Err(Status::aborted("invalid destination prefix"))
+            Err(e) => return Err(Status::aborted("invalid destination prefix")),
         };
 
         let mut route = Route::default();
@@ -146,16 +146,20 @@ impl FibApi for BgpSubscriber {
         for mut next_hop in next_hops.iter() {
             let mut nh = match NextHop::try_from(next_hop) {
                 Ok(nh) => nh,
-                Err(e) => return Err(Status::aborted(format!("{e}")))
+                Err(e) => return Err(Status::aborted(format!("{e}"))),
             };
             nh.weight = 1; // TODO: not to use fixed weight(=1)
 
             route.next_hops.push(nh);
         }
 
-        match self.queue.send((RequestType::AddMultiPathRoute, route)).await {
-                Ok(_) => Ok(Response::new(())),
-                Err(e) => Err(Status::internal(format!("{e}")))
+        match self
+            .queue
+            .send((RequestType::AddMultiPathRoute, route))
+            .await
+        {
+            Ok(_) => Ok(Response::new(())),
+            Err(e) => Err(Status::internal(format!("{e}"))),
         }
     }
 
@@ -169,7 +173,7 @@ impl FibApi for BgpSubscriber {
         };
         let dst: IpNet = match req.get_ref().destination.parse() {
             Ok(dst) => dst,
-            Err(e) => return Err(Status::aborted("invalid destination prefix"))
+            Err(e) => return Err(Status::aborted("invalid destination prefix")),
         };
 
         let mut route = Route::default();
@@ -180,21 +184,25 @@ impl FibApi for BgpSubscriber {
         for gw in gateways.iter() {
             let addr: IpAddr = match gw.parse() {
                 Ok(addr) => addr,
-                Err(e) => return Err(Status::aborted(format!("{e}")))
+                Err(e) => return Err(Status::aborted(format!("{e}"))),
             };
-            let nh = NextHop{
+            let nh = NextHop {
                 gateway: addr,
                 flags: NextHopFlags::Empty,
                 weight: 1,
                 interface: 0,
             };
-            
+
             route.next_hops.push(nh);
         }
 
-        match self.queue.send((RequestType::DeleteMultiPathRoute, route)).await {
-                Ok(_) => Ok(Response::new(())),
-                Err(e) => Err(Status::internal(format!("{e}")))
+        match self
+            .queue
+            .send((RequestType::DeleteMultiPathRoute, route))
+            .await
+        {
+            Ok(_) => Ok(Response::new(())),
+            Err(e) => Err(Status::internal(format!("{e}"))),
         }
     }
 }

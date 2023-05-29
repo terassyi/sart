@@ -37,6 +37,8 @@ pub(crate) enum Error {
     FailedToInsert,
     #[error("failed to remove")]
     FailedToRemove,
+    #[error("failed to register")]
+    FailedToRegister,
 }
 
 #[derive(Debug, Error)]

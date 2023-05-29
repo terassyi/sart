@@ -10,11 +10,11 @@ use tokio::sync::mpsc::Receiver;
 use tokio::sync::mpsc::Sender;
 
 use super::error::Error;
+use super::rib::RequestType;
 use super::rib::Rib;
 use super::rib::Route;
-use super::rib::RequestType;
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub(crate) struct Channel {
     pub name: String,
     pub ip_version: String,
@@ -24,7 +24,7 @@ pub(crate) struct Channel {
     rib: Arc<Mutex<Rib>>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(tag = "protocol")]
 pub(crate) enum Protocol {
     #[serde(rename = "kernel")]
@@ -37,7 +37,7 @@ impl Protocol {
     async fn subscribe(&self) -> Result<Receiver<(RequestType, Route)>, Error> {
         match self {
             Protocol::Bgp(b) => b.subscribe().await,
-            Protocol::Kernel(k) => k.subscribe().await
+            Protocol::Kernel(k) => k.subscribe().await,
         }
     }
 
@@ -109,7 +109,7 @@ impl Channel {
             Some(route) => {
                 tracing::info!("Register the route");
                 Ok(route)
-            },
+            }
             None => {
                 tracing::error!("failed to insert to rib");
                 Err(Error::FailedToInsert)
@@ -119,16 +119,16 @@ impl Channel {
 
     fn remove(&mut self, route: Route) -> Result<Route, Error> {
         let mut rib = self.rib.lock().unwrap();
-        if let Some(routes) =  rib.get(&route.destination) {
+        if let Some(routes) = rib.get(&route.destination) {
             if routes.len() == 0 {
                 tracing::error!("Multiple paths are not registered.");
-                return Err(Error::DestinationNotFound)
+                return Err(Error::DestinationNotFound);
             }
             match rib.remove(route) {
                 Some(route) => {
                     tracing::info!("Remove the route");
                     Ok(route)
-                },
+                }
                 None => {
                     tracing::error!("Failed to remove the route");
                     Err(Error::FailedToRemove)
