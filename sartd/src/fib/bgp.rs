@@ -35,23 +35,25 @@ impl Bgp {
         Self { endpoint }
     }
 
-    pub async fn subscribe(&self) -> Result<(Receiver<(RequestType, Route)>), Error> {
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<(RequestType, Route)>(128);
+    pub async fn subscribe(&self) -> Result<Receiver<(RequestType, Route)>, Error> {
+        let (tx, rx) = tokio::sync::mpsc::channel::<(RequestType, Route)>(128);
 
         tracing::info!(endpoint = self.endpoint, "subscribe BGP at");
-        let sock_addr = self.endpoint.parse().unwrap();
-        let reflection = tonic_reflection::server::Builder::configure()
-            .register_encoded_file_descriptor_set(api::FILE_DESCRIPTOR_SET)
-            .build()
-            .unwrap();
+        let endpoint = self.endpoint.clone();
+        tokio::spawn(async move {
+            let sock_addr = endpoint.parse().unwrap();
+            let reflection = tonic_reflection::server::Builder::configure()
+                .register_encoded_file_descriptor_set(api::FILE_DESCRIPTOR_SET)
+                .build()
+                .unwrap();
 
-        tracing::info!("start to listen at {}", self.endpoint);
-        tonic::transport::Server::builder()
-            .add_service(FibApiServer::new(BgpSubscriber::new(tx)))
-            .add_service(reflection)
-            .serve(sock_addr)
-            .await
-            .unwrap();
+            tonic::transport::Server::builder()
+                .add_service(FibApiServer::new(BgpSubscriber::new(tx)))
+                .add_service(reflection)
+                .serve(sock_addr)
+                .await
+                .unwrap();
+        });
         Ok(rx)
     }
 

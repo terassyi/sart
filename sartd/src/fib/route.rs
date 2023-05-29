@@ -382,21 +382,6 @@ pub(crate) enum Protocol {
     Rip = 189,
 }
 
-impl std::fmt::Display for Protocol {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Unspec => write!(f, "Unspec"),
-            Self::Redirect => write!(f, "Redirect"),
-            Self::Kernel => write!(f, "Kernel"),
-            Self::Boot => write!(f, "Boot"),
-            Self::Static => write!(f, "Static"),
-            Self::Bgp => write!(f, "Bgp"),
-            Self::Ospf => write!(f, "Ospf"),
-            Self::Rip => write!(f, "Rip"),
-        }
-    }
-}
-
 impl TryFrom<u8> for Protocol {
     type Error = Error;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
@@ -438,7 +423,7 @@ pub(crate) fn ip_version_into(ver: &rtnetlink::IpVersion) -> u8 {
     }
 }
 
-fn parse_ipaddr(data: &Vec<u8>) -> Result<IpAddr, Error> {
+pub(crate) fn parse_ipaddr(data: &Vec<u8>) -> Result<IpAddr, Error> {
     if data.len() == 4 {
         let a: [u8; 4] = data
             .to_vec()

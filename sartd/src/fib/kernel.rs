@@ -4,7 +4,7 @@ use netlink_packet_core::NetlinkPayload;
 use netlink_packet_route::RtnlMessage;
 use netlink_sys::{AsyncSocket, SocketAddr};
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::mpsc::{Receiver, Sender, UnboundedReceiver};
 use tokio_stream::StreamExt;
 
 use super::{
@@ -25,42 +25,27 @@ impl Kernel {
         Self { tables: table_ids }
     }
 
-    pub async fn subscribe(&self) -> Result<Receiver<(RequestType, Route)>, Error> {
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<(RequestType, Route)>(128);
+    #[tracing::instrument(skip(self, kernel_rx))]
+    pub async fn subscribe(&self, mut kernel_rx: Receiver<(RequestType, Route)>) -> Result<Receiver<(RequestType, Route)>, Error> {
+        let (tx, rx) = tokio::sync::mpsc::channel::<(RequestType, Route)>(128);
 
-        let groups = RTMGRP_IPV4_ROUTE
-            | RTMGRP_IPV4_MROUTE
-            | RTMGRP_IPV4_RULE
-            | RTMGRP_IPV6_ROUTE
-            | RTMGRP_IPV6_MROUTE;
-        let (mut conn, mut _handle, mut messages) =
-            new_connection().map_err(|e| format!("{}", e)).unwrap();
-        // Create new socket that listens for the messages described above.
-        let addr = SocketAddr::new(0, groups);
-        conn.socket_mut()
-            .socket_mut()
-            .bind(&addr)
-            .expect("Failed to bind");
+        // tokio_stream::wrappers::ReceiverStream::new
 
-        tokio::spawn(conn);
+        tokio::spawn(async move {
+            tracing::info!("hogehoge");
+            while let Some((req, route)) = kernel_rx.recv().await {
+                tracing::info!(request=?req, route=?route,"subscribe route");
 
-        while let Some((message, _)) = messages.next().await {
-            match message.payload {
-                NetlinkPayload::Done => {
-                    println!("Done");
+                // send to rib
+                match tx.send((req, route)).await {
+                    Ok(_) => {},
+                    Err(e) => {
+                        tracing::error!(error=?e,"failed to send to the rib channel")
+                    }
                 }
-                NetlinkPayload::Error(em) => {
-                    eprintln!("Error: {:?}", em);
-                }
-                NetlinkPayload::Ack(_am) => {}
-                NetlinkPayload::Noop => {}
-                NetlinkPayload::Overrun(_bytes) => {}
-                NetlinkPayload::InnerMessage(m) => {
-                    println!("{:?}", m);
-                }
-                _ => {}
             }
-        }
+
+        });
 
         Ok(rx)
     }
@@ -70,6 +55,7 @@ impl Kernel {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct KernelRtPoller {
     groups: u32,
     tx_map: HashMap<u32, Sender<(RequestType, Route)>>,
@@ -89,19 +75,20 @@ impl KernelRtPoller {
         }
     }
 
+    #[tracing::instrument(skip(self, subscriber_tx))]
     pub fn register(
         &mut self,
         kernel: &Kernel,
         subscriber_tx: Sender<(RequestType, Route)>,
     ) -> Result<(), Error> {
         for id in kernel.tables.iter() {
-            if self.tx_map.insert(*id, subscriber_tx.clone()).is_none() {
-                return Err(Error::FailedToRegister);
-            }
+            tracing::info!(id=id,"register");
+            self.tx_map.insert(*id, subscriber_tx.clone());
         }
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn run(&self) -> Result<(), Error> {
         let (mut conn, mut _handle, mut messages) = new_connection().map_err(Error::StdIoErr)?;
         let addr = SocketAddr::new(0, self.groups);
@@ -110,8 +97,10 @@ impl KernelRtPoller {
             .bind(&addr)
             .map_err(Error::StdIoErr)?;
 
+        tracing::info!("start to poll netlink socket");
         tokio::spawn(conn);
 
+        tracing::info!("start to poll kernel rtnetlink event");
         while let Some((message, _)) = messages.next().await {
             match message.payload {
                 NetlinkPayload::Done => {
@@ -126,8 +115,42 @@ impl KernelRtPoller {
                 NetlinkPayload::InnerMessage(msg) => {
                     tracing::info!(message=?msg, "netlink message");
                     match msg {
-                        RtnlMessage::NewRoute(msg) => {}
-                        RtnlMessage::DelAddress(msg) => {}
+                        RtnlMessage::NewRoute(msg) => {
+                            let table = msg.header.table as u32;
+                            if let Some(tx) = self.tx_map.get(&table) {
+                                let route = match Route::try_from(msg) {
+                                    Ok(route) => route,
+                                    Err(e) => {
+                                        tracing::error!(error=?e, "failed to parse new route message");
+                                        continue;
+                                    },
+                                };
+                                match tx.send((RequestType::AddRoute, route)).await {
+                                    Ok(_) => {},
+                                    Err(e) => {
+                                        tracing::error!(error=?e,"failed to send to rib");
+                                    }
+                                }
+                            }
+                        }
+                        RtnlMessage::DelRoute(msg) => {
+                            let table = msg.header.table as u32;
+                            if let Some(tx) = self.tx_map.get(&table) {
+                                let route = match Route::try_from(msg) {
+                                    Ok(route) => route,
+                                    Err(e) => {
+                                        tracing::error!(error=?e, "failed to parse new route message");
+                                        continue;
+                                    },
+                                };
+                                match tx.send((RequestType::DeleteRoute, route)).await {
+                                    Ok(_) => {},
+                                    Err(e) => {
+                                        tracing::error!(error=?e,"failed to send to rib");
+                                    }
+                                }
+                            }
+                        }
                         _ => {
                             tracing::info!("other type netlink message");
                         }

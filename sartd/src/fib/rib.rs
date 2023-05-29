@@ -1,7 +1,10 @@
 use std::{collections::HashMap, net::IpAddr, ops::Index};
 use ipnet::{IpNet, IpAdd, Ipv4Net};
+use netlink_packet_route::{RouteMessage, route::Nla};
 
 use crate::{fib::error::*, proto};
+
+use super::route::parse_ipaddr;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub(crate) enum RequestType {
@@ -35,6 +38,82 @@ impl Default for Route {
     		source: None,
     		priority: 0,
 		}
+	}
+}
+
+impl TryFrom<RouteMessage> for Route {
+	type Error = Error;
+	fn try_from(msg: RouteMessage) -> Result<Self, Self::Error> {
+		let destination = match msg.destination_prefix() {
+			Some((addr, prefix_len)) => {
+				IpNet::new(addr, prefix_len)
+			},
+			None => return Err(Error::FailedToGetPrefix)
+		}.map_err(|_| Error::FailedToGetPrefix)?;
+		let version = match msg.header.address_family {
+			2 => rtnetlink::IpVersion::V4,
+			10 => rtnetlink::IpVersion::V6,
+			_ => return Err(Error::InvalidIpVersion),
+		};
+
+		let mut route = Route{
+			destination,
+			version,
+			protocol: Protocol::try_from(msg.header.protocol as i32)?,
+			scope: Scope::try_from(msg.header.scope as i32)?,
+			typ: Type::try_from(msg.header.kind as i32)?,
+			next_hops: Vec::new(),
+			source: msg.source_prefix().map(|(addr, _)|addr),
+			priority: 0, 
+		};
+
+		if msg.nlas.iter().any(|nla| matches!(&nla,Nla::MultiPath(_))) {
+            // multi path
+            for nla in msg.nlas.iter() {
+                match nla {
+                    Nla::Priority(p) => route.priority = *p,
+                    Nla::MultiPath(hops) => {
+                        for h in hops.iter() {
+							let mut next_hop = NextHop {
+								gateway: "0.0.0.0".parse().unwrap(),
+								weight: h.hops as u32, 
+								flags: NextHopFlags::try_from(h.flags.bits() as i32)?, 
+								interface: h.interface_id,
+							};
+                            for nnla in h.nlas.iter() {
+                                match nnla {
+                                    Nla::Gateway(g) => {
+                                        next_hop.gateway = parse_ipaddr(g)?;
+                                    }
+                                    Nla::Oif(i) => next_hop.interface = *i,
+                                    _ => {}
+                                }
+                            }
+                            route.next_hops.push(next_hop);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+		} else {
+			let mut next_hop = NextHop {
+				gateway: "0.0.0.0".parse().unwrap(),
+				weight: 0, 
+				flags: NextHopFlags::Empty, 
+				interface: 0,
+			};
+            for nla in msg.nlas.iter() {
+                match nla {
+                    Nla::Priority(p) => route.priority = *p,
+                    Nla::Gateway(g) => next_hop.gateway = parse_ipaddr(g)?,
+                    Nla::PrefSource(p) => next_hop.gateway = parse_ipaddr(p)?,
+                    Nla::Oif(i) => next_hop.interface = *i,
+                    _ => {}
+                }
+            }
+			route.next_hops.push(next_hop);
+		}
+		Ok(route)
 	}
 }
 
@@ -98,6 +177,22 @@ pub(crate) enum Protocol {
 	IsIs = 187,
 	Ospf = 188,
 	Rip = 189,
+}
+
+impl std::fmt::Display for Protocol {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unspec => write!(f, "Unspec"),
+            Self::Redirect => write!(f, "Redirect"),
+            Self::Kernel => write!(f, "Kernel"),
+            Self::Boot => write!(f, "Boot"),
+            Self::Static => write!(f, "Static"),
+            Self::Bgp => write!(f, "Bgp"),
+			Self::IsIs => write!(f, "IsIs"),
+            Self::Ospf => write!(f, "Ospf"),
+            Self::Rip => write!(f, "Rip"),
+        }
+    }
 }
 
 impl TryFrom<i32> for Protocol {

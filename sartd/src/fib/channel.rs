@@ -1,4 +1,5 @@
 use futures::FutureExt;
+use tokio::sync::mpsc::channel;
 use std::sync::Arc;
 use std::sync::Mutex;
 use tokio_stream::StreamExt;
@@ -10,6 +11,7 @@ use tokio::sync::mpsc::Receiver;
 use tokio::sync::mpsc::Sender;
 
 use super::error::Error;
+use super::kernel::KernelRtPoller;
 use super::rib::RequestType;
 use super::rib::Rib;
 use super::rib::Route;
@@ -34,14 +36,7 @@ pub(crate) enum Protocol {
 }
 
 impl Protocol {
-    async fn subscribe(&self) -> Result<Receiver<(RequestType, Route)>, Error> {
-        match self {
-            Protocol::Bgp(b) => b.subscribe().await,
-            Protocol::Kernel(k) => k.subscribe().await,
-        }
-    }
-
-    async fn publish(&self, route: Route) -> Result<(), Error> {
+    pub(crate) async fn publish(&self, route: Route) -> Result<(), Error> {
         match self {
             Protocol::Bgp(b) => b.publish(route).await,
             Protocol::Kernel(k) => k.publish().await,
@@ -50,60 +45,28 @@ impl Protocol {
 }
 
 impl Channel {
-    #[tracing::instrument(skip(self))]
-    pub async fn run(&mut self) -> Result<(), Error> {
+
+    #[tracing::instrument(skip(self, poller))]
+    pub async fn register(&mut self, poller: &mut KernelRtPoller) -> Result<Vec<Receiver<(RequestType, Route)>>, Error> {
         let mut receivers: Vec<Receiver<(RequestType, Route)>> = Vec::new();
         for s in self.subscribers.iter() {
-            s.subscribe().await?;
+            let rx = match s {
+                Protocol::Bgp(b) => b.subscribe().await,
+                Protocol::Kernel(k) => {
+                    let (kernel_tx, kernel_rx) = channel(128);
+                    tracing::info!(subscriber=?k,"register to poller");
+                    poller.register(k, kernel_tx)?;
+                    k.subscribe(kernel_rx).await
+                },
+            }?;
+            receivers.push(rx);
         }
 
-        let mut fused_receivers = futures::stream::select_all(
-            receivers
-                .into_iter()
-                .map(tokio_stream::wrappers::ReceiverStream::new),
-        );
-
-        let sender: Vec<Sender<Route>> = Vec::new();
-        for p in self.publishers.iter() {
-            match p {
-                Protocol::Bgp(b) => {}
-                Protocol::Kernel(k) => {}
-            }
-        }
-
-        loop {
-            futures::select_biased! {
-                request = fused_receivers.next().fuse() => {
-                    if let Some(request) = request {
-                        let res = match request.0 {
-                            RequestType::AddRoute | RequestType::AddMultiPathRoute => {
-                                self.register(request.1)
-                            },
-                            RequestType::DeleteRoute | RequestType::DeleteMultiPathRoute => {
-                                self.remove(request.1)
-                            },
-                        };
-                        match res {
-                            Ok(route) => {
-                                for p in self.publishers.iter() {
-                                    match p.publish(route.clone()).await {
-                                        Ok(_) => {},
-                                        Err(e) => tracing::error!(error=?e, "failed to publish the route")
-                                    }
-                                }
-                            },
-                            Err(e) => {
-                                tracing::error!(error=?e, "failed to handle rib");
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        Ok(receivers)
     }
 
     #[tracing::instrument(skip(self))]
-    fn register(&mut self, route: Route) -> Result<Route, Error> {
+    pub(crate) fn register_route(&mut self, route: Route) -> Result<Route, Error> {
         let mut rib = self.rib.lock().unwrap();
         match rib.insert(route.destination, route) {
             Some(route) => {
@@ -117,7 +80,7 @@ impl Channel {
         }
     }
 
-    fn remove(&mut self, route: Route) -> Result<Route, Error> {
+    pub(crate) fn remove_route(&mut self, route: Route) -> Result<Route, Error> {
         let mut rib = self.rib.lock().unwrap();
         if let Some(routes) = rib.get(&route.destination) {
             if routes.len() == 0 {
