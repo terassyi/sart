@@ -48,21 +48,41 @@ impl Rib {
         if route.version != self.ip_version {
             return None;
         }
-        let ret_route = route.clone();
         match self.table.inner.get_mut(&destination) {
             Some(routes) => {
+                if routes.is_empty() {
+                    routes.push(route);
+                    return Some(route)
+                }
+                let old_published = routes[0].clone();
+                if let Some(existing) = routes.iter_mut().find(|r| r.protocol == route.protocol) {
+                    *existing = route;
+                }
                 routes.push(route);
+                routes.sort();
+                let new_published = routes[0].clone();
+                if new_published > old_published {
+                    return None;
+                }
             }
             None => {
                 let routes = vec![route];
                 self.table.inner.insert(destination, routes);
             }
         }
-        Some(ret_route)
+        Some(route)
     }
 
     pub fn get(&self, destination: &IpNet) -> Option<&Vec<Route>> {
         self.table.inner.get(destination)
+    }
+
+    pub fn get_published(&self, destination: &IpNet) -> Option<&Route> {
+        let routes = self.table.inner.get(destination)?;
+        if routes.is_empty() {
+            return None;
+        }
+        Some(&routes[0])
     }
 
     pub fn remove(&mut self, route: Route) -> Option<Route> {
@@ -89,9 +109,18 @@ impl Rib {
                     None => return None,
                 };
                 let ret_route = routes.remove(index);
-                Some(ret_route)
+                if index == 0 {
+                    // removed a published route
+                    return Some(ret_route);
+                }
+                None
             }
             None => None,
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+
 }

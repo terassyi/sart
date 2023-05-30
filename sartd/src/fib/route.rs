@@ -359,7 +359,7 @@ impl TryFrom<u8> for AdministrativeDistance {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub(crate) enum Protocol {
     Unspec = 0,
     Redirect = 1,
