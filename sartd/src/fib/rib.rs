@@ -51,26 +51,28 @@ impl Rib {
         match self.table.inner.get_mut(&destination) {
             Some(routes) => {
                 if routes.is_empty() {
-                    routes.push(route);
-                    return Some(route)
+                    routes.push(route.clone());
+                    return Some(route);
                 }
                 let old_published = routes[0].clone();
                 if let Some(existing) = routes.iter_mut().find(|r| r.protocol == route.protocol) {
                     *existing = route;
+                } else {
+                    routes.push(route);
                 }
-                routes.push(route);
                 routes.sort();
                 let new_published = routes[0].clone();
                 if new_published > old_published {
                     return None;
                 }
+                Some(new_published)
             }
             None => {
-                let routes = vec![route];
+                let routes = vec![route.clone()];
                 self.table.inner.insert(destination, routes);
+                Some(route)
             }
         }
-        Some(route)
     }
 
     pub fn get(&self, destination: &IpNet) -> Option<&Vec<Route>> {
@@ -121,6 +123,4 @@ impl Rib {
 }
 
 #[cfg(test)]
-mod tests {
-
-}
+mod tests {}

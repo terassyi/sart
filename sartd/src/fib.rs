@@ -1,4 +1,3 @@
-pub(crate) mod api_server;
 pub(crate) mod bgp;
 pub(crate) mod channel;
 pub(crate) mod config;

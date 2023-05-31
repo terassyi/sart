@@ -39,6 +39,8 @@ pub(crate) enum Error {
     FailedToRemove,
     #[error("failed to register")]
     FailedToRegister,
+    #[error("multi path is not equal")]
+    MultipathIsNotEqual,
 }
 
 #[derive(Debug, Error)]

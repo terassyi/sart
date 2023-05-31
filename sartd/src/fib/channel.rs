@@ -1,4 +1,5 @@
 use futures::FutureExt;
+use ipnet::IpNet;
 use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::sync::mpsc::channel;
@@ -14,6 +15,7 @@ use super::error::Error;
 use super::kernel::KernelRtPoller;
 use super::rib::RequestType;
 use super::rib::Rib;
+use super::route;
 use super::route::Route;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -67,40 +69,39 @@ impl Channel {
         Ok(receivers)
     }
 
-    #[tracing::instrument(skip(self))]
-    pub(crate) fn register_route(&mut self, route: Route) -> Result<Route, Error> {
-        let mut rib = self.rib.lock().unwrap();
-        match rib.insert(route.destination, route) {
-            Some(route) => {
-                tracing::info!("Register the route");
-                Ok(route)
+    pub(crate) fn get_route(
+        &self,
+        destination: &IpNet,
+        protocol: route::Protocol,
+    ) -> Option<Route> {
+        let rib = self.rib.lock().unwrap();
+        if let Some(routes) = rib.get(destination) {
+            if let Some(route) = routes.iter().find(|r| r.protocol.eq(&protocol)) {
+                Some(route.clone())
+            } else {
+                None
             }
-            None => {
-                tracing::error!("failed to insert to rib");
-                Err(Error::FailedToInsert)
-            }
+        } else {
+            None
         }
     }
 
-    pub(crate) fn remove_route(&mut self, route: Route) -> Result<Route, Error> {
+    #[tracing::instrument(skip(self))]
+    pub(crate) fn register_route(&mut self, route: Route) -> Option<Route> {
+        let mut rib = self.rib.lock().unwrap();
+        rib.insert(route.destination, route)
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub(crate) fn remove_route(&mut self, route: Route) -> Option<Route> {
         let mut rib = self.rib.lock().unwrap();
         if let Some(routes) = rib.get(&route.destination) {
             if routes.len() == 0 {
-                tracing::error!("Multiple paths are not registered.");
-                return Err(Error::DestinationNotFound);
+                return None;
             }
-            match rib.remove(route) {
-                Some(route) => {
-                    tracing::info!("Remove the route");
-                    Ok(route)
-                }
-                None => {
-                    tracing::error!("Failed to remove the route");
-                    Err(Error::FailedToRemove)
-                }
-            }
+            rib.remove(route)
         } else {
-            Err(Error::DestinationNotFound)
+            None
         }
     }
 }

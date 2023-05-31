@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package sart.v1;
+
+option go_package = ".";
+
+import "fib.proto";
+
+service FibManagerApi {
+	rpc GetChannel(GetChannelRequest) returns (GetChannelResponse);
+	rpc ListChannel(ListChannelRequest) returns (ListChannelResponse);
+	rpc GetRoutes(GetRoutesRequest) returns (GetRoutesResponse);
+}
+
+message GetChannelRequest {
+	string name = 1;
+}
+
+message GetChannelResponse {
+	Channel channel = 1;
+}
+
+message ListChannelRequest {}
+
+message ListChannelResponse {
+	repeated Channel channels = 1;
+}
+
+message Channel {
+	string name = 1;
+	repeated ChProtocol subscribers = 2;
+	repeated ChProtocol publishers = 3;
+}
+
+message ChProtocol {
+	string type = 1;
+	string endpoint = 2; // for bgp type
+	repeated int32 tables = 3; // for kernel type
+}
+
+message GetRoutesRequest {
+	string channel = 1;
+}
+
+message GetRoutesResponse {
+	repeated Route routes = 1;
+}

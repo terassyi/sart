@@ -23,6 +23,65 @@ pub(crate) struct Route {
     pub table: u8,
 }
 
+impl Route {
+    #[tracing::instrument(skip(self, other))]
+    pub fn merge_multipath(&self, other: Route) -> Result<Route, Error> {
+        if self.destination.ne(&other.destination)
+            || self.version != other.version
+            || self.protocol.ne(&other.protocol)
+            || self.scope.ne(&other.scope)
+            || self.kind.ne(&other.kind)
+            || self.ad.ne(&other.ad)
+            || self.table != other.table
+        {
+            return Err(Error::MultipathIsNotEqual);
+        }
+
+        let mut merged = self.clone();
+        let mut adding = other
+            .next_hops
+            .into_iter()
+            .filter(|nh| {
+                self.next_hops
+                    .iter()
+                    .find(|n| n.gateway.eq(&nh.gateway))
+                    .is_none()
+            })
+            .collect();
+        merged.next_hops.append(&mut adding);
+
+        Ok(merged)
+    }
+
+    pub fn pop_multipath(&self, other: Route) -> Result<Route, Error> {
+        if self.destination.ne(&other.destination)
+            || self.version != other.version
+            || self.protocol.ne(&other.protocol)
+            || self.scope.ne(&other.scope)
+            || self.kind.ne(&other.kind)
+            || self.ad.ne(&other.ad)
+            || self.table != other.table
+        {
+            return Err(Error::MultipathIsNotEqual);
+        }
+        let mut result = self.clone();
+        let popped = self
+            .next_hops
+            .clone()
+            .into_iter()
+            .filter(|nh| {
+                other
+                    .next_hops
+                    .iter()
+                    .find(|n| n.gateway.eq(&nh.gateway))
+                    .is_none()
+            })
+            .collect();
+        result.next_hops = popped;
+        Ok(result)
+    }
+}
+
 impl Default for Route {
     fn default() -> Self {
         Self {

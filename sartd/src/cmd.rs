@@ -106,12 +106,17 @@ pub(crate) fn main() {
                 _metrics_endpoint: None,
             };
 
-            let config = match f.file {
+            let mut config = match f.file {
                 None => panic!("A configuration file is required for Fib manager"),
-                Some(file) => crate::fib::config::Config::load(&file)
-            }.unwrap();
+                Some(file) => crate::fib::config::Config::load(&file),
+            }
+            .unwrap();
 
-            crate::fib::server::start(f.endpoint, config, trace_conf);
+            if !f.endpoint.is_empty() {
+                config.endpoint = f.endpoint;
+            }
+
+            crate::fib::server::start(config, trace_conf);
         }
     }
 }

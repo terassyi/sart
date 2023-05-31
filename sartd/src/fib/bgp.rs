@@ -6,10 +6,8 @@ use tokio::sync::mpsc::Receiver;
 use tokio::sync::mpsc::Sender;
 
 use crate::fib::rib::RequestType;
-use crate::{
-    fib::api_server::api,
-    proto::sart::fib_api_server::{FibApi, FibApiServer},
-};
+use crate::fib::server::api;
+use crate::proto::sart::fib_api_server::{FibApi, FibApiServer};
 
 use super::error::Error;
 use super::route::NextHop;
