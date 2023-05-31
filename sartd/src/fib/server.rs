@@ -83,7 +83,7 @@ impl FibManagerApi for Fib {
                         routes
                     }))
                 }
-                None => Err(Status::not_found(format!("routes are not found in {}", name)))
+                None => Ok(Response::new(GetRoutesResponse { routes: Vec::new() }))
             }
         } else {
             Err(Status::not_found(format!("{} channel is not found", name)))

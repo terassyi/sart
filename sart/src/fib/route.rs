@@ -38,6 +38,7 @@ pub(crate) struct DisplayedRoute {
 	kind: String,
 	ad: i32,
 	priority: u32,
+	table: u32,
 }
 
 impl From<&Route> for DisplayedRoute {
@@ -92,6 +93,7 @@ impl From<&Route> for DisplayedRoute {
 			kind: kind_str.to_string(), 
 			ad: route.ad, 
 			priority: route.priority,
+			table: route.table,
 		}
 	}
 }

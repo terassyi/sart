@@ -20,7 +20,7 @@ pub(crate) struct Cmd {
         long,
         global = true,
         required = false,
-        default_value = "localhost:5000",
+        default_value = "localhost:5001",
         help = "Endpoint to API server"
     )]
     pub endpoint: String,
