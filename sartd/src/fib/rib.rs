@@ -79,6 +79,17 @@ impl Rib {
         self.table.inner.get(destination)
     }
 
+    pub fn list(&self) -> Option<Vec<Route>> {
+        let mut all_routes = Vec::new();
+        for (_, routes) in self.table.inner.iter() {
+            all_routes.push(routes.clone());
+        }
+        if all_routes.is_empty() {
+            return None;
+        }
+        Some(all_routes.into_iter().flatten().collect())
+    }
+
     pub fn get_published(&self, destination: &IpNet) -> Option<&Route> {
         let routes = self.table.inner.get(destination)?;
         if routes.is_empty() {

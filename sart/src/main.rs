@@ -11,6 +11,7 @@ use std::net::Ipv4Addr;
 use bgp::cmd::Scope;
 use clap::Parser;
 use cmd::{Cmd, SubCmd};
+use fib::channel::ChannelCmd;
 
 #[tokio::main]
 async fn main() {
@@ -76,9 +77,20 @@ async fn main() {
                 _ => unimplemented!(),
             },
         },
-        SubCmd::Fib(sub) => match sub.action {
-            fib::Action::Get => {}
-            _ => unimplemented!(),
+        SubCmd::Fib(sub) => match sub.scope {
+            fib::cmd::Scope::Channel(ch) => {
+                match ch.action {
+                    fib::channel::Action::Get { name } => {
+                        fib::channel::get(&endpoint, format, name).await.unwrap()
+                    },
+                    fib::channel::Action::List => {
+                        fib::channel::list(&endpoint, format).await.unwrap()
+                    },
+                    fib::channel::Action::Route(r) => {
+                        fib::route::get(&endpoint, format, r.name).await.unwrap()
+                    }
+                }
+            }
         },
     }
 }

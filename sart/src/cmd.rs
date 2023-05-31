@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand, ValueEnum};
 
-use crate::{bgp::cmd::BgpCmd, fib::FibCmd};
+use crate::{bgp::cmd::BgpCmd, fib::cmd::FibCmd};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]

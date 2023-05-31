@@ -28,6 +28,26 @@ pub(crate) struct Channel {
     rib: Arc<Mutex<Rib>>,
 }
 
+impl From<Channel> for crate::proto::sart::Channel {
+    fn from(ch: Channel) -> crate::proto::sart::Channel {
+        crate::proto::sart::Channel {
+            name: ch.name,
+            subscribers: ch.subscribers.iter().map(crate::proto::sart::ChProtocol::from).collect(),
+            publishers: ch.publishers.iter().map(crate::proto::sart::ChProtocol::from).collect(),
+        }
+    }
+}
+
+impl From<&Channel> for crate::proto::sart::Channel {
+    fn from(ch: &Channel) -> crate::proto::sart::Channel {
+        crate::proto::sart::Channel {
+            name: ch.name.clone(),
+            subscribers: ch.subscribers.iter().map(crate::proto::sart::ChProtocol::from).collect(),
+            publishers: ch.publishers.iter().map(crate::proto::sart::ChProtocol::from).collect(),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(tag = "protocol")]
 pub(crate) enum Protocol {
@@ -42,6 +62,23 @@ impl Protocol {
         match self {
             Protocol::Bgp(b) => b.publish(route).await,
             Protocol::Kernel(k) => k.publish(req, route).await,
+        }
+    }
+}
+
+impl From<&Protocol> for crate::proto::sart::ChProtocol {
+    fn from(protocol: &Protocol) -> Self {
+        match protocol {
+            Protocol::Bgp(b) => crate::proto::sart::ChProtocol{
+                r#type: "bgp".to_string(),
+                endpoint: b.endpoint.clone(),
+                tables: Vec::new(),
+            },
+            Protocol::Kernel(k) => crate::proto::sart::ChProtocol {
+                r#type: "kernel".to_string(),
+                endpoint: String::new(),
+                tables: k.tables.iter().map(|&i| i as i32).collect(),
+            }
         }
     }
 }
@@ -86,8 +123,14 @@ impl Channel {
         }
     }
 
+    pub(crate) fn list_routes(&self) -> Option<Vec<Route>> {
+        let rib = self.rib.lock().unwrap();
+        rib.list()
+    }
+
     #[tracing::instrument(skip(self))]
     pub(crate) fn register_route(&mut self, route: Route) -> Option<Route> {
+        tracing::info!("register the route to rib");
         let mut rib = self.rib.lock().unwrap();
         rib.insert(route.destination, route)
     }
@@ -99,6 +142,7 @@ impl Channel {
             if routes.len() == 0 {
                 return None;
             }
+            tracing::info!("remove the route from rib");
             rib.remove(route)
         } else {
             None

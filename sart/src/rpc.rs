@@ -8,3 +8,10 @@ pub(crate) async fn connect_bgp(
         .await
         .unwrap()
 }
+
+pub(crate) async fn connect_fib(endpoint: &str) -> proto::sart::fib_manager_api_client::FibManagerApiClient<tonic::transport::Channel> {
+    let endpoint_url = format!("http://{}", endpoint);
+    proto::sart::fib_manager_api_client::FibManagerApiClient::connect(endpoint_url)
+        .await
+        .unwrap()
+}

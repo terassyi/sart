@@ -49,21 +49,45 @@ impl FibManagerApi for Fib {
         &self,
         req: Request<GetChannelRequest>,
     ) -> Result<Response<GetChannelResponse>, Status> {
-        Err(Status::aborted("not implement"))
+        let name = &req.get_ref().name;
+        if let Some(channel) = self.channels.iter().find(|&ch| ch.name.eq(name)) {
+            let res = crate::proto::sart::Channel::from(channel);
+            Ok(Response::new(GetChannelResponse{
+                channel: Some(res)
+            }))
+        } else {
+            Err(Status::not_found(format!("{} is not found", name)))
+        }
     }
 
     async fn list_channel(
         &self,
-        req: Request<ListChannelRequest>,
+        _req: Request<ListChannelRequest>,
     ) -> Result<Response<ListChannelResponse>, Status> {
-        Err(Status::aborted("not implement"))
+        let channels: Vec<crate::proto::sart::Channel> = self.channels.iter().map(crate::proto::sart::Channel::from).collect();
+        Ok(Response::new(ListChannelResponse{
+            channels
+        }))
     }
 
     async fn get_routes(
         &self,
         req: Request<GetRoutesRequest>,
     ) -> Result<Response<GetRoutesResponse>, Status> {
-        Err(Status::aborted("not implement"))
+        let name = &req.get_ref().channel;
+        if let Some(channel) = self.channels.iter().find(|&ch| ch.name.eq(name)) {
+            match channel.list_routes() {
+                Some(routes) => {
+                    let routes = routes.iter().map(crate::proto::sart::Route::from).collect();
+                    Ok(Response::new(GetRoutesResponse{
+                        routes
+                    }))
+                }
+                None => Err(Status::not_found(format!("routes are not found in {}", name)))
+            }
+        } else {
+            Err(Status::not_found(format!("{} channel is not found", name)))
+        }
     }
 }
 

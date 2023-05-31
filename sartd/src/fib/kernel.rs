@@ -120,6 +120,7 @@ impl KernelRtPoller {
                     RtnlMessage::NewRoute(msg) => {
                         let table = msg.header.table as u32;
                         if let Some(tx) = self.tx_map.get(&table) {
+                            tracing::info!(table=table,"receive new route rtnetlink message for subscribing table");
                             let route = match Route::try_from(msg) {
                                 Ok(route) => route,
                                 Err(e) => {
@@ -138,6 +139,7 @@ impl KernelRtPoller {
                     RtnlMessage::DelRoute(msg) => {
                         let table = msg.header.table as u32;
                         if let Some(tx) = self.tx_map.get(&table) {
+                            tracing::info!(table=table,"receive delete route rtnetlink message for subscribing table");
                             let route = match Route::try_from(msg) {
                                 Ok(route) => route,
                                 Err(e) => {

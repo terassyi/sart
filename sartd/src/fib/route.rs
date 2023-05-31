@@ -225,6 +225,24 @@ impl TryFrom<&crate::proto::sart::Route> for Route {
     }
 }
 
+impl From<&Route> for crate::proto::sart::Route {
+    fn from(route: &Route) -> Self {
+        Self {
+            table: route.table as u32,
+            version: ip_version_into(&route.version) as i32,
+            destination: route.destination.to_string(),
+            protocol: route.protocol as i32,
+            scope: route.scope as i32,
+            r#type: route.kind as i32,
+            next_hops: route.next_hops.iter().map(proto::sart::NextHop::from).collect(),
+            source: route.source.map_or("".to_string(), |s| s.to_string()),
+            ad: route.ad as i32,
+            priority: route.priority,
+            ibgp: false,
+        } 
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, PartialOrd, Clone)]
 pub(crate) struct NextHop {
     pub gateway: IpAddr,
@@ -258,6 +276,17 @@ impl TryFrom<&proto::sart::NextHop> for NextHop {
             flags: NextHopFlags::try_from(value.flags)?,
             interface: value.interface,
         })
+    }
+}
+
+impl From<&NextHop> for proto::sart::NextHop {
+    fn from(nh: &NextHop) -> Self {
+        Self {
+            gateway: nh.gateway.to_string(),
+            weight: nh.weight,
+            flags: nh.flags as i32,
+            interface: nh.interface,
+        } 
     }
 }
 
