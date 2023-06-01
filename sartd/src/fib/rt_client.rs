@@ -5,7 +5,7 @@ use ipnet::IpNet;
 use netlink_packet_route::route::Nla;
 
 use crate::fib::route::{
-    ip_version_from, ip_version_into, AdministrativeDistance, NextHop, Protocol,
+    ip_version_into, AdministrativeDistance, NextHop, Protocol,
 };
 
 use super::{error::Error, route::Route};
@@ -29,7 +29,7 @@ impl RtClient {
         let routes = self.handler.route();
         let mut res = routes.get(ip_version.clone()).execute();
 
-        tracing::info!("get routes");
+        tracing::info!("list routes");
 
         let mut routes = Vec::new();
         while let Some(msg) = res.try_next().await? {

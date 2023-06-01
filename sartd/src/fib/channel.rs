@@ -1,15 +1,12 @@
-use futures::FutureExt;
 use ipnet::IpNet;
 use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::sync::mpsc::channel;
-use tokio_stream::StreamExt;
 
 use crate::fib::bgp;
 use crate::fib::kernel;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::Receiver;
-use tokio::sync::mpsc::Sender;
 
 use super::error::Error;
 use super::kernel::KernelRtPoller;
@@ -60,7 +57,7 @@ pub(crate) enum Protocol {
 impl Protocol {
     pub(crate) async fn publish(&self, req: RequestType, route: Route) -> Result<(), Error> {
         match self {
-            Protocol::Bgp(b) => b.publish(route).await,
+            Protocol::Bgp(b) => b.publish(req, route).await,
             Protocol::Kernel(k) => k.publish(req, route).await,
         }
     }

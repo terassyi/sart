@@ -1,13 +1,14 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
+use futures::lock::Mutex;
 use netlink_packet_core::NetlinkPayload;
 use netlink_packet_route::RtnlMessage;
 use netlink_sys::{AsyncSocket, SocketAddr};
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc::{Receiver, Sender, UnboundedReceiver};
+use tokio::sync::mpsc::{Receiver, Sender};
 use tokio_stream::StreamExt;
 
-use super::{channel::Channel, error::Error, rib::RequestType, route::Route, rt_client::RtClient};
+use super::{error::Error, rib::RequestType, route::Route, rt_client::RtClient};
 
 use rtnetlink::{constants::*, new_connection};
 
@@ -17,10 +18,6 @@ pub(crate) struct Kernel {
 }
 
 impl Kernel {
-    pub fn new(table_ids: Vec<u32>) -> Self {
-        Self { tables: table_ids }
-    }
-
     #[tracing::instrument(skip(self, kernel_rx))]
     pub async fn subscribe(
         &self,
@@ -43,7 +40,7 @@ impl Kernel {
         Ok(rx)
     }
 
-    pub async fn publish(&self, req: RequestType, route: Route) -> Result<(), Error> {
+    pub async fn publish(&self, req: RequestType, route: Route, handler: rtnetlink::Handle) -> Result<(), Error> {
         let (conn, handler, _rx) = rtnetlink::new_connection().unwrap();
         tokio::spawn(conn);
 
@@ -51,7 +48,9 @@ impl Kernel {
 
         match req {
             // RequestType::AddRoute => rt.add_route(&route, false),
-            RequestType::AddRoute => {}
+            RequestType::AddRoute => {
+
+            }
             RequestType::AddMultiPathRoute => {}
             RequestType::DeleteRoute => {}
             RequestType::DeleteMultiPathRoute => {}

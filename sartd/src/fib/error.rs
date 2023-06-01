@@ -9,6 +9,8 @@ pub(crate) enum Error {
         #[from]
         e: rtnetlink::Error,
     },
+    #[error("failed to communicate with gRPC server/client")]
+    FailedToCommunicateWithgRPC(#[from] tonic::transport::Error),
     #[error("already exists")]
     AlreadyExists,
     #[error("failed to get prefix")]

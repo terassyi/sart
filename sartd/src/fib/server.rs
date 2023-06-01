@@ -3,7 +3,7 @@ use tokio_stream::StreamExt;
 use tonic::{Request, Response, Status};
 
 use crate::{
-    fib::{kernel::KernelRtPoller, rib::RequestType},
+    fib::{kernel::KernelRtPoller, rib::RequestType, rtnetlink::iniit_rtnetlink_handler, channel::Protocol},
     proto::sart::{
         fib_manager_api_server::{FibManagerApi, FibManagerApiServer},
         GetChannelResponse, ListChannelResponse,
@@ -30,7 +30,6 @@ pub(crate) fn start(config: Config, trace: TraceConfig) {
 #[derive(Debug)]
 pub(crate) struct Fib {
     endpoint: String,
-    // config: Config,
     channels: Vec<Channel>,
 }
 
@@ -97,6 +96,8 @@ async fn run(server: Fib, trace_config: TraceConfig) {
     let mut poller = KernelRtPoller::new();
 
     let channels = server.channels.clone();
+    
+    let handler = iniit_rtnetlink_handler().await.unwrap();
 
     for mut ch in channels.into_iter() {
         let receivers = ch.register(&mut poller).await.unwrap();
@@ -162,9 +163,16 @@ async fn run(server: Fib, trace_config: TraceConfig) {
                             match res {
                                 Some(route) => {
                                     for p in ch.publishers.iter() {
-                                        match p.publish(req, route.clone()).await {
+                                        let res = match p {
+                                            Protocol::Bgp(b) => b.publish(req, route.clone()).await,
+                                            Protocol::Kernel(k) => {
+                                                let handler = handler.clone().lock().unwrap();
+                                                k.publish(req, route.clone(), handler).await
+                                            }
+                                        };
+                                        match res {
                                             Ok(_) => {},
-                                            Err(e) => tracing::error!(error=?e, "failed to publish the route")
+                                            Err(e) => tracing::error!(error=?e, route=?route,"failed to publish the route"),
                                         }
                                     }
                                 },
@@ -182,12 +190,6 @@ async fn run(server: Fib, trace_config: TraceConfig) {
     tokio::spawn(async move {
         poller.run().await.unwrap();
     });
-
-    // rt_netlink
-    let (conn, handler, _rx) = rtnetlink::new_connection().unwrap();
-    tokio::spawn(conn);
-
-    // run gRPC fi server
 
     tracing::info!("API server start to listen at {}", server.endpoint);
     let endpoint = server.endpoint.clone();

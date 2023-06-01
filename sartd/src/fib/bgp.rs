@@ -33,6 +33,7 @@ impl Bgp {
         Self { endpoint }
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn subscribe(&self) -> Result<Receiver<(RequestType, Route)>, Error> {
         let (tx, rx) = tokio::sync::mpsc::channel::<(RequestType, Route)>(128);
 
@@ -55,7 +56,16 @@ impl Bgp {
         Ok(rx)
     }
 
-    pub async fn publish(&self, route: Route) -> Result<(), Error> {
+    #[tracing::instrument(skip(self))]
+    pub async fn publish(&self, req: RequestType, route: Route) -> Result<(), Error> {
+        let mut client = connect_bgp(&self.endpoint).await?;
+
+        match req {
+            RequestType::AddRoute => {},
+            RequestType::AddMultiPathRoute => {},
+            RequestType::DeleteRoute => {},
+            RequestType::DeleteMultiPathRoute => {},
+        }
         Ok(())
     }
 }
@@ -205,4 +215,13 @@ impl FibApi for BgpSubscriber {
             Err(e) => Err(Status::internal(format!("{e}"))),
         }
     }
+}
+
+async fn connect_bgp(
+    endpoint: &str,
+) -> Result<crate::proto::sart::bgp_api_client::BgpApiClient<tonic::transport::Channel>, Error> {
+    let endpoint_url = format!("http://{}", endpoint);
+    crate::proto::sart::bgp_api_client::BgpApiClient::connect(endpoint_url)
+        .await
+        .map_err(Error::FailedToCommunicateWithgRPC)
 }
