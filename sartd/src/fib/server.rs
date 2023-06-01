@@ -100,7 +100,7 @@ async fn run(server: Fib, trace_config: TraceConfig) {
     let handler = iniit_rtnetlink_handler().await.unwrap();
 
     for mut ch in channels.into_iter() {
-        let receivers = ch.register(&mut poller).await.unwrap();
+        let receivers = ch.register(&mut poller.0).await.unwrap();
 
         let mut fused_receivers = futures::stream::select_all(
             receivers
@@ -166,14 +166,17 @@ async fn run(server: Fib, trace_config: TraceConfig) {
                                         let res = match p {
                                             Protocol::Bgp(b) => b.publish(req, route.clone()).await,
                                             Protocol::Kernel(k) => {
-                                                let handler = handler.clone().lock().unwrap();
-                                                k.publish(req, route.clone(), handler).await
+                                                k.publish(req, route.clone()).await
                                             }
                                         };
                                         match res {
                                             Ok(_) => {},
                                             Err(e) => tracing::error!(error=?e, route=?route,"failed to publish the route"),
                                         }
+                                        // match p {
+                                        //     Protocol::Bgp(b) => b.publish(req, route.clone()).await.unwrap(),
+                                        //     Protocol::Kernel(k) => k.publish(req, route.clone()).await.unwrap(),
+                                        // }
                                     }
                                 },
                                 None => {
@@ -187,9 +190,9 @@ async fn run(server: Fib, trace_config: TraceConfig) {
         });
     }
     // run poller
-    tokio::spawn(async move {
-        poller.run().await.unwrap();
-    });
+    // tokio::spawn(async move {
+        // poller.run().await.unwrap();
+    // });
 
     tracing::info!("API server start to listen at {}", server.endpoint);
     let endpoint = server.endpoint.clone();

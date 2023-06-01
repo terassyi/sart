@@ -93,7 +93,7 @@ impl Channel {
                 Protocol::Kernel(k) => {
                     let (kernel_tx, kernel_rx) = channel(128);
                     tracing::info!(subscriber=?k,"register to poller");
-                    poller.register(k, kernel_tx)?;
+                    poller.register_subscriber(k, kernel_tx)?;
                     k.subscribe(kernel_rx).await
                 }
             }?;
