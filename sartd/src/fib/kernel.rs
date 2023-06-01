@@ -16,7 +16,7 @@ use rtnetlink::{constants::*, new_connection};
 pub(crate) struct Kernel {
     pub tables: Vec<u32>,
     #[serde(skip)]
-    publish_rx: Option<Sender<(RequestType, Route)>>,
+    publish_tx: Option<UnboundedSender<(RequestType, Route)>>,
 }
 
 impl Kernel {
@@ -42,8 +42,11 @@ impl Kernel {
     }
 
     pub async fn publish(&self, req: RequestType, route: Route) -> Result<(), Error> {
-
         Ok(())
+    }
+
+    pub fn register_publisher(&mut self, tx: UnboundedSender<(RequestType, Route)>) {
+        self.publish_tx = Some(tx);
     }
 }
 

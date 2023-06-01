@@ -1,4 +1,5 @@
 use ipnet::IpNet;
+use tokio::sync::mpsc::UnboundedSender;
 use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::sync::mpsc::channel;
@@ -61,6 +62,13 @@ impl Protocol {
             Protocol::Kernel(k) => k.publish(req, route).await,
         }
     }
+
+    pub(crate) fn register_publisher(&mut self, tx: UnboundedSender<(RequestType, Route)>) {
+        match self {
+            Protocol::Bgp(b) => b.register_publisher(tx),
+            Protocol::Kernel(k) => k.register_publisher(tx),
+        }
+    }
 }
 
 impl From<&Protocol> for crate::proto::sart::ChProtocol {
@@ -85,6 +93,7 @@ impl Channel {
     pub async fn register(
         &mut self,
         poller: &mut KernelRtPoller,
+        publisher_tx: UnboundedSender<(RequestType, Route)>,
     ) -> Result<Vec<Receiver<(RequestType, Route)>>, Error> {
         let mut receivers: Vec<Receiver<(RequestType, Route)>> = Vec::new();
         for s in self.subscribers.iter() {
@@ -98,6 +107,10 @@ impl Channel {
                 }
             }?;
             receivers.push(rx);
+        }
+
+        for p in self.publishers.iter_mut() {
+            p.register_publisher(publisher_tx.clone());
         }
 
         Ok(receivers)

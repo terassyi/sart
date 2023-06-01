@@ -4,9 +4,11 @@ use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::mpsc::Sender;
+use tokio::sync::mpsc::UnboundedSender;
 
 use crate::fib::rib::RequestType;
 use crate::fib::server::api;
+use crate::proto::sart::AddPathRequest;
 use crate::proto::sart::fib_api_server::{FibApi, FibApiServer};
 
 use super::error::Error;
@@ -19,6 +21,7 @@ use tonic::{Request, Response, Status};
 use crate::proto::sart::{
     AddMultiPathRouteRequest, AddRouteRequest, DeleteMultiPathRouteRequest, DeleteRouteRequest,
     GetRouteRequest, GetRouteResponse, ListRoutesRequest, ListRoutesResponse,
+    AddPathRequest,
 };
 
 use super::route::ip_version_from;
@@ -30,7 +33,9 @@ pub(crate) struct Bgp {
 
 impl Bgp {
     pub fn new(endpoint: String) -> Self {
-        Self { endpoint }
+        Self { 
+            endpoint,
+        }
     }
 
     #[tracing::instrument(skip(self))]
@@ -61,12 +66,21 @@ impl Bgp {
         let mut client = connect_bgp(&self.endpoint).await?;
 
         match req {
-            RequestType::AddRoute => {},
+            RequestType::AddRoute => {
+                let res = client.add_path(AddPathRequest{
+                    family: Some(proto::sart::AddressFamily{
+                        afi: 
+                    })
+                })
+            },
             RequestType::AddMultiPathRoute => {},
             RequestType::DeleteRoute => {},
             RequestType::DeleteMultiPathRoute => {},
         }
         Ok(())
+    }
+
+    pub fn register_publisher(&mut self, _tx: UnboundedSender<(RequestType, Route)>) {
     }
 }
 

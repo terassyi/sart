@@ -93,14 +93,12 @@ impl FibManagerApi for Fib {
 async fn run(server: Fib, trace_config: TraceConfig) {
     prepare_tracing(trace_config);
 
-    let mut poller = KernelRtPoller::new();
+    let (mut poller, publisher_tx) = KernelRtPoller::new();
 
     let channels = server.channels.clone();
     
-    let handler = iniit_rtnetlink_handler().await.unwrap();
-
     for mut ch in channels.into_iter() {
-        let receivers = ch.register(&mut poller.0).await.unwrap();
+        let receivers = ch.register(&mut poller, publisher_tx.clone()).await.unwrap();
 
         let mut fused_receivers = futures::stream::select_all(
             receivers
@@ -173,10 +171,6 @@ async fn run(server: Fib, trace_config: TraceConfig) {
                                             Ok(_) => {},
                                             Err(e) => tracing::error!(error=?e, route=?route,"failed to publish the route"),
                                         }
-                                        // match p {
-                                        //     Protocol::Bgp(b) => b.publish(req, route.clone()).await.unwrap(),
-                                        //     Protocol::Kernel(k) => k.publish(req, route.clone()).await.unwrap(),
-                                        // }
                                     }
                                 },
                                 None => {
@@ -190,9 +184,9 @@ async fn run(server: Fib, trace_config: TraceConfig) {
         });
     }
     // run poller
-    // tokio::spawn(async move {
-        // poller.run().await.unwrap();
-    // });
+    tokio::spawn(async move {
+        poller.run().await.unwrap();
+    });
 
     tracing::info!("API server start to listen at {}", server.endpoint);
     let endpoint = server.endpoint.clone();
