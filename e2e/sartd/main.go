@@ -16,6 +16,7 @@ var TopologyMap = map[string]topology.Topology{
 	"simple-ibgp-with-zebra":      simpleTopologyIBGPWithZebra,
 	"simple-multipath":            multiPathSimple,
 	"simple-multipath-with-zebra": multiPathSimpleWithZebra,
+	"simple-with-fib":             simpleTopologyWithClient,
 }
 
 var simpleTopology topology.Topology = topology.Topology{
@@ -389,8 +390,8 @@ var simpleTopologyWithClient topology.Topology = topology.Topology{
 			InitCommands: []string{"tail", "-f", "/dev/null"},
 			Config:       "",
 			Commands: []string{
-				"sartd fib",
-				"sartd bgp -f /etc/node1/config.yaml --fib localhost:5001",
+				"sartd fib -f /etc/node1/fib.yaml",
+				"sartd bgp -f /etc/node1/config.yaml --fib localhost:5010",
 			},
 		},
 		{
@@ -654,8 +655,8 @@ var multiPathSimpleWithZebra topology.Topology = topology.Topology{
 			InitCommands: []string{"tail", "-f", "/dev/null"},
 			Config:       "",
 			Commands: []string{
-				"sartd fib",
-				"sartd bgp -f /etc/node1/config.yaml --fib localhost:5001",
+				"sartd fib -f /etc/node1/fib.yaml",
+				"sartd bgp -f /etc/node1/config.yaml --fib localhost:5010",
 			},
 		},
 		{

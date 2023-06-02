@@ -4,8 +4,7 @@ use tonic::{Request, Response, Status};
 
 use crate::{
     fib::{
-        channel::Protocol, kernel::KernelRtPoller, rib::RequestType,
-        rtnetlink::iniit_rtnetlink_handler,
+        kernel::KernelRtPoller, rib::RequestType,
     },
     proto::sart::{
         fib_manager_api_server::{FibManagerApi, FibManagerApiServer},

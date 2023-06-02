@@ -15,15 +15,6 @@ pub(crate) struct Cmd {
         help = "Display format"
     )]
     pub format: Format,
-    #[arg(
-        short = 'e',
-        long,
-        global = true,
-        required = false,
-        default_value = "localhost:5001",
-        help = "Endpoint to API server"
-    )]
-    pub endpoint: String,
     #[clap(subcommand)]
     pub sub: SubCmd,
 }
