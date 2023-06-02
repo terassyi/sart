@@ -163,14 +163,14 @@ async fn run(server: Fib, trace_config: TraceConfig) {
                                 }
                             };
                             match res {
-                                Some(route) => {
+                                Some((route, replace)) => {
                                     for p in ch.publishers.iter() {
-                                        let res = match p {
-                                            Protocol::Bgp(b) => b.publish(req, route.clone()).await,
-                                            Protocol::Kernel(k) => {
-                                                k.publish(req, route.clone()).await
-                                            }
+                                        let req = if replace {
+                                            RequestType::Replace
+                                        } else {
+                                            req
                                         };
+                                        let res = p.publish(req, route.clone()).await;
                                         match res {
                                             Ok(_) => {},
                                             Err(e) => tracing::error!(error=?e, route=?route,"failed to publish the route"),

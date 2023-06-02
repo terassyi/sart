@@ -151,14 +151,14 @@ impl Channel {
     }
 
     #[tracing::instrument(skip(self))]
-    pub(crate) fn register_route(&mut self, route: Route) -> Option<Route> {
+    pub(crate) fn register_route(&mut self, route: Route) -> Option<(Route, bool)> {
         tracing::info!("register the route to rib");
         let mut rib = self.rib.lock().unwrap();
         rib.insert(route.destination, route)
     }
 
     #[tracing::instrument(skip(self))]
-    pub(crate) fn remove_route(&mut self, route: Route) -> Option<Route> {
+    pub(crate) fn remove_route(&mut self, route: Route) -> Option<(Route, bool)> {
         let mut rib = self.rib.lock().unwrap();
         if let Some(routes) = rib.get(&route.destination) {
             if routes.is_empty() {

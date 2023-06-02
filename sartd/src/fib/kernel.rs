@@ -171,6 +171,13 @@ impl KernelRtPoller {
                 // publish
                 request = self.rx.recv().fuse() => {
                     if let Some((req, route)) = request {
+                        match req {
+                            RequestType::Add => {}
+                            RequestType::Replace => {},
+                            RequestType::Delete => {},
+                            RequestType::AddMultiPath => {},
+                            RequestType::DeleteMultiPath => {},
+                        }
 
                     }
                 },

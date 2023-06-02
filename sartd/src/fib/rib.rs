@@ -99,7 +99,7 @@ impl Rib {
         Some(&routes[0])
     }
 
-    pub fn remove(&mut self, route: Route) -> Option<Route> {
+    pub fn remove(&mut self, route: Route) -> Option<(Route, bool)> {
         if route.version != self.ip_version {
             return None;
         }
@@ -125,7 +125,7 @@ impl Rib {
                 let ret_route = routes.remove(index);
                 if index == 0 {
                     // removed a published route
-                    return Some(ret_route);
+                    return Some((ret_route, true));
                 }
                 None
             }
