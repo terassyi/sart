@@ -3,7 +3,10 @@ use tokio_stream::StreamExt;
 use tonic::{Request, Response, Status};
 
 use crate::{
-    fib::{kernel::KernelRtPoller, rib::RequestType, rtnetlink::iniit_rtnetlink_handler, channel::Protocol},
+    fib::{
+        channel::Protocol, kernel::KernelRtPoller, rib::RequestType,
+        rtnetlink::iniit_rtnetlink_handler,
+    },
     proto::sart::{
         fib_manager_api_server::{FibManagerApi, FibManagerApiServer},
         GetChannelResponse, ListChannelResponse,
@@ -51,9 +54,7 @@ impl FibManagerApi for Fib {
         let name = &req.get_ref().name;
         if let Some(channel) = self.channels.iter().find(|&ch| ch.name.eq(name)) {
             let res = crate::proto::sart::Channel::from(channel);
-            Ok(Response::new(GetChannelResponse{
-                channel: Some(res)
-            }))
+            Ok(Response::new(GetChannelResponse { channel: Some(res) }))
         } else {
             Err(Status::not_found(format!("{} is not found", name)))
         }
@@ -63,10 +64,12 @@ impl FibManagerApi for Fib {
         &self,
         _req: Request<ListChannelRequest>,
     ) -> Result<Response<ListChannelResponse>, Status> {
-        let channels: Vec<crate::proto::sart::Channel> = self.channels.iter().map(crate::proto::sart::Channel::from).collect();
-        Ok(Response::new(ListChannelResponse{
-            channels
-        }))
+        let channels: Vec<crate::proto::sart::Channel> = self
+            .channels
+            .iter()
+            .map(crate::proto::sart::Channel::from)
+            .collect();
+        Ok(Response::new(ListChannelResponse { channels }))
     }
 
     async fn get_routes(
@@ -78,11 +81,9 @@ impl FibManagerApi for Fib {
             match channel.list_routes() {
                 Some(routes) => {
                     let routes = routes.iter().map(crate::proto::sart::Route::from).collect();
-                    Ok(Response::new(GetRoutesResponse{
-                        routes
-                    }))
+                    Ok(Response::new(GetRoutesResponse { routes }))
                 }
-                None => Ok(Response::new(GetRoutesResponse { routes: Vec::new() }))
+                None => Ok(Response::new(GetRoutesResponse { routes: Vec::new() })),
             }
         } else {
             Err(Status::not_found(format!("{} channel is not found", name)))
@@ -96,9 +97,12 @@ async fn run(server: Fib, trace_config: TraceConfig) {
     let (mut poller, publisher_tx) = KernelRtPoller::new();
 
     let channels = server.channels.clone();
-    
+
     for mut ch in channels.into_iter() {
-        let receivers = ch.register(&mut poller, publisher_tx.clone()).await.unwrap();
+        let receivers = ch
+            .register(&mut poller, publisher_tx.clone())
+            .await
+            .unwrap();
 
         let mut fused_receivers = futures::stream::select_all(
             receivers
@@ -113,10 +117,10 @@ async fn run(server: Fib, trace_config: TraceConfig) {
                     request = fused_receivers.next().fuse() => {
                         if let Some((req, route)) = request {
                             let res = match req {
-                                RequestType::AddRoute => {
+                                RequestType::Add | RequestType::Replace => {
                                     ch.register_route(route)
                                 },
-                                RequestType::AddMultiPathRoute => {
+                                RequestType::AddMultiPath => {
                                     match ch.get_route(&route.destination, route.protocol) {
                                         Some(existing_route) => {
                                             match existing_route.merge_multipath(route) {
@@ -136,10 +140,10 @@ async fn run(server: Fib, trace_config: TraceConfig) {
                                     }
 
                                 },
-                                RequestType::DeleteRoute => {
+                                RequestType::Delete => {
                                     ch.remove_route(route)
                                 },
-                                RequestType::DeleteMultiPathRoute => {
+                                RequestType::DeleteMultiPath => {
                                     match ch.get_route(&route.destination, route.protocol) {
                                         Some(existing_route) => {
                                             match existing_route.pop_multipath(route) {

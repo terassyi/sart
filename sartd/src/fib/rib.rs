@@ -6,10 +6,11 @@ use super::route::Route;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub(crate) enum RequestType {
-    AddRoute,
-    DeleteRoute,
-    AddMultiPathRoute,
-    DeleteMultiPathRoute,
+    Add,
+    Delete,
+    Replace,
+    AddMultiPath,
+    DeleteMultiPath,
 }
 
 #[derive(Debug)]
@@ -44,7 +45,7 @@ impl Rib {
         }
     }
 
-    pub fn insert(&mut self, destination: IpNet, route: Route) -> Option<Route> {
+    pub fn insert(&mut self, destination: IpNet, route: Route) -> Option<(Route, bool)> {
         if route.version != self.ip_version {
             return None;
         }
@@ -52,7 +53,7 @@ impl Rib {
             Some(routes) => {
                 if routes.is_empty() {
                     routes.push(route.clone());
-                    return Some(route);
+                    return Some((route, false));
                 }
                 let old_published = routes[0].clone();
                 if let Some(existing) = routes.iter_mut().find(|r| r.protocol == route.protocol) {
@@ -65,12 +66,12 @@ impl Rib {
                 if new_published > old_published {
                     return None;
                 }
-                Some(new_published)
+                Some((new_published, true))
             }
             None => {
                 let routes = vec![route.clone()];
                 self.table.inner.insert(destination, routes);
-                Some(route)
+                Some((route, false))
             }
         }
     }

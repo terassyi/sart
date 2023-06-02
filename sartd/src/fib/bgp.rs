@@ -8,10 +8,12 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::fib::rib::RequestType;
 use crate::fib::server::api;
-use crate::proto::sart::AddPathRequest;
 use crate::proto::sart::fib_api_server::{FibApi, FibApiServer};
+use crate::proto::sart::DeletePathRequest;
 
 use super::error::Error;
+use super::route::ip_version_into;
+use super::route::Kind;
 use super::route::NextHop;
 use super::route::NextHopFlags;
 use super::route::Route;
@@ -19,9 +21,9 @@ use super::route::Route;
 use tonic::{Request, Response, Status};
 
 use crate::proto::sart::{
-    AddMultiPathRouteRequest, AddRouteRequest, DeleteMultiPathRouteRequest, DeleteRouteRequest,
-    GetRouteRequest, GetRouteResponse, ListRoutesRequest, ListRoutesResponse,
-    AddPathRequest,
+    AddMultiPathRouteRequest, AddPathRequest, AddRouteRequest, AddressFamily,
+    DeleteMultiPathRouteRequest, DeleteRouteRequest, GetRouteRequest, GetRouteResponse,
+    ListRoutesRequest, ListRoutesResponse,
 };
 
 use super::route::ip_version_from;
@@ -33,9 +35,7 @@ pub(crate) struct Bgp {
 
 impl Bgp {
     pub fn new(endpoint: String) -> Self {
-        Self { 
-            endpoint,
-        }
+        Self { endpoint }
     }
 
     #[tracing::instrument(skip(self))]
@@ -66,22 +66,42 @@ impl Bgp {
         let mut client = connect_bgp(&self.endpoint).await?;
 
         match req {
-            RequestType::AddRoute => {
-                let res = client.add_path(AddPathRequest{
-                    family: Some(proto::sart::AddressFamily{
-                        afi: 
+            RequestType::Add | RequestType::Replace => {
+                let _res = client
+                    .add_path(AddPathRequest {
+                        family: Some(AddressFamily {
+                            afi: ip_version_into(&route.version) as i32,
+                            safi: Kind::to_safi(route.kind),
+                        }),
+                        prefixes: vec![route.destination.to_string()],
+                        attributes: Vec::new(),
                     })
-                })
-            },
-            RequestType::AddMultiPathRoute => {},
-            RequestType::DeleteRoute => {},
-            RequestType::DeleteMultiPathRoute => {},
+                    .await
+                    .map_err(|e| Error::GotgPRCError { e })?;
+            }
+            RequestType::AddMultiPath => {
+                tracing::warn!("multi path route publishing for adding is not implemented");
+            }
+            RequestType::Delete => {
+                let _res = client
+                    .delete_path(DeletePathRequest {
+                        family: Some(AddressFamily {
+                            afi: ip_version_into(&route.version) as i32,
+                            safi: Kind::to_safi(route.kind),
+                        }),
+                        prefixes: vec![route.destination.to_string()],
+                    })
+                    .await
+                    .map_err(|e| Error::GotgPRCError { e })?;
+            }
+            RequestType::DeleteMultiPath => {
+                tracing::warn!("multi path route publishing for deleting is not implemented");
+            }
         }
         Ok(())
     }
 
-    pub fn register_publisher(&mut self, _tx: UnboundedSender<(RequestType, Route)>) {
-    }
+    pub fn register_publisher(&mut self, _tx: UnboundedSender<(RequestType, Route)>) {}
 }
 
 struct BgpSubscriber {
@@ -119,7 +139,7 @@ impl FibApi for BgpSubscriber {
                 Ok(route) => route,
                 Err(e) => return Err(Status::aborted(format!("{e}"))),
             };
-            match self.queue.send((RequestType::AddRoute, route)).await {
+            match self.queue.send((RequestType::Add, route)).await {
                 Ok(_) => Ok(Response::new(())),
                 Err(e) => Err(Status::internal(format!("{e}"))),
             }
@@ -142,7 +162,7 @@ impl FibApi for BgpSubscriber {
         route.destination = dst;
         route.version = ver;
 
-        match self.queue.send((RequestType::DeleteRoute, route)).await {
+        match self.queue.send((RequestType::Delete, route)).await {
             Ok(_) => Ok(Response::new(())),
             Err(e) => Err(Status::internal(format!("{e}"))),
         }
@@ -177,11 +197,7 @@ impl FibApi for BgpSubscriber {
             route.next_hops.push(nh);
         }
 
-        match self
-            .queue
-            .send((RequestType::AddMultiPathRoute, route))
-            .await
-        {
+        match self.queue.send((RequestType::AddMultiPath, route)).await {
             Ok(_) => Ok(Response::new(())),
             Err(e) => Err(Status::internal(format!("{e}"))),
         }
@@ -220,11 +236,7 @@ impl FibApi for BgpSubscriber {
             route.next_hops.push(nh);
         }
 
-        match self
-            .queue
-            .send((RequestType::DeleteMultiPathRoute, route))
-            .await
-        {
+        match self.queue.send((RequestType::DeleteMultiPath, route)).await {
             Ok(_) => Ok(Response::new(())),
             Err(e) => Err(Status::internal(format!("{e}"))),
         }

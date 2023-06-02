@@ -1,8 +1,8 @@
 use ipnet::IpNet;
-use tokio::sync::mpsc::UnboundedSender;
 use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::sync::mpsc::channel;
+use tokio::sync::mpsc::UnboundedSender;
 
 use crate::fib::bgp;
 use crate::fib::kernel;
@@ -30,8 +30,16 @@ impl From<Channel> for crate::proto::sart::Channel {
     fn from(ch: Channel) -> crate::proto::sart::Channel {
         crate::proto::sart::Channel {
             name: ch.name,
-            subscribers: ch.subscribers.iter().map(crate::proto::sart::ChProtocol::from).collect(),
-            publishers: ch.publishers.iter().map(crate::proto::sart::ChProtocol::from).collect(),
+            subscribers: ch
+                .subscribers
+                .iter()
+                .map(crate::proto::sart::ChProtocol::from)
+                .collect(),
+            publishers: ch
+                .publishers
+                .iter()
+                .map(crate::proto::sart::ChProtocol::from)
+                .collect(),
         }
     }
 }
@@ -40,8 +48,16 @@ impl From<&Channel> for crate::proto::sart::Channel {
     fn from(ch: &Channel) -> crate::proto::sart::Channel {
         crate::proto::sart::Channel {
             name: ch.name.clone(),
-            subscribers: ch.subscribers.iter().map(crate::proto::sart::ChProtocol::from).collect(),
-            publishers: ch.publishers.iter().map(crate::proto::sart::ChProtocol::from).collect(),
+            subscribers: ch
+                .subscribers
+                .iter()
+                .map(crate::proto::sart::ChProtocol::from)
+                .collect(),
+            publishers: ch
+                .publishers
+                .iter()
+                .map(crate::proto::sart::ChProtocol::from)
+                .collect(),
         }
     }
 }
@@ -74,7 +90,7 @@ impl Protocol {
 impl From<&Protocol> for crate::proto::sart::ChProtocol {
     fn from(protocol: &Protocol) -> Self {
         match protocol {
-            Protocol::Bgp(b) => crate::proto::sart::ChProtocol{
+            Protocol::Bgp(b) => crate::proto::sart::ChProtocol {
                 r#type: "bgp".to_string(),
                 endpoint: b.endpoint.clone(),
                 tables: Vec::new(),
@@ -83,7 +99,7 @@ impl From<&Protocol> for crate::proto::sart::ChProtocol {
                 r#type: "kernel".to_string(),
                 endpoint: String::new(),
                 tables: k.tables.iter().map(|&i| i as i32).collect(),
-            }
+            },
         }
     }
 }
@@ -123,11 +139,7 @@ impl Channel {
     ) -> Option<Route> {
         let rib = self.rib.lock().unwrap();
         if let Some(routes) = rib.get(destination) {
-            if let Some(route) = routes.iter().find(|r| r.protocol.eq(&protocol)) {
-                Some(route.clone())
-            } else {
-                None
-            }
+            routes.iter().find(|r| r.protocol.eq(&protocol)).cloned()
         } else {
             None
         }
@@ -149,7 +161,7 @@ impl Channel {
     pub(crate) fn remove_route(&mut self, route: Route) -> Option<Route> {
         let mut rib = self.rib.lock().unwrap();
         if let Some(routes) = rib.get(&route.destination) {
-            if routes.len() == 0 {
+            if routes.is_empty() {
                 return None;
             }
             tracing::info!("remove the route from rib");

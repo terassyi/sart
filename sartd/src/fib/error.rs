@@ -11,6 +11,13 @@ pub(crate) enum Error {
     },
     #[error("failed to communicate with gRPC server/client")]
     FailedToCommunicateWithgRPC(#[from] tonic::transport::Error),
+    #[error("got error {} from gRPC", e)]
+    GotgPRCError {
+        #[from]
+        e: tonic::Status,
+    },
+    #[error("failed to recv/send via channel")]
+    FailedToRecvSendViaChannel,
     #[error("already exists")]
     AlreadyExists,
     #[error("failed to get prefix")]

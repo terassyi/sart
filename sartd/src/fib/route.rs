@@ -234,12 +234,16 @@ impl From<&Route> for crate::proto::sart::Route {
             protocol: route.protocol as i32,
             scope: route.scope as i32,
             r#type: route.kind as i32,
-            next_hops: route.next_hops.iter().map(proto::sart::NextHop::from).collect(),
+            next_hops: route
+                .next_hops
+                .iter()
+                .map(proto::sart::NextHop::from)
+                .collect(),
             source: route.source.map_or("".to_string(), |s| s.to_string()),
             ad: route.ad as i32,
             priority: route.priority,
             ibgp: false,
-        } 
+        }
     }
 }
 
@@ -286,7 +290,7 @@ impl From<&NextHop> for proto::sart::NextHop {
             weight: nh.weight,
             flags: nh.flags as i32,
             interface: nh.interface,
-        } 
+        }
     }
 }
 
@@ -385,6 +389,15 @@ impl TryFrom<i32> for Kind {
             9 => Ok(Kind::Throw),
             10 => Ok(Kind::Nat),
             _ => Err(Error::InvalidType),
+        }
+    }
+}
+
+impl Kind {
+    pub(crate) fn to_safi(self) -> i32 {
+        match self {
+            Kind::Broadcast | Kind::Multicast => 2,
+            _ => 1,
         }
     }
 }

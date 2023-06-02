@@ -1,12 +1,11 @@
-use std::{collections::HashMap};
-
+use std::collections::HashMap;
 
 use futures::{FutureExt, StreamExt};
 use netlink_packet_core::NetlinkPayload;
 use netlink_packet_route::RtnlMessage;
 use netlink_sys::{AsyncSocket, SocketAddr};
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc::{Receiver, Sender, unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{unbounded_channel, Receiver, Sender, UnboundedReceiver, UnboundedSender};
 
 use super::{error::Error, rib::RequestType, route::Route};
 
@@ -41,8 +40,15 @@ impl Kernel {
         Ok(rx)
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn publish(&self, req: RequestType, route: Route) -> Result<(), Error> {
-        Ok(())
+        if let Some(tx) = &self.publish_tx {
+            tx.send((req, route))
+                .map_err(|_| Error::FailedToRecvSendViaChannel)
+        } else {
+            tracing::warn!(protocol="kernel",tables=?self.tables, "publisher is not registered. nothing to do.");
+            Ok(())
+        }
     }
 
     pub fn register_publisher(&mut self, tx: UnboundedSender<(RequestType, Route)>) {
@@ -64,14 +70,17 @@ impl KernelRtPoller {
             | RTMGRP_IPV4_RULE
             | RTMGRP_IPV6_ROUTE
             | RTMGRP_IPV6_MROUTE;
-        
+
         let (tx, rx) = unbounded_channel();
 
-        (KernelRtPoller {
-            groups,
-            tx_map: HashMap::new(),
-            rx,
-        }, tx)
+        (
+            KernelRtPoller {
+                groups,
+                tx_map: HashMap::new(),
+                rx,
+            },
+            tx,
+        )
     }
 
     #[tracing::instrument(skip(self, subscriber_tx))]
@@ -126,7 +135,7 @@ impl KernelRtPoller {
                                                 continue;
                                             }
                                         };
-                                        match tx.send((RequestType::AddRoute, route)).await {
+                                        match tx.send((RequestType::Add, route)).await {
                                             Ok(_) => {}
                                             Err(e) => {
                                                 tracing::error!(error=?e,"failed to send to rib");
@@ -145,7 +154,7 @@ impl KernelRtPoller {
                                                 continue;
                                             }
                                         };
-                                        match tx.send((RequestType::DeleteRoute, route)).await {
+                                        match tx.send((RequestType::Delete, route)).await {
                                             Ok(_) => {}
                                             Err(e) => {
                                                 tracing::error!(error=?e,"failed to send to rib");
