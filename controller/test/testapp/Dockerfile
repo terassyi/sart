@@ -1,9 +1,16 @@
-FROM golang:1.20
+FROM --platform=$BUILDPLATFORM golang:1.20 as builder
+
+ARG TARGETOS
+ARG TARGETARCH
 
 WORKDIR /work
 COPY main.go /work/main.go
 COPY go.mod /work/go.mod
 
-RUN go build -a -o app main.go
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o app main.go
 
-CMD [ "/work/app", "-port", "80" ]
+FROM --platform=$TARGETPLATFORM scratch
+
+COPY --from=builder /work/app /app
+
+ENTRYPOINT [ "/app", "-port", "80" ]
