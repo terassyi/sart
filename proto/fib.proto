@@ -50,8 +50,7 @@ message DeleteRouteRequest {
 message AddMultiPathRouteRequest {
 	uint32 table = 1;
 	IpVersion version = 2;
-	string destination = 3;
-	repeated NextHop next_hops = 4;
+	Route route = 3;
 }
 
 message DeleteMultiPathRouteRequest {

@@ -11,7 +11,6 @@ use std::net::Ipv4Addr;
 use bgp::cmd::Scope;
 use clap::Parser;
 use cmd::{Cmd, SubCmd};
-use fib::channel::ChannelCmd;
 
 #[tokio::main]
 async fn main() {

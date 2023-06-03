@@ -198,9 +198,15 @@ impl LocRib {
         }
     }
 
+    #[tracing::instrument(skip(self))]
     fn get(&self, family: &AddressFamily, prefix: &IpNet) -> Option<&Vec<Path>> {
         match self.table.get(&family.afi) {
-            Some(table) => table.get(prefix),
+            Some(table) => {
+                let paths = table.get(prefix);
+                tracing::info!(paths=?paths,"in loc-rib");
+                tracing::info!(table=?table,"all in loc-rib");
+                paths
+            },
             None => None,
         }
     }
@@ -372,6 +378,7 @@ impl LocRib {
         prefix: &IpNet,
         id: u64,
     ) -> Result<LocRibStatus, Error> {
+        tracing::info!("drop from loc-rib");
         let table = self
             .table
             .get_mut(&family.afi)
@@ -638,21 +645,35 @@ impl RibManager {
         family: AddressFamily,
         network: Vec<IpNet>,
     ) -> Result<(), Error> {
-        let path_ids: Vec<(IpNet, u64)> = network
-            .iter()
-            .map(|p| {
-                if let Some(paths) = self.loc_rib.get(&family, p) {
-                    paths
-                        .iter()
-                        .filter(|&p| p.is_local_originated())
-                        .collect::<Vec<&Path>>()
-                } else {
-                    Vec::new()
+        tracing::info!("delete paths");
+        // TODO: bug; we cannot refer loc-rib
+        // let path_ids: Vec<(IpNet, u64)> = network
+        //     .iter()
+        //     .map(|p| {
+        //         if let Some(paths) = self.loc_rib.get(&family, p) {
+        //             paths
+        //                 .iter()
+        //                 .filter(|&p| p.is_local_originated())
+        //                 .collect::<Vec<&Path>>()
+        //         } else {
+        //             Vec::new()
+        //         }
+        //     })
+        //     .flatten()
+        //     .map(|p| (p.prefix(), p.id))
+        //     .collect();
+
+        let mut path_ids = Vec::new();
+        for prefix in network.iter() {
+            if let Some(stored_paths) = self.loc_rib.get(&family, prefix) {
+                let local_paths: Vec<&Path> = stored_paths.iter().filter(|p| p.is_local_originated()).collect();
+                for local_path in local_paths.iter() {
+                    path_ids.push((local_path.prefix(), local_path.id));
                 }
-            })
-            .flatten()
-            .map(|p| (p.prefix(), p.id))
-            .collect();
+            }
+        }
+
+        tracing::info!(path_ids=?path_ids,"need to drop from each neighbor");
         self.drop_paths(
             NeighborPair::new(IpAddr::V4(self.router_id), self.asn),
             family,
@@ -744,13 +765,24 @@ impl RibManager {
                             .add_multi_path_route(AddMultiPathRouteRequest {
                                 table: self.table_id as u32,
                                 version: path.family().afi.inet() as i32,
-                                destination: path.prefix.to_string(),
-                                next_hops: vec![proto::sart::NextHop {
-                                    gateway: next_hop.to_string(),
-                                    weight: priority as u32,
-                                    flags: 0,
-                                    interface: 0,
-                                }],
+                                route: Some(proto::sart::Route{
+                                    table: self.table_id as u32,
+                                    version: path.family().afi.inet() as i32,
+                                    destination: path.prefix.to_string(),
+                                    protocol: Bgp::RTPROTO_BGP as i32,
+                                    scope: Bgp::RT_SCOPE_UNIVERSE as i32,
+                                    r#type: path.family().safi.inet() as i32,
+                                    next_hops: vec![proto::sart::NextHop {
+                                        gateway: next_hop.to_string(),
+                                        weight: priority as u32,
+                                        flags: 0,
+                                        interface: 0,
+                                    }],
+                                    source: String::new(),
+                                    ad: priority as i32,
+                                    priority: priority as u32,
+                                    ibgp: ibgp_path,
+                                })
                             })
                             .await
                             .map_err(|e| Error::Endpoint { e })?;
@@ -803,6 +835,7 @@ impl RibManager {
         path_ids: Vec<(IpNet, u64)>,
         apply_to_fib: bool,
     ) -> Result<(), Error> {
+        tracing::info!("drop paths from neighbor");
         let mut advertise_prefixes = Vec::new();
         let mut withdraw_prefixes = Vec::new();
         for (prefix, path_id) in path_ids.iter() {

@@ -25,6 +25,7 @@ pub(crate) struct Route {
 impl Route {
     #[tracing::instrument(skip(self, other))]
     pub fn merge_multipath(&self, other: Route) -> Result<Route, Error> {
+        tracing::info!("merge multi path next hops");
         if self.destination.ne(&other.destination)
             || self.version != other.version
             || self.protocol.ne(&other.protocol)
@@ -504,6 +505,13 @@ pub(crate) fn ip_version_into(ver: &rtnetlink::IpVersion) -> u8 {
     match ver {
         rtnetlink::IpVersion::V4 => 2,
         rtnetlink::IpVersion::V6 => 10,
+    }
+}
+
+pub(crate) fn ip_version_to_afi(ver: &rtnetlink::IpVersion) -> u8 {
+    match ver {
+        rtnetlink::IpVersion::V4 => 1,
+        rtnetlink::IpVersion::V6 => 2,
     }
 }
 

@@ -10,16 +10,17 @@ import (
 )
 
 var TopologyMap = map[string]topology.Topology{
-	"simple":                           simpleTopology,
-	"simple-without-config":            simpleTopologyWithoutConfig,
-	"simple-with-zebra":                simpleTopologyWithZebra,
-	"simple-ibgp-with-zebra":           simpleTopologyIBGPWithZebra,
-	"simple-multipath":                 multiPathSimple,
-	"simple-multipath-with-zebra":      multiPathSimpleWithZebra,
-	"simple-with-fib":                  simpleTopologyWithClient,
-	"simple-with-fib-another-table":    simpleTopologyWithClientAnotherTable,
-	"simple-with-fib-subscribe-kernel": simpleTopologyWithClientSubscribeKernel,
-	"simple-no-daemon":                 simpleTopologyNoDaemon,
+	"simple":                                     simpleTopology,
+	"simple-without-config":                      simpleTopologyWithoutConfig,
+	"simple-with-zebra":                          simpleTopologyWithZebra,
+	"simple-ibgp-with-zebra":                     simpleTopologyIBGPWithZebra,
+	"simple-multipath":                           multiPathSimple,
+	"simple-multipath-with-zebra":                multiPathSimpleWithZebra,
+	"simple-with-fib":                            simpleTopologyWithClient,
+	"simple-with-fib-another-table":              simpleTopologyWithClientAnotherTable,
+	"simple-with-fib-subscribe-kernel":           simpleTopologyWithClientSubscribeKernel,
+	"simple-with-fib-subscribe-kernel-no-daemon": simpleTopologyWithClientSubscribeKernelNoDaemon,
+	"simple-no-daemon":                           simpleTopologyNoDaemon,
 }
 
 var simpleTopology topology.Topology = topology.Topology{
@@ -37,7 +38,7 @@ var simpleTopology topology.Topology = topology.Topology{
 			Image: "ghcr.io/terassyi/terakoya:0.1.2",
 			Volume: []topology.Volume{
 				{
-					Source:      "./data/multipath_simple/node2",
+					Source:      "./data/simple/node2",
 					Destination: "/etc/node2",
 				},
 			},
@@ -61,7 +62,7 @@ var simpleTopology topology.Topology = topology.Topology{
 			Image: "sart:dev",
 			Volume: []topology.Volume{
 				{
-					Source:      "./data/multipath_simple/node1",
+					Source:      "./data/simple/node1",
 					Destination: "/etc/node1",
 				},
 			},
@@ -82,7 +83,7 @@ var simpleTopology topology.Topology = topology.Topology{
 			Image: "ghcr.io/terassyi/terakoya:0.1.2",
 			Volume: []topology.Volume{
 				{
-					Source:      "./data/multipath_simple/node3",
+					Source:      "./data/simple/node3",
 					Destination: "/etc/node3",
 				},
 			},
@@ -117,12 +118,17 @@ var simpleTopologyNoDaemon topology.Topology = topology.Topology{
 			Image: "ghcr.io/terassyi/terakoya:0.1.2",
 			Volume: []topology.Volume{
 				{
-					Source:      "./data/simple/node2",
+					Source:      "./data/multipath_simple/node2",
 					Destination: "/etc/node2",
 				},
 			},
 			Privileged:   true,
 			InitCommands: []string{"tail", "-f", "/dev/null"},
+			Commands: []string{
+				"/usr/lib/frr/frrinit.sh start",
+				"sleep 30",
+				"gobgpd -f /etc/node2/config_zebra.toml",
+			},
 		},
 		{
 			Name: "node1",
@@ -141,7 +147,7 @@ var simpleTopologyNoDaemon topology.Topology = topology.Topology{
 			Image: "sart:dev",
 			Volume: []topology.Volume{
 				{
-					Source:      "./data/simple/node1",
+					Source:      "./data/multipath_simple/node1",
 					Destination: "/etc/node1",
 				},
 			},
@@ -162,12 +168,17 @@ var simpleTopologyNoDaemon topology.Topology = topology.Topology{
 			Image: "ghcr.io/terassyi/terakoya:0.1.2",
 			Volume: []topology.Volume{
 				{
-					Source:      "./data/simple/node3",
+					Source:      "./data/multipath_simple/node3",
 					Destination: "/etc/node3",
 				},
 			},
 			Privileged:   true,
 			InitCommands: []string{"tail", "-f", "/dev/null"},
+			Commands: []string{
+				"/usr/lib/frr/frrinit.sh start",
+				"sleep 30",
+				"gobgpd -f /etc/node3/config_zebra.toml",
+			},
 		},
 	},
 	Peers: []topology.Peer{
@@ -616,6 +627,7 @@ var simpleTopologyWithClientAnotherTable topology.Topology = topology.Topology{
 			InitCommands: []string{"tail", "-f", "/dev/null"},
 			Config:       "",
 			Commands: []string{
+				"ip rule add table 100 priority 100",
 				"sartd fib -f /etc/node1/fib_another_table.yaml",
 				"sartd bgp -f /etc/node1/config.yaml --fib localhost:5010",
 			},
@@ -759,6 +771,7 @@ var simpleTopologyWithClientSubscribeKernel topology.Topology = topology.Topolog
 			InitCommands: []string{"tail", "-f", "/dev/null"},
 			Config:       "",
 			Commands: []string{
+				"ip rule add table 100 priority 100",
 				"sartd fib -f /etc/node1/fib_subscribe_kernel.yaml",
 				"sartd bgp -f /etc/node1/config.yaml --fib localhost:5010",
 			},
@@ -845,6 +858,150 @@ var simpleTopologyWithClientSubscribeKernel topology.Topology = topology.Topolog
 			Privileged:   true,
 			InitCommands: []string{"tail", "-f", "/dev/null"},
 			Commands: []string{
+				"ip addr add 5.5.5.5/32 dev lo",
+				"ip route change default via 10.0.11.2",
+			},
+		},
+	},
+	Peers: []topology.Peer{
+		{
+			Name: "1-2",
+			Cidr: "10.0.0.0/24",
+		},
+		{
+			Name: "1-3",
+			Cidr: "10.0.1.0/24",
+		},
+		{
+			Name: "2-4",
+			Cidr: "10.0.10.0/24",
+		},
+		{
+			Name: "1-5",
+			Cidr: "10.0.11.0/24",
+		},
+	},
+}
+
+var simpleTopologyWithClientSubscribeKernelNoDaemon topology.Topology = topology.Topology{
+	Name: "simple",
+	Nodes: []topology.Node{
+		{
+			Name: "node1",
+			Interfaces: []topology.Interface{
+				{
+					Name:     "n1-n2",
+					PeerName: "1-2",
+					Address:  "10.0.0.2",
+				},
+				{
+					Name:     "n1-n3",
+					PeerName: "1-3",
+					Address:  "10.0.1.2",
+				},
+				{
+					Name:     "n1-n5",
+					PeerName: "1-5",
+					Address:  "10.0.11.2",
+				},
+			},
+			Image: "sart:dev",
+			Volume: []topology.Volume{
+				{
+					Source:      "./data/simple/node1",
+					Destination: "/etc/node1",
+				},
+			},
+			Privileged:   true,
+			InitCommands: []string{"tail", "-f", "/dev/null"},
+			Config:       "",
+			Commands: []string{
+				"ip rule add table 100 priority 100",
+			},
+		},
+		{
+			Name: "node2",
+			Interfaces: []topology.Interface{
+				{
+					Name:     "n2-n1",
+					PeerName: "1-2",
+					Address:  "10.0.0.3",
+				},
+				{
+					Name:     "n2-n4",
+					PeerName: "2-4",
+					Address:  "10.0.10.2",
+				},
+			},
+			Image: "ghcr.io/terassyi/terakoya:0.1.2",
+			Volume: []topology.Volume{
+				{
+					Source:      "./data/simple/node2",
+					Destination: "/etc/node2",
+				},
+			},
+			Privileged:   true,
+			InitCommands: []string{"tail", "-f", "/dev/null"},
+			Commands: []string{
+				"/usr/lib/frr/frrinit.sh start",
+				"sleep 30",
+				"gobgpd -f /etc/node2/config_zebra.toml",
+			},
+		},
+		{
+			Name: "node3",
+			Interfaces: []topology.Interface{
+				{
+					Name:     "n3-n1",
+					PeerName: "1-3",
+					Address:  "10.0.1.3",
+				},
+			},
+			Image: "ghcr.io/terassyi/terakoya:0.1.2",
+			Volume: []topology.Volume{
+				{
+					Source:      "./data/simple/node3",
+					Destination: "/etc/node3",
+				},
+			},
+			Privileged:   true,
+			InitCommands: []string{"tail", "-f", "/dev/null"},
+			Commands: []string{
+				"/usr/lib/frr/frrinit.sh start",
+				"sleep 30",
+				"gobgpd -f /etc/node3/config_zebra.toml",
+			},
+		},
+		{
+			Name: "node4",
+			Interfaces: []topology.Interface{
+				{
+					Name:     "n4-n2",
+					PeerName: "2-4",
+					Address:  "10.0.10.3",
+				},
+			},
+			Image:        "ghcr.io/terassyi/terakoya:0.1.2",
+			Privileged:   true,
+			InitCommands: []string{"tail", "-f", "/dev/null"},
+			Commands: []string{
+				"ip route change default via 10.0.10.2",
+			},
+		},
+		{
+			Name: "node5",
+			Interfaces: []topology.Interface{
+				{
+					Name:     "n5-n1",
+					PeerName: "1-5",
+					Address:  "10.0.11.3",
+				},
+			},
+			Image:        "ghcr.io/terassyi/terakoya:0.1.2",
+			Privileged:   true,
+			InitCommands: []string{"tail", "-f", "/dev/null"},
+			Commands: []string{
+				"ip addr add 5.5.5.5/32 dev lo",
 				"ip route change default via 10.0.11.2",
 			},
 		},

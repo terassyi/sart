@@ -123,9 +123,14 @@ impl Rib {
                     None => return None,
                 };
                 let ret_route = routes.remove(index);
+
+                // if the removed route is published
                 if index == 0 {
-                    // removed a published route
-                    return Some((ret_route, true));
+                    // alternative routes exist
+                    if !routes.is_empty() {
+                        return Some((routes[0].clone(), true))
+                    }
+                    return Some((ret_route, false));
                 }
                 None
             }

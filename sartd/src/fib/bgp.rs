@@ -7,12 +7,12 @@ use tokio::sync::mpsc::Sender;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::fib::rib::RequestType;
+use crate::fib::route::ip_version_to_afi;
 use crate::fib::server::api;
 use crate::proto::sart::fib_api_server::{FibApi, FibApiServer};
 use crate::proto::sart::DeletePathRequest;
 
 use super::error::Error;
-use super::route::ip_version_into;
 use super::route::Kind;
 use super::route::NextHop;
 use super::route::NextHopFlags;
@@ -63,14 +63,16 @@ impl Bgp {
 
     #[tracing::instrument(skip(self))]
     pub async fn publish(&self, req: RequestType, route: Route) -> Result<(), Error> {
+        tracing::info!(endpoint=self.endpoint,"try to connect to BGP's gRPC server");
         let mut client = connect_bgp(&self.endpoint).await?;
+        tracing::info!(endpoint=self.endpoint,"connect to BGP's gRPC server");
 
         match req {
             RequestType::Add | RequestType::Replace => {
                 let _res = client
                     .add_path(AddPathRequest {
                         family: Some(AddressFamily {
-                            afi: ip_version_into(&route.version) as i32,
+                            afi: ip_version_to_afi(&route.version) as i32,
                             safi: Kind::to_safi(route.kind),
                         }),
                         prefixes: vec![route.destination.to_string()],
@@ -86,7 +88,7 @@ impl Bgp {
                 let _res = client
                     .delete_path(DeletePathRequest {
                         family: Some(AddressFamily {
-                            afi: ip_version_into(&route.version) as i32,
+                            afi: ip_version_to_afi(&route.version) as i32,
                             safi: Kind::to_safi(route.kind),
                         }),
                         prefixes: vec![route.destination.to_string()],
@@ -173,38 +175,19 @@ impl FibApi for BgpSubscriber {
         &self,
         req: Request<AddMultiPathRouteRequest>,
     ) -> Result<Response<()>, Status> {
-        let ver = match ip_version_from(req.get_ref().version as u32) {
-            Ok(ver) => ver,
-            Err(_) => return Err(Status::aborted("invalid ip version")),
-        };
-        let dst: IpNet = match req.get_ref().destination.parse() {
-            Ok(dst) => dst,
-            Err(e) => {
-                return Err(Status::aborted(format!(
-                    "invalid destination prefix: {}",
-                    e
-                )))
-            }
-        };
+        match &req.get_ref().route {
+            Some(route) => {
+                let route = match Route::try_from(route) {
+                    Ok(route) => route,
+                    Err(e) => return Err(Status::internal(format!("failed to convert type: {}", e)))
 
-        let mut route = Route::default();
-        route.destination = dst;
-        route.version = ver;
-        let next_hops = &req.get_ref().next_hops;
-
-        for next_hop in next_hops.iter() {
-            let mut nh = match NextHop::try_from(next_hop) {
-                Ok(nh) => nh,
-                Err(e) => return Err(Status::aborted(format!("{e}"))),
-            };
-            nh.weight = 1; // TODO: not to use fixed weight(=1)
-
-            route.next_hops.push(nh);
-        }
-
-        match self.queue.send((RequestType::AddMultiPath, route)).await {
-            Ok(_) => Ok(Response::new(())),
-            Err(e) => Err(Status::internal(format!("{e}"))),
+                };
+                match self.queue.send((RequestType::AddMultiPath, route)).await {
+                    Ok(_) => Ok(Response::new(())),
+                    Err(e) => Err(Status::internal(format!("{e}"))),
+                }
+            },
+            None => Err(Status::aborted("multi path route is required"))
         }
     }
 

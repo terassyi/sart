@@ -1465,10 +1465,8 @@ pub struct AddMultiPathRouteRequest {
     pub table: u32,
     #[prost(enumeration = "IpVersion", tag = "2")]
     pub version: i32,
-    #[prost(string, tag = "3")]
-    pub destination: ::prost::alloc::string::String,
-    #[prost(message, repeated, tag = "4")]
-    pub next_hops: ::prost::alloc::vec::Vec<NextHop>,
+    #[prost(message, optional, tag = "3")]
+    pub route: ::core::option::Option<Route>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

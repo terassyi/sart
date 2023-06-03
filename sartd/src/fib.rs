@@ -5,6 +5,5 @@ pub(crate) mod error;
 pub(crate) mod kernel;
 pub(crate) mod rib;
 pub(crate) mod route;
-pub(crate) mod rt_client;
 pub(crate) mod rtnetlink;
 pub(crate) mod server;

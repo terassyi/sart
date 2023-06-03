@@ -8,7 +8,3 @@ pub(crate) fn to_any<T: prost::Message>(m: T, name: &str) -> prost_types::Any {
         value: v,
     }
 }
-
-pub(crate) fn type_url(t: &str) -> String {
-    format!("{}{}", TYPE_URL_PREFACE, t)
-}

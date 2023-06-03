@@ -36,5 +36,8 @@ RUN cd sart; cargo build --release --target $(cat /rust_target.txt) && \
 
 FROM debian:stable
 
+RUN apt update -y && \
+	apt install iproute2
+
 COPY --from=builder /usr/local/bin/sartd /usr/local/bin/sartd
 COPY --from=builder /usr/local/bin/sart /usr/local/bin/sart
