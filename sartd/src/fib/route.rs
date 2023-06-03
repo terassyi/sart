@@ -1,6 +1,5 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-use futures::TryStreamExt;
 use ipnet::IpNet;
 use netlink_packet_route::{route::Nla, RouteMessage};
 // use netlink_packet_route::route::{NextHop, NextHopFlags, Nla};
@@ -41,12 +40,7 @@ impl Route {
         let mut adding = other
             .next_hops
             .into_iter()
-            .filter(|nh| {
-                self.next_hops
-                    .iter()
-                    .find(|n| n.gateway.eq(&nh.gateway))
-                    .is_none()
-            })
+            .filter(|nh| !self.next_hops.iter().any(|n| n.gateway.eq(&nh.gateway)))
             .collect();
         merged.next_hops.append(&mut adding);
 
@@ -69,13 +63,7 @@ impl Route {
             .next_hops
             .clone()
             .into_iter()
-            .filter(|nh| {
-                other
-                    .next_hops
-                    .iter()
-                    .find(|n| n.gateway.eq(&nh.gateway))
-                    .is_none()
-            })
+            .filter(|nh| !other.next_hops.iter().any(|n| n.gateway.eq(&nh.gateway)))
             .collect();
         result.next_hops = popped;
         Ok(result)

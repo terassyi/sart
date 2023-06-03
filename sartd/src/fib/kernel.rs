@@ -3,13 +3,19 @@ use std::{collections::HashMap, net::IpAddr};
 use futures::{FutureExt, StreamExt, TryStreamExt};
 use ipnet::IpNet;
 use netlink_packet_core::NetlinkPayload;
-use netlink_packet_route::{RtnlMessage, route::{Nla, NextHop, NextHopFlags}};
+use netlink_packet_route::{
+    route::{NextHop, NextHopFlags, Nla},
+    RtnlMessage,
+};
 use netlink_sys::{AsyncSocket, SocketAddr};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{unbounded_channel, Receiver, Sender, UnboundedReceiver, UnboundedSender};
-use tracing::instrument;
 
-use super::{error::Error, rib::RequestType, route::{Route, ip_version_into}};
+use super::{
+    error::Error,
+    rib::RequestType,
+    route::{ip_version_into, Route},
+};
 
 use rtnetlink::{constants::*, new_connection};
 
@@ -45,8 +51,13 @@ impl Kernel {
     #[tracing::instrument(skip(self))]
     pub async fn publish(&self, req: RequestType, route: Route) -> Result<(), Error> {
         if let Some(tx) = &self.publish_tx {
-            tx.send((req, route))
-                .map_err(|_| Error::FailedToRecvSendViaChannel)
+            for table_id in self.tables.iter() {
+                let mut route = route.clone();
+                route.table = *table_id as u8;
+                tx.send((req, route))
+                    .map_err(|_| Error::FailedToRecvSendViaChannel)?;
+            }
+            Ok(())
         } else {
             tracing::warn!(protocol="kernel",tables=?self.tables, "publisher is not registered. nothing to do.");
             Ok(())
@@ -193,7 +204,11 @@ impl KernelRtPoller {
 }
 
 #[tracing::instrument(skip(handle))]
-async fn add_route(handle: &rtnetlink::Handle, req: RequestType, route: Route) -> Result<(), Error> {
+async fn add_route(
+    handle: &rtnetlink::Handle,
+    req: RequestType,
+    route: Route,
+) -> Result<(), Error> {
     tracing::info!("add or replace the rouet to kernel");
     let rt = handle.route();
 
@@ -201,11 +216,20 @@ async fn add_route(handle: &rtnetlink::Handle, req: RequestType, route: Route) -
     let mut res = rt.get(route.version.clone()).execute();
     while let Some(r) = res.try_next().await? {
         if let Some((dst, prefix_len)) = r.destination_prefix() {
-            if route.destination.prefix_len() == prefix_len && route.destination.addr().eq(&dst) && r.header.table == route.table {
-                tracing::info!(destination=route.destination.to_string(),"an existing route is found");
+            if route.destination.prefix_len() == prefix_len
+                && route.destination.addr().eq(&dst)
+                && r.header.table == route.table
+            {
+                tracing::info!(
+                    destination = route.destination.to_string(),
+                    "an existing route is found"
+                );
                 // replace or not
                 if req == RequestType::Replace {
-                    tracing::info!(destination=route.destination.to_string(),"replace the existing route");
+                    tracing::info!(
+                        destination = route.destination.to_string(),
+                        "replace the existing route"
+                    );
                     rt.del(r).execute().await?;
                     existing = true;
                 }
@@ -215,7 +239,12 @@ async fn add_route(handle: &rtnetlink::Handle, req: RequestType, route: Route) -
     if !(req == RequestType::Replace) && existing {
         return Err(Error::AlreadyExists);
     }
-    let mut request = rt.add().table(route.table).kind(route.kind as u8).protocol(route.protocol as u8).scope(route.scope as u8);
+    let mut request = rt
+        .add()
+        .table(route.table)
+        .kind(route.kind as u8)
+        .protocol(route.protocol as u8)
+        .scope(route.scope as u8);
     let msg = request.message_mut();
     msg.header.address_family = ip_version_into(&route.version);
     // destination
@@ -238,32 +267,36 @@ async fn add_route(handle: &rtnetlink::Handle, req: RequestType, route: Route) -
     // next hops
     if route.next_hops.len() > 1 {
         // multiple paths
-        let n = route.next_hops.iter().map(|h| {
-            // we don't have any convinient way to create nexthop struct
-            let mut next = NextHop::default();
-            next.flags = NextHopFlags::from_bits_truncate(h.flags as u8);
-            if h.weight > 0 {
-                next.hops = (h.weight -1) as u8;
-            }
-            if h.interface != 0 {
-                next.interface_id = h.interface;
-            }
-            match h.gateway {
-                IpAddr::V4(addr) => next.nlas.push(Nla::Gateway(addr.octets().to_vec())),
-                IpAddr::V6(addr) => next.nlas.push(Nla::Gateway(addr.octets().to_vec())),
-            }
-            next
-        }).collect();
+        let n = route
+            .next_hops
+            .iter()
+            .map(|h| {
+                // we don't have any convinient way to create nexthop struct
+                let mut next = NextHop::default();
+                next.flags = NextHopFlags::from_bits_truncate(h.flags as u8);
+                if h.weight > 0 {
+                    next.hops = (h.weight - 1) as u8;
+                }
+                if h.interface != 0 {
+                    next.interface_id = h.interface;
+                }
+                match h.gateway {
+                    IpAddr::V4(addr) => next.nlas.push(Nla::Gateway(addr.octets().to_vec())),
+                    IpAddr::V6(addr) => next.nlas.push(Nla::Gateway(addr.octets().to_vec())),
+                }
+                next
+            })
+            .collect();
         msg.nlas.push(Nla::MultiPath(n));
     } else if route.next_hops.is_empty() {
         return Err(Error::GatewayNotFound);
     } else {
         match route.next_hops[0].gateway {
-                IpAddr::V4(addr) => msg.nlas.push(Nla::Gateway(addr.octets().to_vec())),
-                IpAddr::V6(addr) => msg.nlas.push(Nla::Gateway(addr.octets().to_vec())),
+            IpAddr::V4(addr) => msg.nlas.push(Nla::Gateway(addr.octets().to_vec())),
+            IpAddr::V6(addr) => msg.nlas.push(Nla::Gateway(addr.octets().to_vec())),
         }
     }
-    
+
     tracing::info!("send the adding route message to kernel");
     match route.version {
         rtnetlink::IpVersion::V4 => request.v4().execute().await?,
@@ -281,7 +314,10 @@ async fn delete_route(handle: &rtnetlink::Handle, route: Route) -> Result<(), Er
 
     while let Some(r) = res.try_next().await? {
         if let Some((dst, prefix_len)) = r.destination_prefix() {
-            if route.destination.prefix_len() == prefix_len && route.destination.addr().eq(&dst) && route.table == r.header.table {
+            if route.destination.prefix_len() == prefix_len
+                && route.destination.addr().eq(&dst)
+                && route.table == r.header.table
+            {
                 tracing::info!("send the deleting message to kernel");
                 rt.del(r).execute().await?;
             }
@@ -306,13 +342,18 @@ async fn add_multi_path_route(handle: &rtnetlink::Handle, route: Route) -> Resul
 async fn delete_multi_path_route(handle: &rtnetlink::Handle, route: Route) -> Result<(), Error> {
     let mut r = get_route(handle, route.table, &route.version, &route.destination).await?;
 
-    r.next_hops.retain(|n| route.next_hops.iter().any(|nn| nn.gateway.ne(&n.gateway)));
+    r.next_hops
+        .retain(|n| route.next_hops.iter().any(|nn| nn.gateway.ne(&n.gateway)));
 
     add_route(handle, RequestType::Replace, r).await
 }
 
 #[tracing::instrument(skip(handle))]
-async fn list_routes(handle: &rtnetlink::Handle, table: u8, ip_version: &rtnetlink::IpVersion) -> Result<Vec<Route>, Error> {
+async fn list_routes(
+    handle: &rtnetlink::Handle,
+    table: u8,
+    ip_version: &rtnetlink::IpVersion,
+) -> Result<Vec<Route>, Error> {
     tracing::info!("list routes from kernel");
     let rt = handle.route();
     let mut res = rt.get(ip_version.clone()).execute();
@@ -327,7 +368,15 @@ async fn list_routes(handle: &rtnetlink::Handle, table: u8, ip_version: &rtnetli
 }
 
 #[tracing::instrument(skip(handle))]
-async fn get_route(handle: &rtnetlink::Handle, table: u8, ip_version: &rtnetlink::IpVersion, destination: &IpNet) -> Result<Route, Error> {
+async fn get_route(
+    handle: &rtnetlink::Handle,
+    table: u8,
+    ip_version: &rtnetlink::IpVersion,
+    destination: &IpNet,
+) -> Result<Route, Error> {
     let routes = list_routes(handle, table, ip_version).await?;
-    routes.into_iter().find(|r| r.destination.eq(destination)).ok_or(Error::DestinationNotFound)
+    routes
+        .into_iter()
+        .find(|r| r.destination.eq(destination))
+        .ok_or(Error::DestinationNotFound)
 }

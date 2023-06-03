@@ -11,5 +11,8 @@ RUN make build
 
 FROM debian:stable
 
+RUN apt update -y && \
+	apt install -y tcpdump iproute2 iputils-ping net-tools
+
 COPY --from=builder /home/sartd/target/debug/sartd /usr/local/bin/sartd
 COPY --from=builder /home/sart/target/debug/sart /usr/local/bin/sart

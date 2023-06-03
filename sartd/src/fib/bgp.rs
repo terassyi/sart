@@ -116,18 +116,18 @@ impl BgpSubscriber {
 
 #[tonic::async_trait]
 impl FibApi for BgpSubscriber {
-    #[tracing::instrument(skip(self, req))]
+    #[tracing::instrument(skip(self, _req))]
     async fn get_route(
         &self,
-        req: Request<GetRouteRequest>,
+        _req: Request<GetRouteRequest>,
     ) -> Result<Response<GetRouteResponse>, Status> {
         Ok(Response::new(GetRouteResponse { route: None }))
     }
 
-    #[tracing::instrument(skip(self, req))]
+    #[tracing::instrument(skip(self, _req))]
     async fn list_routes(
         &self,
-        req: Request<ListRoutesRequest>,
+        _req: Request<ListRoutesRequest>,
     ) -> Result<Response<ListRoutesResponse>, Status> {
         Ok(Response::new(ListRoutesResponse { routes: vec![] }))
     }
@@ -179,7 +179,12 @@ impl FibApi for BgpSubscriber {
         };
         let dst: IpNet = match req.get_ref().destination.parse() {
             Ok(dst) => dst,
-            Err(e) => return Err(Status::aborted("invalid destination prefix")),
+            Err(e) => {
+                return Err(Status::aborted(format!(
+                    "invalid destination prefix: {}",
+                    e
+                )))
+            }
         };
 
         let mut route = Route::default();
@@ -187,7 +192,7 @@ impl FibApi for BgpSubscriber {
         route.version = ver;
         let next_hops = &req.get_ref().next_hops;
 
-        for mut next_hop in next_hops.iter() {
+        for next_hop in next_hops.iter() {
             let mut nh = match NextHop::try_from(next_hop) {
                 Ok(nh) => nh,
                 Err(e) => return Err(Status::aborted(format!("{e}"))),

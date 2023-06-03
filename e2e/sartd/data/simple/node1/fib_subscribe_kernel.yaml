@@ -1,0 +1,20 @@
+endpoint: 127.0.0.1:5001
+channels:
+  - name: kernel_bgp
+    ip_version: ipv4
+    subscribers:
+      - protocol: kernel
+        tables:
+          - 100
+    publishers:
+      - protocol: bgp
+        endpoint: 127.0.0.1::5000
+  - name: bgp_kernel
+    ip_version: ipv4
+    subscribers:
+      - protocol: bgp
+        endpoint: 127.0.0.1:5010
+    publishers:
+      - protocol: kernel
+        tables:
+          - 254
