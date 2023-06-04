@@ -9,4 +9,7 @@ pub(crate) struct FibCmd {
         help = "Fib manager running endpoint url"
     )]
     pub endpoint: String,
+
+    #[arg(short= 'f', long, required = true, help = "Config file path for Fib daemon")]
+    pub file: Option<String>,    
 }

@@ -13,4 +13,6 @@ pub(crate) enum Error {
     UnacceptableAttribute,
     #[error("invalid origin value: acceptable")]
     InvalidOriginValue,
+    #[error("invalid channel type")]
+    InvalidChannelType,
 }

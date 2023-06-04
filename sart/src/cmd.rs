@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand, ValueEnum};
 
-use crate::{bgp::cmd::BgpCmd, fib::FibCmd};
+use crate::{bgp::cmd::BgpCmd, fib::cmd::FibCmd};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -15,15 +15,6 @@ pub(crate) struct Cmd {
         help = "Display format"
     )]
     pub format: Format,
-    #[arg(
-        short = 'e',
-        long,
-        global = true,
-        required = false,
-        default_value = "localhost:5000",
-        help = "Endpoint to API server"
-    )]
-    pub endpoint: String,
     #[clap(subcommand)]
     pub sub: SubCmd,
 }

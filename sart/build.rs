@@ -12,7 +12,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         //     "#[derive(serde::Serialize)]",
         // )
         .out_dir("./src/proto")
-        .compile(&["../proto/bgp.proto", "../proto/fib.proto"], &["../proto"])
+        .compile(
+            &[
+                "../proto/bgp.proto",
+                "../proto/fib.proto",
+                "../proto/fib_manager.proto",
+            ],
+            &["../proto"],
+        )
         .unwrap_or_else(|e| panic!("protobuf compile error: {}", e));
     Ok(())
 }

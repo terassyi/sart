@@ -1,25 +1,25 @@
 use clap::{Parser, Subcommand};
 
-use super::{global::GlobalCmd, neighbor::NeighborCmd};
+use super::channel::ChannelCmd;
 
 #[derive(Debug, Clone, Parser)]
-pub(crate) struct BgpCmd {
+pub(crate) struct FibCmd {
     #[structopt(subcommand)]
     pub scope: Scope,
+
 
     #[arg(
         short = 'e',
         long,
         global = true,
         required = false,
-        default_value = "localhost:5000",
-        help = "Endpoint to BGP API server"
+        default_value = "localhost:5001",
+        help = "Endpoint to FIB API server"
     )]
     pub endpoint: String,
 }
 
 #[derive(Debug, Clone, Subcommand)]
 pub(crate) enum Scope {
-    Global(GlobalCmd),
-    Neighbor(NeighborCmd),
+    Channel(ChannelCmd),
 }
