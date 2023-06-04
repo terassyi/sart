@@ -17,6 +17,9 @@ release-pr: validate-release-version cargo-bump
 	cd sartd; $(CARGO) bump $(RELEASE_VERSION) && $(CARGO) update
 	cd sart; $(CARGO) bump $(RELEASE_VERSION) && $(CARGO) update
 
+	$(MAKE) build-image
+	cd controller; make docker-build
+
 	git add .
 	git commit -m "bump v$(RELEASE_VERSION)" --allow-empty
 
