@@ -114,7 +114,7 @@ impl TryFrom<RouteMessage> for Route {
             _ => return Err(Error::InvalidIpVersion),
         };
 
-        let protocol = Protocol::try_from(msg.header.protocol)?;
+        let protocol = Protocol::from(msg.header.protocol);
         let mut route = Route {
             destination,
             version,
@@ -202,7 +202,7 @@ impl TryFrom<&crate::proto::sart::Route> for Route {
         Ok(Route {
             destination: dst,
             version: ip_version,
-            protocol: Protocol::try_from(value.protocol as u8)?,
+            protocol: Protocol::from(value.protocol as u8),
             scope: Scope::try_from(value.scope)?,
             kind: Kind::try_from(value.r#type)?,
             next_hops,
@@ -220,7 +220,7 @@ impl From<&Route> for crate::proto::sart::Route {
             table: route.table as u32,
             version: ip_version_into(&route.version) as i32,
             destination: route.destination.to_string(),
-            protocol: route.protocol as i32,
+            protocol: route.protocol.into(),
             scope: route.scope as i32,
             r#type: route.kind as i32,
             next_hops: route
@@ -417,7 +417,7 @@ impl std::fmt::Display for AdministrativeDistance {
 impl AdministrativeDistance {
     pub(crate) fn from_protocol(protocol: Protocol, internal: bool) -> AdministrativeDistance {
         match protocol {
-            Protocol::Unspec | Protocol::Redirect | Protocol::Kernel | Protocol::Boot => {
+            Protocol::Unspec | Protocol::Redirect | Protocol::Kernel | Protocol::Boot | Protocol::Other(_) => {
                 AdministrativeDistance::Connected
             }
             Protocol::Static => AdministrativeDistance::Static,
@@ -450,6 +450,7 @@ impl TryFrom<u8> for AdministrativeDistance {
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
+#[repr(u8)]
 pub(crate) enum Protocol {
     Unspec = 0,
     Redirect = 1,
@@ -459,6 +460,7 @@ pub(crate) enum Protocol {
     Bgp = 186,
     Ospf = 188,
     Rip = 189,
+    Other(u8),
 }
 
 impl Into<u8> for Protocol {
@@ -472,23 +474,39 @@ impl Into<u8> for Protocol {
             Protocol::Bgp => 186,
             Protocol::Ospf => 188,
             Protocol::Rip => 189,
+            Protocol::Other(val) => val,
         }
     }
 }
 
-impl TryFrom<u8> for Protocol {
-    type Error = Error;
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
+impl Into<i32> for Protocol {
+    fn into(self) -> i32 {
+        match self {
+            Protocol::Unspec => 0,
+            Protocol::Redirect => 1,
+            Protocol::Kernel => 2,
+            Protocol::Boot => 3,
+            Protocol::Static => 4,
+            Protocol::Bgp => 186,
+            Protocol::Ospf => 188,
+            Protocol::Rip => 189,
+            Protocol::Other(val) => val as i32,
+        }
+    }
+}
+
+impl From<u8> for Protocol {
+    fn from(value: u8) -> Self {
         match value {
-            0 => Ok(Self::Unspec),
-            1 => Ok(Self::Redirect),
-            2 => Ok(Self::Kernel),
-            3 => Ok(Self::Boot),
-            4 => Ok(Self::Static),
-            186 => Ok(Self::Bgp),
-            188 => Ok(Self::Ospf),
-            189 => Ok(Self::Rip),
-            _ => Err(Error::InvalidProtocol),
+            0 => Self::Unspec,
+            1 => Self::Redirect,
+            2 => Self::Kernel,
+            3 => Self::Boot,
+            4 => Self::Static,
+            186 => Self::Bgp,
+            188 => Self::Ospf,
+            189 => Self::Rip,
+            _ => Self::Other(value)
         }
     }
 }
