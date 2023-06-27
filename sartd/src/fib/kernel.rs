@@ -243,7 +243,7 @@ async fn add_route(
         .add()
         .table(route.table)
         .kind(route.kind as u8)
-        .protocol(route.protocol as u8)
+        .protocol(route.protocol.into())
         .scope(route.scope as u8);
     let msg = request.message_mut();
     msg.header.address_family = ip_version_into(&route.version);
