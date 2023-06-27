@@ -11,6 +11,8 @@ pub(crate) enum Error {
     },
     #[error("failed to communicate with gRPC server/client")]
     FailedToCommunicateWithgRPC(#[from] tonic::transport::Error),
+    #[error("timeout")]
+    Timeout,
     #[error("got error {} from gRPC", e)]
     GotgPRCError {
         #[from]

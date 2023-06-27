@@ -1,10 +1,13 @@
+use std::collections::VecDeque;
 use std::net::IpAddr;
+use std::time::Duration;
 
 use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::mpsc::UnboundedSender;
+use tokio::time::Instant;
 
 use crate::fib::rib::RequestType;
 use crate::fib::route::ip_version_to_afi;
@@ -31,11 +34,16 @@ use super::route::ip_version_from;
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub(crate) struct Bgp {
     pub endpoint: String,
+    #[serde(skip)]
+    queue: VecDeque<(RequestType, Route)>,
 }
 
 impl Bgp {
     pub fn new(endpoint: String) -> Self {
-        Self { endpoint }
+        Self { 
+            endpoint: endpoint,
+            queue: VecDeque::new()
+        }
     }
 
     #[tracing::instrument(skip(self))]
@@ -63,8 +71,7 @@ impl Bgp {
 
     #[tracing::instrument(skip(self))]
     pub async fn publish(&self, req: RequestType, route: Route) -> Result<(), Error> {
-        tracing::info!(endpoint=self.endpoint,"try to connect to BGP's gRPC server");
-        let mut client = connect_bgp(&self.endpoint).await?;
+        let mut client = connect_bgp_with_retry(&self.endpoint, Duration::from_secs(5)).await?;
         tracing::info!(endpoint=self.endpoint,"connect to BGP's gRPC server");
 
         match req {
@@ -238,4 +245,21 @@ async fn connect_bgp(
     crate::proto::sart::bgp_api_client::BgpApiClient::connect(endpoint_url)
         .await
         .map_err(Error::FailedToCommunicateWithgRPC)
+}
+
+#[tracing::instrument]
+async fn connect_bgp_with_retry(endpoint: &str, timeout: Duration) -> Result<crate::proto::sart::bgp_api_client::BgpApiClient<tonic::transport::Channel>, Error> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if Instant::now() > deadline {
+            return Err(Error::Timeout)
+        }
+        match connect_bgp(endpoint).await {
+            Ok(conn) => return Ok(conn),
+            Err(e) => {
+                tracing::error!(error=?e,"failed to connect bgp");
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+        }
+    }
 }
