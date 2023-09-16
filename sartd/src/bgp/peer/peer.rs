@@ -125,6 +125,8 @@ pub(crate) struct Peer {
     rib_tx: Sender<RibEvent>,
     rib_rx: Receiver<RibEvent>,
     api_tx: Sender<ApiResponse>,
+    // workaround for https://github.com/terassyi/sart/issues/44
+    invalid_msg_count: u32,
 }
 
 impl Peer {
@@ -165,6 +167,7 @@ impl Peer {
             rib_tx,
             rib_rx,
             api_tx,
+            invalid_msg_count: 0,
         }
     }
 
@@ -391,6 +394,8 @@ impl Peer {
             loop {
                 futures::select_biased! {
                     msg = receiver.next().fuse() => {
+                        // https://github.com/terassyi/sart/issues/44
+                        // Sometimes, receiver gets invalid (too short, it contains only a maker field) keepalive message
                         if let Some(msg_result) = msg {
                             match msg_result {
                                 Ok(msgs) => {
@@ -443,9 +448,17 @@ impl Peer {
                                 },
                             }
                         } else {
-                            tracing::debug!("notify to close signal");
-                            close_signal.send(local_port).await.unwrap();
-                            return;
+                            // https://github.com/terassyi/sart/issues/44
+                            // when got invalid message, we don't close connection and only show the error message.
+                            // ERROR bgp:decode_msg{as4_enabled[0m2m=true}: sartd::bgp::packet::codec: message is invalid buf[0m2m=Bytes { inner: [255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255] } length[0m2m=14
+                            //  WARN bgp: sartd::bgp::peer::peer: got invalid message or empty data
+                            //  INFO bgp:peer{peer.asn[0m2m=65000 peer.addr[0m2m="172.18.0.6" peer.id[0m2m="172.18.0.6"}:handle: sartd::bgp::peer::peer: state[0m2m=Established event[0m2m=Message::BgpHeaderError
+                            // ERROR bgp:peer{peer.asn[0m2m=65000 peer.addr[0m2m="172.18.0.6" peer.id[0m2m="172.18.0.6"}:handle:bgp_header_error{e[0m2m=BadMessageLength { length: 14 }}: sartd::bgp::peer::peer: send notification state[0m2m=Established notification_code[0m2m=MessageHeader
+
+                            tracing::warn!("got invalid message or empty data");
+                            // tracing::debug!("notify to close signal");
+                            // close_signal.send(local_port).await.unwrap();
+                            // return;
                         }
                     }
                     msg = msg_rx.recv().fuse() => {
@@ -1012,6 +1025,11 @@ impl Peer {
                 self.connect_retry_counter += 1;
             }
             State::Established => {
+                self.invalid_msg_count += 1;
+                if self.invalid_msg_count < 3 {
+                    tracing::warn!(counter=self.invalid_msg_count,"got invalid header message. counted up.");
+                    return Ok(())
+                }
                 // sends a NOTIFICATION message with the Error Code Finite State Machine Error,
                 // deletes all routes associated with this connection,
                 // sets the ConnectRetryTimer to zero,
@@ -1202,6 +1220,8 @@ impl Peer {
                 // changes(remains) its state to Established.
                 // self.hold_timer.push(self.negotiated_hold_time);
                 self.hold_timer.last = Instant::now();
+                // workaround for https://github.com/terassyi/sart/issues/44
+                self.invalid_msg_count = 0;
             }
             _ => {
                 // sets the ConnectRetryTimer to zero,

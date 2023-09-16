@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::io::Read;
 use std::net::Ipv4Addr;
 use std::sync::{Arc, RwLock};
 
@@ -52,8 +53,11 @@ impl Codec {
 impl Decoder for Codec {
     type Item = Vec<Message>;
     type Error = Error;
+
+    #[tracing::instrument(skip(self, src))]
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         if src.is_empty() {
+            tracing::debug!("got empty packet");
             return Ok(None);
         }
         let mut messages = Vec::new();
@@ -65,6 +69,7 @@ impl Decoder for Codec {
     }
 }
 
+#[tracing::instrument(skip(src, family, add_path_enabled))]
 fn decode_msg(
     src: &mut BytesMut,
     family: &AddressFamily,
@@ -72,6 +77,14 @@ fn decode_msg(
     add_path_enabled: bool,
 ) -> Result<Message, Error> {
     let buf_length = src.len();
+    tracing::debug!(buf=?src.bytes(), length=buf_length, "message raw data");
+    if buf_length < Message::HEADER_LENGTH as usize {
+        tracing::error!(buf=?src.bytes(), length=buf_length, "message is invalid");
+        return Err(Error::MessageHeader(MessageHeaderError::BadMessageLength {
+            length: buf_length as u16,
+        }));
+    }
+    // sometimes panic here
     let marker = src.get_u128();
     let message_length = src.get_u16();
 
