@@ -16,9 +16,11 @@ service BgpApi {
 	rpc ListNeighbor(ListNeighborRequest) returns (ListNeighborResponse);
 	rpc GetPath(GetPathRequest) returns (GetPathResponse);
 	rpc GetNeighborPath(GetNeighborPathRequest) returns (GetNeighborPathResponse);
+	rpc GetPathByPrefix(GetPathByPrefixRequest) returns (GetPathByPrefixResponse);
 
 	rpc SetAS(SetASRequest) returns (google.protobuf.Empty);
 	rpc SetRouterId(SetRouterIdRequest) returns (google.protobuf.Empty);
+	rpc ClearBgpInfo(ClearBgpInfoRequest) returns (google.protobuf.Empty);
 
 	rpc AddPeer(AddPeerRequest) returns (google.protobuf.Empty);
 	rpc DeletePeer(DeletePeerRequest) returns (google.protobuf.Empty);
@@ -70,6 +72,15 @@ message GetNeighborPathResponse {
 	repeated Path paths = 1;
 }
 
+message GetPathByPrefixRequest {
+	string prefix = 1;
+	AddressFamily family = 2;
+}
+
+message GetPathByPrefixResponse {
+	repeated Path paths = 1;
+}
+
 message SetASRequest {
 	uint32 asn = 1;
 }
@@ -77,6 +88,8 @@ message SetASRequest {
 message SetRouterIdRequest {
 	string router_id = 1;
 }
+
+message ClearBgpInfoRequest {}
 
 message AddPeerRequest {
 	Peer peer = 1;
@@ -136,6 +149,7 @@ message Peer {
 	MessageCounter recv_counter = 9;
 	State state = 10;
 	bool passive_open = 11;
+	string name = 12;
 }
 
 message Path {
@@ -229,4 +243,23 @@ message EnhancedRouteRefreshCapability {}
 message UnknownCapability {
 	uint32 code = 1;
 	bytes value = 2;
+}
+
+service BgpExporterApi {
+	rpc ExportPeer(ExportPeerRequest) returns (google.protobuf.Empty);
+	rpc ExportPeerState(ExportPeerStateRequest) returns (google.protobuf.Empty);
+}
+
+message ExportPeerRequest {
+	Peer peer = 1;
+}
+
+message ExportPeerStateRequest {
+	enum State {
+		UNKNOWN = 0; IDLE = 1; CONNECT = 2; ACTIVE = 3; OPEN_SENT = 4; OPEN_CONFIRM = 5; ESTABLISHED = 6;
+	}
+	uint32 asn = 1;
+	string addr = 2;
+	State state = 3;
+	string name = 4;
 }

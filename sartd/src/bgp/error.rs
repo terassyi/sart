@@ -154,8 +154,8 @@ pub(crate) enum ConfigError {
     AlreadyConfigured,
     #[error("failed to load")]
     FailedToLoad,
-    #[error("invalid argument")]
-    InvalidArgument,
+    #[error("invalid argument: {0}")]
+    InvalidArgument(String),
     #[error("invalid data")]
     InvalidData,
 }

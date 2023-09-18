@@ -16,6 +16,7 @@ pub(crate) struct Config {
     pub router_id: Ipv4Addr,
     pub fib_endpoint: Option<String>,
     pub fib_table: Option<u8>,
+    pub exporter: Option<String>,
     pub neighbors: Vec<NeighborConfig>,
     pub multi_path: Option<bool>,
     pub paths: Option<Vec<PathConfig>>,
@@ -27,6 +28,7 @@ impl Config {
             asn: 0,
             fib_endpoint: None,
             fib_table: Some(Bgp::ROUTE_TABLE_MAIN),
+            exporter: None,
             router_id: Ipv4Addr::new(0, 0, 0, 0),
             neighbors: Vec::new(),
             multi_path: Some(false),
@@ -55,7 +57,7 @@ impl Into<Vec<ControlEvent>> for &Config {
     fn into(self) -> Vec<ControlEvent> {
         let mut events = Vec::new();
         for neighbor in self.neighbors.iter() {
-            events.push(ControlEvent::AddPeer(*neighbor));
+            events.push(ControlEvent::AddPeer(neighbor.clone()));
         }
         if let Some(paths) = &self.paths {
             for path in paths.iter() {
@@ -74,8 +76,9 @@ impl Into<Vec<ControlEvent>> for &Config {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
 pub(crate) struct NeighborConfig {
+    pub name: String,
     pub asn: u32,
     pub address: IpAddr,
     pub router_id: Ipv4Addr,
@@ -85,15 +88,16 @@ pub(crate) struct NeighborConfig {
 impl TryFrom<&proto::sart::Peer> for NeighborConfig {
     type Error = Error;
     fn try_from(value: &proto::sart::Peer) -> Result<Self, Self::Error> {
-        let addr = match value.address.parse() {
+        let addr: IpAddr = match value.address.parse() {
             Ok(a) => a,
-            Err(_) => return Err(Error::Config(ConfigError::InvalidArgument)),
+            Err(e) => return Err(Error::Config(ConfigError::InvalidArgument(e.to_string()))),
         };
-        let id = match value.router_id.parse() {
+        let id: Ipv4Addr = match value.router_id.parse() {
             Ok(id) => id,
-            Err(_) => return Err(Error::Config(ConfigError::InvalidArgument)),
+            Err(e) => return Err(Error::Config(ConfigError::InvalidArgument(e.to_string()))),
         };
         Ok(NeighborConfig {
+            name: value.name.clone(),
             asn: value.asn,
             address: addr,
             router_id: id,

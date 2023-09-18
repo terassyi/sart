@@ -604,7 +604,9 @@ impl Attribute {
         } else if key == "med" {
             Attribute::new_med(value.parse().unwrap())
         } else {
-            Err(Error::Config(ConfigError::InvalidArgument))
+            Err(Error::Config(ConfigError::InvalidArgument(
+                "failed to parse key value pair".to_string(),
+            )))
         }
     }
 }
@@ -635,11 +637,11 @@ impl TryFrom<prost_types::Any> for Attribute {
     fn try_from(value: prost_types::Any) -> Result<Self, Self::Error> {
         if value.type_url == util::type_url("OriginAttribute") {
             let a = proto::sart::OriginAttribute::decode(&*value.value)
-                .map_err(|_| Error::Config(ConfigError::InvalidArgument))?;
+                .map_err(|e| Error::Config(ConfigError::InvalidArgument(e.to_string())))?;
             Ok(Attribute::new_origin(a.value as u8)?)
         } else if value.type_url == util::type_url("AsPathAttribute") {
             let a = proto::sart::AsPathAttribute::decode(&*value.value)
-                .map_err(|_| Error::Config(ConfigError::InvalidArgument))?;
+                .map_err(|e| Error::Config(ConfigError::InvalidArgument(e.to_string())))?;
             let seq = match a
                 .segments
                 .iter()
@@ -659,7 +661,7 @@ impl TryFrom<prost_types::Any> for Attribute {
             Ok(Attribute::new_as_path(seq, set, true)?)
         } else if value.type_url == util::type_url("NextHopAttribute") {
             let a = proto::sart::NextHopAttribute::decode(&*value.value)
-                .map_err(|_| Error::Config(ConfigError::InvalidArgument))?;
+                .map_err(|e| Error::Config(ConfigError::InvalidArgument(e.to_string())))?;
             Ok(Attribute::new_nexthop(
                 a.value
                     .parse()
@@ -667,11 +669,11 @@ impl TryFrom<prost_types::Any> for Attribute {
             ))
         } else if value.type_url == util::type_url("LocalPrefAttribute") {
             let a = proto::sart::LocalPrefAttribute::decode(&*value.value)
-                .map_err(|_| Error::Config(ConfigError::InvalidArgument))?;
+                .map_err(|e| Error::Config(ConfigError::InvalidArgument(e.to_string())))?;
             Ok(Attribute::new_local_pref(a.value)?)
         } else if value.type_url == util::type_url("MultiExitDiscAttribute") {
             let a = proto::sart::MultiExitDiscAttribute::decode(&*value.value)
-                .map_err(|_| Error::Config(ConfigError::InvalidArgument))?;
+                .map_err(|e| Error::Config(ConfigError::InvalidArgument(e.to_string())))?;
             Ok(Attribute::new_med(a.value)?)
         } else if value.type_url == util::type_url("AtomicAggregateAttribute") {
             Ok(Attribute::AtomicAggregate(Base::new(
@@ -680,7 +682,7 @@ impl TryFrom<prost_types::Any> for Attribute {
             )))
         } else if value.type_url == util::type_url("AggregatorAttribute") {
             let a = proto::sart::AggregatorAttribute::decode(&*value.value)
-                .map_err(|_| Error::Config(ConfigError::InvalidArgument))?;
+                .map_err(|e| Error::Config(ConfigError::InvalidArgument(e.to_string())))?;
             Ok(Attribute::AS4Aggregator(
                 Base::new(
                     Attribute::FLAG_TRANSITIVE + Attribute::FLAG_OPTIONAL,
@@ -692,7 +694,9 @@ impl TryFrom<prost_types::Any> for Attribute {
                     .map_err(|_| Error::Config(ConfigError::InvalidData))?,
             ))
         } else {
-            Err(Error::Config(ConfigError::InvalidArgument))
+            Err(Error::Config(ConfigError::InvalidArgument(
+                "invalid attribute".to_string(),
+            )))
         }
     }
 }
@@ -847,7 +851,9 @@ impl TryFrom<prost_types::Any> for ASSegment {
                 segments: s.elm,
             })
         } else {
-            Err(Error::Config(ConfigError::InvalidArgument))
+            Err(Error::Config(ConfigError::InvalidArgument(
+                "failed to parse AS Segement".to_string(),
+            )))
         }
     }
 }

@@ -1,0 +1,26 @@
+resources:
+  - lb_cluster.yaml
+  - lb_local.yaml
+  - speaker.yaml
+  - controller.yaml
+  - ../rbac
+
+images:
+  - name: sart:dev
+    newName: sart
+    newTag: dev
+  - name: controller:dev
+    newName: sart-controller
+    newTag: dev
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+secretGenerator:
+  - name: sart-webhook-server-cert
+    namespace: kube-system
+    files:
+    - ca.crt=./cert/cert.pem
+    - tls.crt=./cert/cert.pem
+    - tls.key=./cert/key.pem
+    type: "kubernetes.io/tls"

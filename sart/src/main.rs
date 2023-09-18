@@ -49,10 +49,11 @@ async fn main() {
             },
             Scope::Neighbor(n) => match n.action {
                 bgp::neighbor::Action::Add {
+                    name,
                     addr,
                     r#as: asn,
                     passive,
-                } => bgp::neighbor::add(&sub.endpoint, &addr, asn, passive)
+                } => bgp::neighbor::add(&sub.endpoint, name, &addr, asn, passive)
                     .await
                     .unwrap(),
                 bgp::neighbor::Action::Get { addr } => {

@@ -313,8 +313,10 @@ pub(crate) enum ControlEvent {
     ListPeer,
     GetPath(AddressFamily),
     GetNeighborPath(RibKind, IpAddr, AddressFamily),
+    GetPathByPrefix(IpNet, AddressFamily),
     SetAsn(u32),
     SetRouterId(Ipv4Addr),
+    ClearBgpInfo,
     AddPeer(NeighborConfig),
     DeletePeer(IpAddr),
     AddPath(Vec<IpNet>, Vec<Attribute>),
@@ -330,8 +332,10 @@ impl std::fmt::Display for ControlEvent {
             ControlEvent::ListPeer => write!(f, "Control::ListPeer"),
             ControlEvent::GetPath(_) => write!(f, "Control::GetPath"),
             ControlEvent::GetNeighborPath(_, _, _) => write!(f, "Control::GetNeighborPath"),
+            ControlEvent::GetPathByPrefix(_, _) => write!(f, "Control::GetPathByPrefix"),
             ControlEvent::SetAsn(_) => write!(f, "Control::SetAsn"),
             ControlEvent::SetRouterId(_) => write!(f, "Control::SetRouterId"),
+            ControlEvent::ClearBgpInfo => write!(f, "Control::ClearBgpInfo"),
             ControlEvent::AddPeer(_) => write!(f, "Control::AddPeer"),
             ControlEvent::DeletePeer(_) => write!(f, "Control::DeletePeer"),
             ControlEvent::AddPath(_, _) => write!(f, "Control::AddPath"),
@@ -356,6 +360,7 @@ pub(crate) enum RibEvent {
     Advertise(Vec<Path>),
     Withdraw(Vec<IpNet>),
     GetPath(AddressFamily),
+    GetPathByPrefix(IpNet, AddressFamily),
 }
 
 impl std::fmt::Display for RibEvent {
@@ -374,6 +379,7 @@ impl std::fmt::Display for RibEvent {
             RibEvent::Advertise(_) => write!(f, "Rib::Advertise"),
             RibEvent::Withdraw(_) => write!(f, "Rib::Withdraw"),
             RibEvent::GetPath(_) => write!(f, "Rib::GetPath"),
+            RibEvent::GetPathByPrefix(_, _) => write!(f, "Rib::GetPathByPrefix"),
         }
     }
 }

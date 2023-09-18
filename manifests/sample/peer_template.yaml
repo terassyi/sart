@@ -1,0 +1,9 @@
+apiVersion: sart.terassyi.net/v1alpha2
+kind: BGPPeerTemplate
+metadata:
+  name: bgppeertemplate-sample
+spec:
+  asn: 65000
+  addr: 9.9.9.9
+  groups:
+    - to-route0

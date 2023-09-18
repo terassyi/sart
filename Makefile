@@ -82,7 +82,7 @@ release-build:
 build: build-daemon build-cli
 
 .PHONY: build-daemon
-build-daemon:
+build-daemon: crd certs
 	cd sartd; $(CARGO) build --verbose
 
 .PHONY: build-cli
@@ -96,6 +96,43 @@ build-proto:
 	protoc -Iproto --go_out=./controller/pkg/proto fib.proto
 	protoc -Iproto --go-grpc_out=./controller/pkg/proto fib.proto
 
+.PHONY: clean
+clean: clean-crd clean-certs
+	rm sartd/target/debug/sartd || true
+	rm sartd/target/debug/crdgen || true
+	rm sartd/target/debug/certgen || true
+	rm sart/target/debug/sart || true
+
+
+MANIFESTS_DIR := $(PWD)/manifests
+CRD_DIR := $(MANIFESTS_DIR)/crd
+CERT_DIR := $(MANIFESTS_DIR)/certs
+
+.PHONY: crd
+crd: $(CRD_DIR)/sart.yaml
+
+.PHONY: clean-crd
+clean-crd:
+	rm $(CRD_DIR)/sart.yaml || true
+
+$(CRD_DIR)/sart.yaml:
+	mkdir -p $(CRD_DIR)
+	cd sartd; $(CARGO) run --bin crdgen > $(CRD_DIR)/sart.yaml
+
+.PHONY: certs
+certs: $(CERT_DIR)/tls.cert $(CERT_DIR)/tls.key manifests/webhook/admission_webhook_patch.yaml
+
+.PHONY: clean-certs
+clean-certs:
+	rm -f $(CERT_DIR)/tls.cert  $(CERT_DIR)/tls.key || true
+	rm -f manifests/webhook/admission_webhook_patch.yaml || true
+
+$(CERT_DIR)/tls.cert:
+	mkdir -p $(CERT_DIR)
+	cd sartd; $(CARGO) run --bin certgen -- --out-dir $(CERT_DIR)
+
+manifests/webhook/admission_webhook_patch.yaml: $(CERT_DIR)/tls.cert manifests/webhook/admission_webhook_patch.yaml.tmpl
+	sed "s/%CACERT%/$$(base64 -w0 < $<)/g" $@.tmpl > $@
 
 .PHONY: fmt
 fmt:
@@ -160,71 +197,40 @@ CLIENT_ADDR ?= ""
 LB_CIDR ?= 10.69.0.0/24
 ESCAPED_LB_CIDR ?= "10.69.0.0\/24"
 
+BIN_DIR := bin/
+KIND := $(BIN_DIR)/kind
+KUBECTL := $(BIN_DIR)/kubectl
+KUSTOMZIE := $(BIN_DIR)/kustomize
+
+.PHONY: kind-load
+kind-load: build-dev-image
+	$(KIND) load docker-image sart:dev -n sart
+	$(KUBECTL) -n kube-system rollout restart ds/sartd-agent
+	$(KUBECTL) -n kube-system rollout restart deploy/sart-controller
+
+
 .PHONY: devenv
-devenv:
-	${SUDO} sysctl -w fs.inotify.max_user_instances=512
-	${SUDO} sysctl -w fs.inotify.max_user_watches=65536
-	if [ ${BUILD} = "daemon" ]; then \
-		make build-dev-image; \
-	elif [ ${BUILD} = "controller" ]; then \
-		cd controller; make docker-build; \
-	elif [ ${BUILD} = "all" ]; then \
-		make build-image; \
-		cd controller; make docker-build; \
-	fi
-	docker rm -f devenv-bgp || true
-	docker rm -f client || true
+devenv: crd certs build-dev-image
+	$(MAKE) -C devenv cluster
 
-	rm -f ./devenv/frr/staticd.conf || true
+	$(KUBECTL) label nodes --overwrite sart-worker sart.terassyi.net/asn=65001
+	$(KUBECTL) label nodes --overwrite sart-worker2 sart.terassyi.net/asn=65002
+	$(KUBECTL) label nodes --overwrite sart-worker3 sart.terassyi.net/asn=65003
+	$(KUBECTL) label nodes --overwrite sart-control-plane sart.terassyi.net/asn=65004
 
-	ctlptl apply -f ./controller/ctlptl.yaml
-	$(eval REGISTORY_URL = $(shell ctlptl get cluster kind-devenv -o template --template '{{.status.localRegistryHosting.host}}'))
-	make push-image
+	$(KIND) load docker-image sart:dev -n sart
 
-	kubectl label nodes --overwrite devenv-control-plane sart.terassyi.net/asn=${NODE0_ASN}
-	kubectl label nodes --overwrite devenv-worker sart.terassyi.net/asn=${NODE1_ASN}
-	kubectl label nodes --overwrite devenv-worker2 sart.terassyi.net/asn=${NODE2_ASN}
-	kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v$(CERT_MANAGER_VERSION)/cert-manager.yaml
-	kubectl -n cert-manager wait --for=condition=available --timeout=180s --all deploymentskubectl label nodes --overwrite devenv-worker3 sart.terassyi.net/asn=${NODE3_ASN}
+	$(KUSTOMZIE) build manifests | $(KUBECTL) apply -f -
 
-	$(eval NODE0_ADDR = $(shell kubectl get nodes devenv-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'))
-	$(eval NODE1_ADDR = $(shell kubectl get nodes devenv-worker -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'))
-	$(eval NODE2_ADDR = $(shell kubectl get nodes devenv-worker2 -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'))
-	$(eval NODE3_ADDR = $(shell kubectl get nodes devenv-worker3 -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'))
+.PHONY: sample
+sample:
+	$(KUSTOMZIE) build manifests/sample | $(KUBECTL) apply -f -
 
-	docker run -d --privileged --network kind  --rm --ulimit core=-1 --name devenv-bgp --volume `pwd`/devenv/frr:/etc/frr/ ghcr.io/terassyi/terakoya:0.1.2 tail -f /dev/null
-	docker run -d --privileged --network kind --rm --name client ghcr.io/terassyi/terakoya:0.1.2 tail -f /dev/null
+.PHONY: devenv-down
+devenv-down: clean-certs clean-crd
+	$(MAKE) -C devenv down
 
-	make configure-bgp
-
-
-.PHONY: configure-bgp
-configure-bgp:
-
-	docker exec devenv-bgp /usr/lib/frr/frrinit.sh start
-
-	$(eval DEVENV_BGP_ADDR = $(shell docker inspect devenv-bgp | jq '.[0].NetworkSettings.Networks.kind.IPAddress' | tr -d '"'))
-	$(eval NODE0_ADDR = $(shell kubectl get nodes devenv-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'))
-	$(eval NODE1_ADDR = $(shell kubectl get nodes devenv-worker -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'))
-	$(eval NODE2_ADDR = $(shell kubectl get nodes devenv-worker2 -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'))
-	$(eval NODE3_ADDR = $(shell kubectl get nodes devenv-worker3 -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'))
-	sed -e s/NODE0_ASN/${NODE0_ASN}/g -e s/NODE1_ASN/${NODE1_ASN}/g -e s/NODE2_ASN/${NODE2_ASN}/g -e s/NODE3_ASN/${NODE3_ASN}/g \
-		-e s/DEVENV_BGP_ASN/${DEVENV_BGP_ASN}/g \
-		-e s/DEVENV_BGP_ADDR/${DEVENV_BGP_ADDR}/g \
-		-e s/NODE0_ADDR/${NODE0_ADDR}/g -e s/NODE1_ADDR/${NODE1_ADDR}/g -e s/NODE2_ADDR/${NODE2_ADDR}/g -e s/NODE3_ADDR/${NODE3_ADDR}/g \
-		./devenv/frr/gobgp.conf.tmpl > ./devenv/frr/gobgp.conf
-
-
-	sed -e s/LB_CIDR/'${ESCAPED_LB_CIDR}'/g \
-		./controller/config/sample_templates/_v1alpha1_addresspool.yaml.tmpl > ./controller/config/samples/_v1alpha1_addresspool.yaml
-
-	sed -e s/DEVENV_BGP_ASN/${DEVENV_BGP_ASN}/g -e s/DEVENV_BGP_ADDR/${DEVENV_BGP_ADDR}/g \
-		./controller/config/sample_templates/_v1alpha1_bgppeer.yaml.tmpl > ./controller/config/samples/_v1alpha1_bgppeer.yaml
-
-	docker exec -d devenv-bgp gobgpd -f /etc/frr/gobgp.conf
-	docker exec client ip route add ${LB_CIDR} via ${DEVENV_BGP_ADDR}
-
-.PHONY:
+.PHONY: push-image
 push-image:
 	docker image tag sart:${IMAGE_VERSION} ${REGISTORY_URL}/sart:${IMAGE_VERSION}
 	docker image tag sart-controller:${IMAGE_VERSION} ${REGISTORY_URL}/sart-controller:${IMAGE_VERSION}
@@ -232,13 +238,6 @@ push-image:
 	docker push ${REGISTORY_URL}/sart:${IMAGE_VERSION}
 	docker push ${REGISTORY_URL}/sart-controller:${IMAGE_VERSION}
 	docker push ${REGISTORY_URL}/test-app:${IMAGE_VERSION}
-
-.PHONY: clean-devenv
-clean-devenv:
-	ctlptl delete -f ./controller/ctlptl.yaml
-	docker rm -f devenv-bgp
-	docker rm -f client
-	rm -f ./devenv/frr/staticd.conf || true
 
 CARGO_BUMP ?= cargo-bump
 

@@ -61,6 +61,7 @@ impl PeerManager {
 
 #[derive(Debug, Clone)]
 pub(crate) struct PeerInfo {
+    pub name: String,
     pub neighbor: Neighbor,
     pub asn: u32,
     pub addr: IpAddr,
@@ -83,6 +84,7 @@ impl PeerInfo {
         families: Vec<AddressFamily>,
     ) -> Self {
         Self {
+            name: neighbor.name.clone(),
             neighbor: Neighbor::from(neighbor),
             asn: local_as,
             addr: IpAddr::from(local_router_id), // addr will be changed by stream
@@ -127,19 +129,51 @@ pub(crate) struct Peer {
     api_tx: Sender<ApiResponse>,
     // workaround for https://github.com/terassyi/sart/issues/44
     invalid_msg_count: u32,
+    exporter: Option<
+        proto::sart::bgp_exporter_api_client::BgpExporterApiClient<tonic::transport::Channel>,
+    >,
 }
 
+unsafe impl Send for Peer {}
+unsafe impl Sync for Peer {}
+
 impl Peer {
-    pub fn new(
+    #[tracing::instrument(skip_all)]
+    pub async fn new(
         info: Arc<Mutex<PeerInfo>>,
         rx: UnboundedReceiver<Event>,
         rib_tx: Sender<RibEvent>,
         rib_rx: Receiver<RibEvent>,
         api_tx: Sender<ApiResponse>,
+        exporter: Option<String>,
     ) -> Self {
         let (keepalive_time, families) = {
             let info = info.lock().unwrap();
             (info.keepalive_time, info.families.clone())
+        };
+        let exporter = match exporter {
+            Some(path) => {
+                tracing::info!("Try to connect to BGP exporter");
+                match proto::sart::bgp_exporter_api_client::BgpExporterApiClient::connect(format!(
+                    "http://{}",
+                    path
+                ))
+                .await
+                {
+                    Ok(conn) => {
+                        tracing::info!(exporter = path, "Connect to BGP exporter");
+                        Some(conn)
+                    }
+                    Err(e) => {
+                        tracing::warn!(exporter = path, error=?e,"failed to connect to BGP exporter");
+                        None
+                    }
+                }
+            }
+            None => {
+                tracing::warn!("BGP exporter is not specified");
+                None
+            }
         };
         let (conn_tx, conn_rx) = unbounded_channel();
         Self {
@@ -168,6 +202,7 @@ impl Peer {
             rib_rx,
             api_tx,
             invalid_msg_count: 0,
+            exporter,
         }
     }
 
@@ -175,8 +210,33 @@ impl Peer {
         self.fsm.lock().unwrap().get_state()
     }
 
-    fn move_state(&mut self, event: u8) {
+    #[tracing::instrument(skip_all)]
+    async fn move_state(&mut self, event: u8) {
         let state = self.fsm.lock().unwrap().mv(event);
+        let (asn, addr, old_state, name) = {
+            let info = self.info.lock().unwrap();
+            (
+                info.asn,
+                info.addr.to_string(),
+                info.state,
+                info.name.clone(),
+            )
+        };
+        if let Some(exporter) = &mut self.exporter {
+            if state.ne(&old_state) {
+                if let Err(e) = exporter
+                    .export_peer_state(proto::sart::ExportPeerStateRequest {
+                        asn,
+                        addr,
+                        state: state as i32,
+                        name,
+                    })
+                    .await
+                {
+                    tracing::warn!(error=?e,"failed to export peer state");
+                }
+            }
+        }
         self.info.lock().unwrap().state = state;
     }
 
@@ -220,8 +280,8 @@ impl Peer {
                         tracing::info!(state=?current_state, event=%event);
                         let res = match event {
                             Event::Admin(event) => match event {
-                                AdministrativeEvent::ManualStart => self.manual_start(),
-                                AdministrativeEvent::ManualStartWithPassiveTcpEstablishment => self.manual_start_with_passive_tcp_establishment(),
+                                AdministrativeEvent::ManualStart => self.manual_start().await,
+                                AdministrativeEvent::ManualStartWithPassiveTcpEstablishment => self.manual_start_with_passive_tcp_establishment().await,
                                 AdministrativeEvent::ManualStop => {
                                     match self.manual_stop().await {
                                         Ok(_) => {},
@@ -233,7 +293,7 @@ impl Peer {
                                 _ => unimplemented!(),
                             },
                             Event::Connection(event) => match event {
-                                TcpConnectionEvent::TcpConnectionConfirmed(stream) => self.handle_tcp_connect(stream, msg_event_tx.clone(), conn_close_tx.clone(), Event::CONNECTION_TCP_CONNECTION_CONFIRMED),
+                                TcpConnectionEvent::TcpConnectionConfirmed(stream) => self.handle_tcp_connect(stream, msg_event_tx.clone(), conn_close_tx.clone(), Event::CONNECTION_TCP_CONNECTION_CONFIRMED).await,
                                 TcpConnectionEvent::TcpConnectionFail => self.tcp_connection_fail().await,
                                 _ => unimplemented!(),
                             },
@@ -260,7 +320,7 @@ impl Peer {
                     tracing::info!(state=?self.state(), event=%TcpConnectionEvent::TcpCRAcked);
                     if let Some(stream) = stream {
                         let current_state = self.state();
-                        match self.handle_tcp_connect(stream, msg_event_tx.clone(), conn_close_tx.clone(), Event::CONNECTION_TCP_CR_ACKED) {
+                        match self.handle_tcp_connect(stream, msg_event_tx.clone(), conn_close_tx.clone(), Event::CONNECTION_TCP_CR_ACKED).await {
                             Ok(_) => {},
                             Err(e) => tracing::error!(state=?current_state,error=?e),
                         };
@@ -319,7 +379,7 @@ impl Peer {
                         tracing::warn!(local_port=local_port,conn_empty=empty,"connection closed actively");
                         if empty {
                             self.release(false).await.unwrap();
-                            self.move_state(Event::CONNECTION_TCP_CONNECTION_FAIL);
+                            self.move_state(Event::CONNECTION_TCP_CONNECTION_FAIL).await;
                         }
                     }
                 }
@@ -549,7 +609,7 @@ impl Peer {
 
     // Event 1
     #[tracing::instrument(skip(self))]
-    fn manual_start(&mut self) -> Result<(), Error> {
+    async fn manual_start(&mut self) -> Result<(), Error> {
         let (addr, conn_retry_time) = {
             let info = self.info.lock().unwrap();
             (info.neighbor.get_addr(), info.connect_retry_time)
@@ -586,7 +646,7 @@ impl Peer {
                 sleep(Duration::from_secs(conn_retry_time / 2)).await;
             }
         });
-        self.move_state(Event::AMDIN_MANUAL_START);
+        self.move_state(Event::AMDIN_MANUAL_START).await;
         Ok(())
     }
 
@@ -597,15 +657,16 @@ impl Peer {
         self.send(msg)?;
         self.release(true).await?;
         self.connect_retry_counter += 1;
-        self.move_state(Event::ADMIN_MANUAL_STOP);
+        self.move_state(Event::ADMIN_MANUAL_STOP).await;
         Ok(())
     }
 
     // Event 4
     #[tracing::instrument(skip(self))]
-    fn manual_start_with_passive_tcp_establishment(&mut self) -> Result<(), Error> {
+    async fn manual_start_with_passive_tcp_establishment(&mut self) -> Result<(), Error> {
         tracing::debug!("start passively");
-        self.move_state(Event::ADMIN_MANUAL_START_WITH_PASSIVE_TCP_ESTABLISHMENT);
+        self.move_state(Event::ADMIN_MANUAL_START_WITH_PASSIVE_TCP_ESTABLISHMENT)
+            .await;
         Ok(())
     }
 
@@ -647,7 +708,8 @@ impl Peer {
                 self.connect_retry_counter += 1;
             }
         }
-        self.move_state(Event::TIMER_CONNECT_RETRY_TIMER_EXPIRE);
+        self.move_state(Event::TIMER_CONNECT_RETRY_TIMER_EXPIRE)
+            .await;
         Ok(())
     }
 
@@ -677,7 +739,7 @@ impl Peer {
                 self.connect_retry_counter += 1;
             }
         }
-        self.move_state(Event::TIMER_HOLD_TIMER_EXPIRE);
+        self.move_state(Event::TIMER_HOLD_TIMER_EXPIRE).await;
         Ok(())
     }
 
@@ -736,7 +798,7 @@ impl Peer {
     // tcp_cr_acked and tcp_connection_confirmed
     // Event 16, 17
     #[tracing::instrument(skip_all)]
-    fn handle_tcp_connect(
+    async fn handle_tcp_connect(
         &mut self,
         stream: TcpStream,
         msg_event_tx: UnboundedSender<BgpMessageEvent>,
@@ -818,7 +880,7 @@ impl Peer {
                                //     // connection SHALL be tracked until it sends an OPEN message.
                                // }
         }
-        self.move_state(event);
+        self.move_state(event).await;
         Ok(())
     }
 
@@ -853,7 +915,7 @@ impl Peer {
                 self.connect_retry_counter += 1;
             }
         }
-        self.move_state(Event::CONNECTION_TCP_CONNECTION_FAIL);
+        self.move_state(Event::CONNECTION_TCP_CONNECTION_FAIL).await;
         Ok(())
     }
 
@@ -985,7 +1047,7 @@ impl Peer {
             }
             _ => {}
         }
-        self.move_state(Event::MESSAGE_BGP_OPEN);
+        self.move_state(Event::MESSAGE_BGP_OPEN).await;
         Ok(())
     }
 
@@ -1027,8 +1089,11 @@ impl Peer {
             State::Established => {
                 self.invalid_msg_count += 1;
                 if self.invalid_msg_count < 3 {
-                    tracing::warn!(counter=self.invalid_msg_count,"got invalid header message. counted up.");
-                    return Ok(())
+                    tracing::warn!(
+                        counter = self.invalid_msg_count,
+                        "got invalid header message. counted up."
+                    );
+                    return Ok(());
                 }
                 // sends a NOTIFICATION message with the Error Code Finite State Machine Error,
                 // deletes all routes associated with this connection,
@@ -1053,7 +1118,7 @@ impl Peer {
             }
             _ => {}
         }
-        self.move_state(Event::MESSAGE_BGP_HEADER_ERROR);
+        self.move_state(Event::MESSAGE_BGP_HEADER_ERROR).await;
         Ok(())
     }
 
@@ -1147,7 +1212,7 @@ impl Peer {
             }
             _ => {}
         }
-        self.move_state(Event::MESSAGE_NOTIF_MSG_ERROR);
+        self.move_state(Event::MESSAGE_NOTIF_MSG_ERROR).await;
         Ok(())
     }
 
@@ -1192,7 +1257,7 @@ impl Peer {
                 self.connect_retry_counter += 1;
             }
         }
-        self.move_state(Event::MESSAGE_NOTIF_MSG);
+        self.move_state(Event::MESSAGE_NOTIF_MSG).await;
         Ok(())
     }
 
@@ -1233,7 +1298,7 @@ impl Peer {
                 self.connect_retry_counter += 1;
             }
         }
-        self.move_state(Event::MESSAGE_KEEPALIVE_MSG);
+        self.move_state(Event::MESSAGE_KEEPALIVE_MSG).await;
         Ok(())
     }
 
@@ -1273,7 +1338,7 @@ impl Peer {
                 self.connect_retry_counter += 1;
             }
         }
-        self.move_state(Event::MESSAGE_UPDATE_MSG);
+        self.move_state(Event::MESSAGE_UPDATE_MSG).await;
         Ok(())
     }
 
@@ -1321,7 +1386,7 @@ impl Peer {
                 self.release(false).await?;
             }
         }
-        self.move_state(Event::MESSAGE_UPDATE_MSG_ERROR);
+        self.move_state(Event::MESSAGE_UPDATE_MSG_ERROR).await;
         Ok(())
     }
 
@@ -1633,6 +1698,7 @@ impl Peer {
 
             let info = self.info.lock().unwrap();
             proto::sart::Peer {
+                name: info.name.clone(),
                 asn: info.neighbor.get_asn(),
                 address: info.neighbor.get_addr().to_string(),
                 router_id: info.neighbor.get_router_id().to_string(),
@@ -1817,6 +1883,7 @@ mod tests {
             100,
             Ipv4Addr::new(1, 1, 1, 1),
             NeighborConfig {
+                name: "test".to_string(),
                 asn: 200,
                 address: IpAddr::V4(Ipv4Addr::new(2, 2, 2, 2)),
                 router_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -1837,9 +1904,9 @@ mod tests {
         let (_, rx) = tokio::sync::mpsc::unbounded_channel();
         let (rib_tx, rib_rx) = tokio::sync::mpsc::channel(128);
         let (api_tx, _api_rx) = tokio::sync::mpsc::channel(128);
-        let mut peer = Peer::new(info, rx, rib_tx, rib_rx, api_tx);
+        let mut peer = Peer::new(info, rx, rib_tx, rib_rx, api_tx, None).await;
         for e in event.into_iter() {
-            peer.move_state(e);
+            peer.move_state(e).await;
         }
         assert_eq!(State::Established, peer.info.lock().unwrap().state);
     }
@@ -1850,6 +1917,7 @@ mod tests {
             100,
             Ipv4Addr::new(1, 1, 1, 1),
             NeighborConfig {
+                name: "test".to_string(),
                 asn: 200,
                 address: IpAddr::V4(Ipv4Addr::new(2, 2, 2, 2)),
                 router_id: Ipv4Addr::new(2, 2, 2, 2),
@@ -1870,7 +1938,7 @@ mod tests {
         let (_, rx) = tokio::sync::mpsc::unbounded_channel();
         let (rib_tx, rib_rx) = tokio::sync::mpsc::channel(128);
         let (api_tx, _api_rx) = tokio::sync::mpsc::channel(128);
-        let peer = Peer::new(info, rx, rib_tx, rib_rx, api_tx);
+        let peer = Peer::new(info, rx, rib_tx, rib_rx, api_tx, None).await;
         let msg = peer.build_open_msg().unwrap();
         assert_eq!(
             Message::Open {

@@ -1,0 +1,22 @@
+resources:
+  - crd
+  - rbac
+  - webhook
+  - workloads
+
+images:
+  - name: sart:dev
+    newName: sart
+    newTag: dev
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+secretGenerator:
+  - name: sart-webhook-server-cert
+    namespace: kube-system
+    files:
+    - ca.crt=./certs/tls.cert
+    - tls.crt=./certs/tls.cert
+    - tls.key=./certs/tls.key
+    type: "kubernetes.io/tls"

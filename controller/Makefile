@@ -1,4 +1,7 @@
 
+RUSTUP := rustup
+CARGO := cargo
+
 # Image URL to use all building/pushing image targets
 IMG ?= sart-controller
 IMG_TAG ?= dev
@@ -157,3 +160,59 @@ $(CONTROLLER_GEN): $(LOCALBIN)
 envtest: $(ENVTEST) ## Download envtest-setup locally if necessary.
 $(ENVTEST): $(LOCALBIN)
 	test -s $(LOCALBIN)/setup-envtest || GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+
+
+# for Rust controller
+
+.PHONY: generate-crd
+generate-crd:
+	$(CARGO) run --bin crdgen > manifests/crd/crd.yaml
+
+.PHONY: generate-cert
+generate-cert: manifests/sample/cert/cert.pem manifests/sample/cert/key.pem
+manifests/sample/cert/cert.pem manifests/sample/cert/key.pem:
+	mkdir -p manifests/sample/cert
+	$(CARGO) run --bin certgen -- --out-dir manifests/sample/cert
+
+manifests/webhook/validating_webhook_patch.yaml: manifests/sample/cert/cert.pem manifests/webhook/validating_webhook_patch.yaml.tmpl
+	sed "s/%CACERT%/$$(base64 -w0 < $<)/g" $@.tmpl > $@
+
+.PHONY: build-controller
+build-controller: generate-crd
+	$(CARGO) build
+
+.PHONY: build-container
+build-container:
+	docker build -t sart-controller:dev ../ -f Dockerfile
+
+.PHONY: load
+load:
+	kind load docker-image sart-controller:dev -n sart
+
+.PHONY: build-load
+build-load: build-container load
+	kubectl -n kube-system rollout restart deploy/sart-controller
+
+.PHONY: kind-load
+kind-load: build-container
+	kind load docker-image sart-controller:dev -n sart
+	kind load docker-image sart:dev -n sart
+
+.PHONY: devenv
+devenv: generate-crd build-controller generate-cert manifests/webhook/validating_webhook_patch.yaml
+	$(MAKE) -C ../devenv cluster
+	kubectl apply -f manifests/crd/crd.yaml
+	$(MAKE) kind-load
+	$(KUSTOMIZE) build manifests/webhook | kubectl apply -f -
+	$(KUSTOMIZE) build manifests/sample | kubectl apply -f -
+
+.PHONY: install-bgp
+install-bgp:
+	kubectl apply -f manifests/testdata/clusterbgp.yaml
+
+.PHONY: devenv-down
+devenv-down:
+	rm manifests/sample/cert/cert.pem || true
+	rm manifests/sample/cert/key.pem || true
+	rm manifests/webhook/validating_webhook_patch.yaml || true
+	$(MAKE) -C ../devenv down

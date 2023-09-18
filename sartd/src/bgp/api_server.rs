@@ -1,4 +1,5 @@
 use std::marker::{Send, Sync};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -23,6 +24,7 @@ pub(crate) struct ApiServer {
     tx: Sender<ControlEvent>,
     response_rx: Mutex<Receiver<ApiResponse>>,
     timeout: u64,
+    internal_timeout: u64,
     signal: Arc<Notify>,
 }
 
@@ -31,12 +33,14 @@ impl ApiServer {
         tx: Sender<ControlEvent>,
         response_rx: Receiver<ApiResponse>,
         timeout: u64,
+        internal_timeout: u64,
         signal: Arc<Notify>,
     ) -> Self {
         Self {
             tx,
             response_rx: Mutex::new(response_rx),
             timeout,
+            internal_timeout,
             signal,
         }
     }
@@ -58,7 +62,7 @@ impl BgpApi for ApiServer {
     ) -> Result<Response<GetBgpInfoResponse>, Status> {
         self.tx.send(ControlEvent::GetBgpInfo).await.unwrap();
         let mut rx = self.response_rx.lock().await;
-        match timeout(Duration::from_secs(self.timeout), rx.recv()).await {
+        match timeout(Duration::from_secs(self.internal_timeout), rx.recv()).await {
             Ok(res) => match res {
                 Some(info) => {
                     if let ApiResponse::BgpInfo(info) = info {
@@ -86,7 +90,7 @@ impl BgpApi for ApiServer {
         self.tx.send(ControlEvent::GetPeer(addr)).await.unwrap();
 
         let mut rx = self.response_rx.lock().await;
-        match timeout(Duration::from_secs(self.timeout), rx.recv()).await {
+        match timeout(Duration::from_secs(self.internal_timeout), rx.recv()).await {
             Ok(res) => match res {
                 Some(res) => {
                     if let ApiResponse::Neighbor(peer) = res {
@@ -99,7 +103,7 @@ impl BgpApi for ApiServer {
                 }
                 None => Err(Status::internal("failed to get neighbor information")),
             },
-            Err(_e) => Err(Status::deadline_exceeded("timeout")),
+            Err(_e) => Err(Status::not_found("peer not found")),
         }
     }
 
@@ -109,7 +113,7 @@ impl BgpApi for ApiServer {
     ) -> Result<Response<ListNeighborResponse>, Status> {
         self.tx.send(ControlEvent::ListPeer).await.unwrap();
         let mut rx = self.response_rx.lock().await;
-        match timeout(Duration::from_secs(self.timeout), rx.recv()).await {
+        match timeout(Duration::from_secs(self.internal_timeout), rx.recv()).await {
             Ok(res) => match res {
                 Some(res) => {
                     if let ApiResponse::Neighbors(peers) = res {
@@ -120,7 +124,7 @@ impl BgpApi for ApiServer {
                 }
                 None => Err(Status::internal("failed to get neighbors list information")),
             },
-            Err(_e) => Err(Status::deadline_exceeded("timeout")),
+            Err(_e) => Err(Status::not_found("peers not found")),
         }
     }
 
@@ -139,7 +143,7 @@ impl BgpApi for ApiServer {
         self.tx.send(ControlEvent::GetPath(family)).await.unwrap();
 
         let mut rx = self.response_rx.lock().await;
-        match timeout(Duration::from_secs(self.timeout), rx.recv()).await {
+        match timeout(Duration::from_secs(self.internal_timeout), rx.recv()).await {
             Ok(res) => match res {
                 Some(res) => {
                     if let ApiResponse::Paths(paths) = res {
@@ -150,7 +154,7 @@ impl BgpApi for ApiServer {
                 }
                 None => Err(Status::internal("failed to get path information")),
             },
-            Err(_e) => Err(Status::deadline_exceeded("timeout")),
+            Err(_e) => Err(Status::not_found("path not found")),
         }
     }
 
@@ -181,7 +185,7 @@ impl BgpApi for ApiServer {
             .unwrap();
 
         let mut rx = self.response_rx.lock().await;
-        match timeout(Duration::from_secs(self.timeout), rx.recv()).await {
+        match timeout(Duration::from_secs(self.internal_timeout), rx.recv()).await {
             Ok(res) => match res {
                 Some(res) => {
                     if let ApiResponse::Paths(paths) = res {
@@ -194,7 +198,46 @@ impl BgpApi for ApiServer {
                 }
                 None => Err(Status::internal("failed to get path information")),
             },
-            Err(_e) => Err(Status::deadline_exceeded("timeout")),
+            Err(_e) => Err(Status::not_found("neighbor's paths not found")),
+        }
+    }
+
+    async fn get_path_by_prefix(
+        &self,
+        req: Request<GetPathByPrefixRequest>,
+    ) -> Result<Response<GetPathByPrefixResponse>, Status> {
+        let prefix = match IpNet::from_str(&req.get_ref().prefix) {
+            Ok(p) => p,
+            Err(e) => return Err(Status::aborted(format!("failed to parse prefix: {}", e))),
+        };
+        if req.get_ref().family.is_none() {
+            return Err(Status::aborted("failed to receive AddressFamily"));
+        }
+        let f = req.get_ref().family.as_ref().unwrap();
+        let family = match AddressFamily::new(f.afi as u16, f.safi as u8) {
+            Ok(f) => f,
+            Err(_) => return Err(Status::aborted("failed to get AddressFamily")),
+        };
+        self.tx
+            .send(ControlEvent::GetPathByPrefix(prefix, family))
+            .await
+            .unwrap();
+
+        let mut rx = self.response_rx.lock().await;
+        match timeout(Duration::from_secs(self.internal_timeout), rx.recv()).await {
+            Ok(res) => match res {
+                Some(res) => {
+                    if let ApiResponse::Paths(paths) = res {
+                        Ok(Response::new(proto::sart::GetPathByPrefixResponse {
+                            paths,
+                        }))
+                    } else {
+                        Err(Status::internal("failed to get path information"))
+                    }
+                }
+                None => Err(Status::internal("failed to get path information")),
+            },
+            Err(_e) => Err(Status::not_found("path not found")),
         }
     }
 
@@ -219,14 +262,24 @@ impl BgpApi for ApiServer {
         }
     }
 
+    async fn clear_bgp_info(
+        &self,
+        req: Request<ClearBgpInfoRequest>,
+    ) -> Result<Response<()>, Status> {
+        match self.tx.send(ControlEvent::ClearBgpInfo).await {
+            Ok(_) => Ok(Response::new(())),
+            Err(_) => Err(Status::internal("failed to clear BGP server information")),
+        }
+    }
+
     #[tracing::instrument(skip(self, req))]
     async fn add_peer(&self, req: Request<AddPeerRequest>) -> Result<Response<()>, Status> {
         let neighbor_config = match &req.get_ref().peer {
             Some(peer) => match NeighborConfig::try_from(peer) {
                 Ok(config) => config,
-                Err(_) => return Err(Status::aborted("")),
+                Err(e) => return Err(Status::aborted(e.to_string())),
             },
-            None => return Err(Status::aborted("")),
+            None => return Err(Status::aborted("Neighbor information is not set")),
         };
         match self.tx.send(ControlEvent::AddPeer(neighbor_config)).await {
             Ok(_) => Ok(Response::new(())),

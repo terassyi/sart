@@ -26,7 +26,7 @@ use crate::bgp::family::Afi;
 use crate::bgp::peer::fsm::State;
 use crate::proto;
 use crate::proto::sart::bgp_api_server::BgpApiServer;
-use crate::trace::{prepare_tracing, TraceConfig};
+use crate::trace::init::{prepare_tracing, TraceConfig};
 
 use super::capability::Capability;
 use super::capability::CapabilitySet;
@@ -51,6 +51,7 @@ pub(crate) struct Bgp {
     event_signal: Arc<Notify>,
     rib_event_tx: Sender<RibEvent>,
     api_tx: Sender<ApiResponse>,
+    exporter: Option<String>,
 }
 
 impl Bgp {
@@ -64,10 +65,12 @@ impl Bgp {
     pub const AD_EBGP: u8 = 20;
     pub const AD_IBGP: u8 = 200;
     const API_SERVER_PORT: u16 = 5000;
-    const DEFAULT_API_TIMEOUT: u64 = 30;
+    const DEFAULT_API_TIMEOUT: u64 = 10;
+    const DEFAULT_INTERNAL_TIMEOUT: u64 = 1;
 
     pub fn new(conf: Config, rib_event_tx: Sender<RibEvent>, api_tx: Sender<ApiResponse>) -> Self {
         let asn = conf.asn;
+        let exporter = conf.exporter.clone();
         Self {
             config: Arc::new(Mutex::new(conf)),
             peer_managers: HashMap::new(),
@@ -78,11 +81,12 @@ impl Bgp {
             event_signal: Arc::new(Notify::new()),
             rib_event_tx,
             api_tx,
+            exporter,
         }
     }
 
     pub async fn serve(conf: Config, trace: TraceConfig) {
-        prepare_tracing(trace);
+        prepare_tracing(trace).await;
         let _enter = tracing::info_span!("bgp").entered();
 
         let (rib_event_tx, mut rib_event_rx) = channel::<RibEvent>(128);
@@ -139,6 +143,7 @@ impl Bgp {
                     ctrl_tx,
                     api_rx,
                     Bgp::DEFAULT_API_TIMEOUT,
+                    Bgp::DEFAULT_INTERNAL_TIMEOUT,
                     signal_api,
                 )))
                 .add_service(reflection_server)
@@ -241,8 +246,12 @@ impl Bgp {
             ControlEvent::GetNeighborPath(kind, peer_addr, family) => {
                 self.get_neighbor_path(kind, peer_addr, family).await?
             }
+            ControlEvent::GetPathByPrefix(prefix, family) => {
+                self.get_path_by_prefix(prefix, family).await?
+            }
             ControlEvent::SetAsn(asn) => self.set_asn(asn).await?,
             ControlEvent::SetRouterId(id) => self.set_router_id(id).await?,
+            ControlEvent::ClearBgpInfo => self.clear_bgp_info().await?,
             ControlEvent::AddPeer(neighbor) => self.add_peer(neighbor).in_current_span().await?,
             ControlEvent::DeletePeer(addr) => self.delete_peer(addr).await?,
             ControlEvent::AddPath(prefixes, attributes) => {
@@ -293,6 +302,7 @@ impl Bgp {
                     .map(proto::sart::AddressFamily::from)
                     .collect();
                 proto::sart::Peer {
+                    name: info.name.clone(),
                     asn: info.neighbor.get_asn(),
                     address: info.neighbor.get_addr().to_string(),
                     router_id: info.neighbor.get_router_id().to_string(),
@@ -336,6 +346,13 @@ impl Bgp {
         Ok(())
     }
 
+    async fn get_path_by_prefix(&self, prefix: IpNet, family: AddressFamily) -> Result<(), Error> {
+        self.rib_event_tx
+            .send(RibEvent::GetPathByPrefix(prefix, family))
+            .await
+            .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))
+    }
+
     #[tracing::instrument(skip(self))]
     async fn set_asn(&mut self, asn: u32) -> Result<(), Error> {
         let mut config = self.config.lock().unwrap();
@@ -350,7 +367,11 @@ impl Bgp {
         {
             match cap {
                 Capability::FourOctetASNumber(c) => c.set(asn),
-                _ => return Err(Error::Config(ConfigError::InvalidArgument)),
+                _ => {
+                    return Err(Error::Config(ConfigError::InvalidArgument(
+                        "failed to set ASN".to_string(),
+                    )))
+                }
             }
         }
         tracing::info!("set local asn");
@@ -381,6 +402,11 @@ impl Bgp {
             })
     }
 
+    async fn clear_bgp_info(&mut self) -> Result<(), Error> {
+        // TODO: implement
+        Ok(())
+    }
+
     #[tracing::instrument(skip(self, neighbor), fields(peer.asn = neighbor.asn, peer.addr = neighbor.address.to_string(), peer.id = neighbor.router_id.to_string()))]
     async fn add_peer(&mut self, neighbor: NeighborConfig) -> Result<(), Error> {
         if self.peer_managers.get(&neighbor.address).is_some() {
@@ -395,7 +421,7 @@ impl Bgp {
         let info = Arc::new(Mutex::new(PeerInfo::new(
             local_as,
             local_router_id,
-            neighbor,
+            neighbor.clone(),
             self.global_capabilities.clone(),
             self.families.clone(),
         )));
@@ -419,7 +445,9 @@ impl Bgp {
             self.rib_event_tx.clone(),
             peer_rib_event_rx,
             self.api_tx.clone(),
-        );
+            self.exporter.clone(),
+        )
+        .await;
         let manager = PeerManager::new(info, tx);
         self.peer_managers.insert(neighbor.address, manager);
 
