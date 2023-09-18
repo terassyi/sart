@@ -2,6 +2,7 @@ apiVersion: sart.terassyi.net/v1alpha2
 kind: BgpPeer
 metadata:
   name: bgppeer-sample
-  namespace: kube-system
 spec:
-  asn: 65000
+  peer:
+    local_asn: 65001
+    local_name: kind-worker

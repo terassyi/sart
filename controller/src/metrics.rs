@@ -2,6 +2,7 @@ use kube::Resource;
 use kube::core::DynamicResourceScope;
 use prometheus::Registry;
 use prometheus::{histogram_opts, opts, HistogramVec, IntCounter, IntCounterVec};
+use tokio::time::Instant;
 
 use super::error::Error;
 
@@ -51,5 +52,29 @@ impl Metrics {
         self.failures
             .with_label_values(&[&resource.object_ref(&()).name.unwrap(), e.metric_label().as_ref()])
             .inc()
+    }
+
+    pub fn count_and_measure(&self) -> ReconcileMeasurer {
+        self.reconciliations.inc();
+        ReconcileMeasurer {
+            start: Instant::now(),
+            metric: self.reconcile_duration.clone(),
+        }
+    }
+}
+
+/// Smart function duration measurer
+///
+/// Relies on Drop to calculate duration and register the observation in the histogram
+pub struct ReconcileMeasurer {
+    start: Instant,
+    metric: HistogramVec,
+}
+
+impl Drop for ReconcileMeasurer {
+    fn drop(&mut self) {
+        #[allow(clippy::cast_precision_loss)]
+        let duration = self.start.elapsed().as_millis() as f64 / 1000.0;
+        self.metric.with_label_values(&[]).observe(duration);
     }
 }

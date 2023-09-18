@@ -39,3 +39,11 @@ anyhow = "1.0.75"
 tracing-opentelemetry = "0.21.0"
 opentelemetry = { version = "0.20.0", features = ["trace", "rt-tokio"] }
 opentelemetry-otlp = { version = "0.13.0", features = ["tokio"], optional = true }
+tonic = "0.10.0"
+prost = "0.12.1"
+prost-types = "0.12.1"
+tonic-reflection = "0.10.0"
+async-trait = "0.1.73"
+
+[build-dependencies]
+tonic-build = {version = "0.10.0", features = ["prost"]}

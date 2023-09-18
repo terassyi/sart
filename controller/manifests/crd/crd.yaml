@@ -20,9 +20,44 @@ spec:
         properties:
           spec:
             properties:
+              peers:
+                properties:
+                  local_addr:
+                    nullable: true
+                    type: string
+                  local_asn:
+                    format: uint32
+                    minimum: 0.0
+                    type: integer
+                  local_name:
+                    nullable: true
+                    type: string
+                  name:
+                    nullable: true
+                    type: string
+                  neighbors:
+                    properties:
+                      addr:
+                        type: string
+                      asn:
+                        format: uint32
+                        minimum: 0.0
+                        type: integer
+                      name:
+                        nullable: true
+                        type: string
+                    required:
+                    - addr
+                    - asn
+                    type: object
+                required:
+                - local_asn
+                - neighbors
+                type: object
               policy:
                 type: string
             required:
+            - peers
             - policy
             type: object
           status:
@@ -50,7 +85,7 @@ spec:
     shortNames:
     - bgpp
     singular: bgppeer
-  scope: Namespaced
+  scope: Cluster
   versions:
   - additionalPrinterColumns: []
     name: v1alpha2
@@ -60,15 +95,58 @@ spec:
         properties:
           spec:
             properties:
-              asn:
-                format: uint32
-                minimum: 0.0
-                type: integer
+              advertisements:
+                items:
+                  type: string
+                type: array
+              peer:
+                properties:
+                  local_addr:
+                    nullable: true
+                    type: string
+                  local_asn:
+                    format: uint32
+                    minimum: 0.0
+                    type: integer
+                  local_name:
+                    nullable: true
+                    type: string
+                  name:
+                    nullable: true
+                    type: string
+                  neighbors:
+                    properties:
+                      addr:
+                        type: string
+                      asn:
+                        format: uint32
+                        minimum: 0.0
+                        type: integer
+                      name:
+                        nullable: true
+                        type: string
+                    required:
+                    - addr
+                    - asn
+                    type: object
+                required:
+                - local_asn
+                - neighbors
+                type: object
             required:
-            - asn
+            - advertisements
+            - peer
             type: object
           status:
             nullable: true
+            properties:
+              status:
+                enum:
+                - NotEstablished
+                - Established
+                type: string
+            required:
+            - status
             type: object
         required:
         - spec
@@ -101,13 +179,47 @@ spec:
         properties:
           spec:
             properties:
+              local_pref:
+                format: uint32
+                minimum: 0.0
+                nullable: true
+                type: integer
               network:
+                type: string
+              origin:
+                nullable: true
+                type: string
+              peers:
+                items:
+                  type: string
+                type: array
+              protocol:
+                enum:
+                - IPv4
+                - IPv6
+                type: string
+              type:
+                enum:
+                - Pod
+                - LoadBalancer
                 type: string
             required:
             - network
+            - peers
+            - protocol
+            - type
             type: object
           status:
             nullable: true
+            properties:
+              status:
+                enum:
+                - NotAdvertised
+                - Advertised
+                - Updating
+                type: string
+            required:
+            - status
             type: object
         required:
         - spec

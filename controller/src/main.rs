@@ -4,6 +4,8 @@ pub(crate) mod error;
 pub(crate) mod metrics;
 pub(crate) mod telemetry;
 pub(crate) mod bgp;
+pub(crate) mod proto;
+pub(crate) mod speaker;
 
 
 

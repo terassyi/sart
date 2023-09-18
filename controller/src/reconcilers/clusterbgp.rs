@@ -31,7 +31,7 @@ use super::{common::error_policy, bgppeer::BgpPeer};
 #[kube(status = "ClusterBgpStatus")]
 pub(crate) struct ClusterBgpSpec {
     pub policy: String,
-    pub peers: peer::Peer,
+    pub peers: Vec<peer::Peer>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Default, Debug, JsonSchema)]
