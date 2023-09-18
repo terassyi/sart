@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-local
+  namespace: test
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: app-local
+  template:
+    metadata:
+      labels:
+        app: app-local
+    spec:
+      containers:
+        - name: app
+          image: nginx:latest
+          ports:
+            - containerPort: 80
+---
+# LoadBalancer Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-svc-local
+  namespace: test
+  annotations:
+    sart.terassyi.net/address-pool: default-lb-pool
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    app: app-local
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80

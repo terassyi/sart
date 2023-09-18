@@ -1,4 +1,7 @@
 
+RUSTUP := rustup
+CARGO := cargo
+
 # Image URL to use all building/pushing image targets
 IMG ?= sart-controller
 IMG_TAG ?= dev
@@ -157,3 +160,22 @@ $(CONTROLLER_GEN): $(LOCALBIN)
 envtest: $(ENVTEST) ## Download envtest-setup locally if necessary.
 $(ENVTEST): $(LOCALBIN)
 	test -s $(LOCALBIN)/setup-envtest || GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+
+
+# for Rust controller
+
+.PHONY: generate-crd
+generate-crd:
+	$(CARGO) run --bin crdgen > manifests/crd/crd.yaml
+
+.PHONY: build-controller
+build-controller: generate-crd
+	$(CARGO) build
+
+.PHONY: devenv
+devenv: generate-crd build-controller
+	$(MAKE) -C ../devenv cluster
+
+.PHONY: devenv-down
+devenv-down:
+	$(MAKE) -C ../devenv down

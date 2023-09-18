@@ -1,0 +1,7 @@
+apiVersion: sart.terassyi.net/v1alpha2
+kind: BgpPeer
+metadata:
+  name: bgppeer-sample
+  namespace: kube-system
+spec:
+  asn: 65000

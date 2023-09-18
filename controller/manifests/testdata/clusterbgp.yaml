@@ -1,0 +1,6 @@
+apiVersion: sart.terassyi.net/v1alpha2
+kind: ClusterBgp
+metadata:
+  name: clusterbgp-sample
+spec:
+  policy: test

@@ -1,34 +1,41 @@
 # Build the manager binary
-FROM golang:1.20 as builder
-ARG TARGETOS
-ARG TARGETARCH
+ARG RUST_VERSION=1.68.0
 
-WORKDIR /workspace
-# Copy the Go Modules manifests
-COPY go.mod go.mod
-COPY go.sum go.sum
-# cache deps before building and copying source so that we don't need to re-download as much
-# and so that source changes don't invalidate our downloaded layer
-RUN go mod download
+# BUILDPLATFORM = linux/amd64
 
-# Copy the go source
-COPY main.go main.go
-COPY api/ api/
-COPY controllers/ controllers/
-COPY pkg/ pkg/
+FROM --platform=$BUILDPLATFORM rust:${RUST_VERSION} as builder
 
-# Build
-# the GOARCH has not a default value to allow the binary be built according to the host where the command
-# was called. For example, if we call make docker-build in a local env which has the Apple Silicon M1 SO
-# the docker BUILDPLATFORM arg will be linux/arm64 when for Apple x86 it will be linux/amd64. Therefore,
-# by leaving it empty we can ensure that the container and binary shipped on it will have the same platform.
-RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o manager main.go
+WORKDIR /work
 
-# Use distroless as minimal base image to package the manager binary
-# Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/static:nonroot
-WORKDIR /
-COPY --from=builder /workspace/manager .
-USER 65532:65532
+COPY . /work
 
-ENTRYPOINT ["/manager"]
+RUN apt update -y && \
+	apt install -y protobuf-compiler libprotobuf-dev
+
+ENV CC_aarch64_unknown_linux_musl=clang
+ENV AR_aarch64_unknown_linux_musl=llvm-ar
+ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="-Clink-self-contained=yes -Clinker=rust-lld"
+
+ENV CC_x86_64_unknown_linux_musl=clang
+ENV AR_x86_64_unknown_linux_musl=llvm-ar
+ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="-Clink-self-contained=yes -Clinker=rust-lld"
+
+ARG TARGETPLATFORM
+RUN case "$TARGETPLATFORM" in \
+	"linux/arm64") echo aarch64-unknown-linux-musl > /rust_target.txt ;; \
+	"linux/amd64") echo x86_64-unknown-linux-musl > /rust_target.txt ;; \
+	*) exit 1 ;; \
+	esac
+
+RUN rustup target add $(cat /rust_target.txt)
+
+RUN cargo build --release && \
+		cp /work/target/release/controller /usr/local/bin/controller
+RUN cargo build --release
+
+FROM debian:stable
+
+RUN apt update -y && \
+	apt install -y iproute2
+
+COPY --from=builder /usr/local/bin/controller /usr/local/bin/controller

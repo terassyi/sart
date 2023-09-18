@@ -1,0 +1,10 @@
+resources:
+  - lb_cluster.yaml
+  - lb_local.yaml
+  - speaker.yaml
+  - controller.yaml
+
+images:
+  - name: sart:dev
+    newName: localhost:5005/sart
+    newTag: dev

@@ -6,14 +6,14 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-thiserror = "1.0.38"
-rstest = "0.15.0"
-tokio = { version = "=1.21.1", features = ["full"] }
-tokio-stream = { version = "0.1.10", features = ["net"] }
-tokio-util = { version = "0.7.4", features = ["codec"] }
+thiserror = "1.0.48"
+rstest = "0.18.2"
+tokio = { version = "=1.32.0", features = ["full"] }
+tokio-stream = { version = "0.1.14", features = ["net"] }
+tokio-util = { version = "0.7.8", features = ["codec"] }
 tokio-io = "0.1.13"
-futures = "0.3.24"
-serde = { version = "1.0.93", features = ["derive"] }
+futures = "0.3.28"
+serde = { version = "1.0.188", features = ["derive"] }
 serde_yaml = "0.9"
 clap = { version = "4.1.6", features = ["derive"] }
 bytes = "1.2"
