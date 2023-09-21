@@ -44,6 +44,7 @@ prost = "0.12.1"
 prost-types = "0.12.1"
 tonic-reflection = "0.10.0"
 async-trait = "0.1.73"
+clap = { version = "4.4.4", features = ["derive"] }
 
 [build-dependencies]
 tonic-build = {version = "0.10.0", features = ["prost"]}

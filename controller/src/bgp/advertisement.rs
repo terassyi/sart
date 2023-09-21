@@ -10,12 +10,6 @@ pub(crate) enum Type {
 	LoadBalancer,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default, Clone, JsonSchema)]
-pub(crate) enum Protocol {
-	#[default]
-	IPv4,
-	IPv6,
-}
 
 // Bgp attributes
 

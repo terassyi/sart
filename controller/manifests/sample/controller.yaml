@@ -47,8 +47,9 @@ spec:
       containers:
         - name: sart-controller
           args:
-            - controller
-          image: sart:dev
+            - -l
+            - info 
+          image: controller:dev
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -57,13 +58,13 @@ spec:
           livenessProbe:
             httpGet:
               path: /healthz
-              port: 8081
+              port: 8080
             initialDelaySeconds: 15
             periodSeconds: 20
           readinessProbe:
             httpGet:
               path: /readyz
-              port: 8081
+              port: 8080
             initialDelaySeconds: 5
             periodSeconds: 10
           # TODO(user): Configure the resources accordingly based on the project requirements.
@@ -75,5 +76,5 @@ spec:
             requests:
               cpu: 10m
               memory: 64Mi
-      # serviceAccountName: sart-controller
+      serviceAccountName: sart-controller
       terminationGracePeriodSeconds: 10

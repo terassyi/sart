@@ -172,9 +172,25 @@ generate-crd:
 build-controller: generate-crd
 	$(CARGO) build
 
+.PHONY: build-container
+build-container:
+	docker build -t sart-controller:dev ../ -f Dockerfile
+
+.PHONY: kind-load
+kind-load: build-container
+	kind load docker-image sart-controller:dev -n sart
+	kind load docker-image sart:dev -n sart
+
 .PHONY: devenv
 devenv: generate-crd build-controller
 	$(MAKE) -C ../devenv cluster
+	kubectl apply -f manifests/crd/crd.yaml
+	$(MAKE) kind-load
+	$(KUSTOMIZE) build manifests/sample | kubectl apply -f -
+
+.PHONY: install-bgp
+install-bgp:
+	kubectl apply -f manifests/testdata/clusterbgp.yaml
 
 .PHONY: devenv-down
 devenv-down:

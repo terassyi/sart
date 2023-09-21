@@ -10,9 +10,12 @@ pub(crate) mod speaker;
 
 
 use actix_web::{HttpServer, App, web::Data, middleware, get, HttpRequest, Responder, HttpResponse};
+use k8s_openapi::api::core::v1::LoadBalancerIngress;
 use prometheus::{TextEncoder, Encoder};
 
-use crate::context::State;
+use clap::{Parser, ValueEnum};
+
+use crate::{context::State, reconcilers::common::DEFAULT_RECONCILE_REQUEUE_INTERVAL};
 
 
 #[get("/healthz")]
@@ -40,18 +43,54 @@ async fn index(c: Data<State>, _req: HttpRequest) -> impl Responder {
     HttpResponse::Ok().json(&d)
 }
 
+
+#[derive(Parser)]
+struct Args {
+    /// Log level for controller
+    #[arg(short, long)]
+    #[clap(value_enum, default_value_t=LogLevel::Info)]
+    log: LogLevel,
+}
+
+#[derive(ValueEnum, Clone, Debug)]
+enum LogLevel {
+    Trace,
+    Debug,
+    Info,
+    Warn,
+    Error,
+}
+
+impl From<LogLevel> for tracing::Level {
+    fn from(value: LogLevel) -> Self {
+        match value {
+            LogLevel::Trace => tracing::Level::TRACE,
+            LogLevel::Debug => tracing::Level::DEBUG,
+            LogLevel::Info => tracing::Level::INFO,
+            LogLevel::Warn => tracing::Level::WARN,
+            LogLevel::Error => tracing::Level::ERROR,
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    telemetry::init().await;
+    let args = Args::parse();
+
+    let level = tracing::Level::from(args.log);
+
+    telemetry::init(level).await;
 
     // Initiatilize Kubernetes controller state
     let state = State::default();
 
+    let requeue_interval = DEFAULT_RECONCILE_REQUEUE_INTERVAL;
+
     // Preparer reconcilers for each resource
-    let cluster_bgp_reconciler= reconcilers::clusterbgp::run(state.clone());
-    let bgp_peer_reconciler = reconcilers::bgppeer::run(state.clone());
-    let address_pool_reconciler = reconcilers::addresspool::run(state.clone());
-    let bgp_advertisement_reconciler = reconcilers::bgpadvertisement::run(state.clone());
+    let cluster_bgp_reconciler= reconcilers::clusterbgp::run(state.clone(), requeue_interval);
+    let bgp_peer_reconciler = reconcilers::bgppeer::run(state.clone(), requeue_interval);
+    let address_pool_reconciler = reconcilers::addresspool::run(state.clone(), requeue_interval);
+    let bgp_advertisement_reconciler = reconcilers::bgpadvertisement::run(state.clone(), requeue_interval);
 
 
     // Start web server

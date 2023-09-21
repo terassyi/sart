@@ -29,7 +29,7 @@ async fn reconcile(resource: Arc<AddressPool>, ctx: Arc<Context>) -> Result<Acti
 }
 
 #[instrument()]
-pub(crate) async fn run(state: State) {
+pub(crate) async fn run(state: State, interval: u64) {
     let client = Client::try_default().await.expect("failed to create kube Client");
 
     let address_pool = Api::<AddressPool>::all(client.clone());
@@ -43,7 +43,7 @@ pub(crate) async fn run(state: State) {
 
     Controller::new(address_pool, Config::default().any_semantic())
     .shutdown_on_signal()
-    .run(reconcile, error_policy::<AddressPool>, state.to_context(client))
+    .run(reconcile, error_policy::<AddressPool>, state.to_context(client, interval))
     .filter_map(|x| async move { std::result::Result::ok(x) })
     .for_each(|_| futures::future::ready(()))
     .await;

@@ -1,35 +1,38 @@
-use std::{sync::Arc, time::Duration, net::{Ipv4Addr, IpAddr}, str::FromStr};
+use std::{sync::Arc, time::Duration, net::IpAddr, str::FromStr};
 
 use chrono::Utc;
-use futures::StreamExt;
+use futures::{StreamExt};
+use futures::stream::{self, TryStreamExt};
 use k8s_openapi::api::core::v1::Node;
 use kube::{
-    api::{Api, ListParams, Patch, PatchParams, ResourceExt},
+    api::{Api, ListParams, ResourceExt},
     client::Client,
     runtime::{
         controller::{Action, Controller},
-        events::{Event, EventType, Recorder, Reporter},
-        finalizer::{finalizer, Event as Finalizer},
-        watcher::Config,
+        watcher::{Config, self}, WatchStreamExt,
     },
-    CustomResource, Resource,
+    CustomResource,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, from_str};
+
 use tracing::{instrument, field, Span};
 
-use crate::{context::{Context, State}, error::Error, reconcilers::common::error_policy, bgp::peer::{self, BGP_PORT}, rpc::client::{self, CLIENT_TIMEOUT}};
-use crate::proto;
+use crate::reconcilers::common;
+use crate::{context::{Context, State}, error::Error, reconcilers::common::{error_policy, DEFAULT_RECONCILE_REQUEUE_INTERVAL}, bgp::peer::{self, BGP_PORT, SpeakerType}, speaker::{sart::{CLIENT_TIMEOUT, SartSpeaker}, speaker::{self, DEFAULT_ENDPOINT_CONNECT_TIMEOUT, Speaker}}};
+
 use crate::telemetry;
 
 #[derive(CustomResource, Debug, Serialize, Deserialize, Default, Clone, JsonSchema)]
 // #[cfg_attr(test, derive(Default))]
 #[kube(group = "sart.terassyi.net", version = "v1alpha2", kind = "BgpPeer")]
 #[kube(status = "BgpPeerStatus", shortname = "bgpp")]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct BgpPeerSpec {
     pub peer: peer::Peer,
-    pub advertisements: Vec<String>,
+    pub r#type: SpeakerType,
+    pub endpoint_timeout: u64,
+    pub advertisements: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Default, Debug, JsonSchema)]
@@ -45,25 +48,28 @@ async fn reconcile(resource: Arc<BgpPeer>, ctx: Arc<Context>) -> Result<Action, 
     let _timer = ctx.metrics.count_and_measure();
     ctx.diagnostics.write().await.last_event = Utc::now();
 
-    tracing::info!("BgpPeer reconcile");
+    tracing::info!("Reconcile BgpPeer");
 
     let peers: Api<BgpPeer> = Api::all(ctx.client.clone());
-    if let Ok(peer) = peers.get(&resource.name_any()).await {
-        // If BgpPeer resource already exists.
-
-        // Check diffs
-
-        // If there are some diffs, drop bgp session and reconnect new one.
-        // And updates BgpPeerStatus to NotEstablished.
-
-        // If there is no diff, check wether bgp session status is established.
-        // call bgp speaker's endpoint to check status and sync it.
-        
-        // If the bgp session is not established, requeue after `backoff_interval` seconds.
-        // And update BgpPeerStatus reason based on the result endpoint call.
+    if let Err(e) = peers.get(&resource.name_any()).await {
+        // If any BgpPeer does'nt exist,
+        // return error
+        tracing::error!(error=?e,name=&resource.name_any(),"BgpPeer resource is not found");
+        return Err(Error::KubeError(e));
     }
 
-    // If any BgpPeer does'nt exist,
+    // Check finalizer
+    if let Some(_) = resource.finalizers().iter().find(|&s|s.eq(&common::finalizer("bgppeer"))) {
+        // If `bgppeer.sart.terassyi.net/finalizer` is set, shutdown the BGP session and delete its resource.
+
+        tracing::info!(name=resource.name_any(),"finalizer is set. delete it");
+
+
+        return Ok(Action::requeue(Duration::from_secs(ctx.interval)));
+    }
+
+    // handle new or updated resource
+
     // check wether the same bgp session(some resource that has same local_asn and local_addr, neighbor).
 
     // If such one exists, abort creation request.
@@ -86,26 +92,39 @@ async fn reconcile(resource: Arc<BgpPeer>, ctx: Arc<Context>) -> Result<Action, 
 
     // Call the bgp speaker's peer creation endpoint.
     let endpoint = format!("{}:{}", speaker_addr.to_string(), BGP_PORT);
-    let client = tokio::time::timeout(Duration::from_secs(CLIENT_TIMEOUT), client::connect_bgp(&endpoint))
-        .await
-        .map_err(|_| Error::ClientTimeout)?;
 
-    let res = client.add_peer(proto::sart::AddPeerRequest{
-        peer: proto::sart::Peer{
-            asn: resource.spec.peer.neighbor.asn,
-            address: resource.spec.peer.neighbor.addr.
-        }
-    });
+    // create API client for the speaker
+    tracing::info!(endpoint=endpoint,"create speaker endpoint");
+    let speaker_client = match resource.spec.r#type {
+        SpeakerType::Sart => {
+            let timeout = if resource.spec.endpoint_timeout == 0 {
+                DEFAULT_ENDPOINT_CONNECT_TIMEOUT
+            } else {
+                resource.spec.endpoint_timeout
+            };
+            speaker::new::<SartSpeaker>(&endpoint, timeout)
+        },
+    };
+    tracing::info!(peer_asn=resource.spec.peer.neighbor.asn,peer_addr=resource.spec.peer.neighbor.addr,"create BGP peer");
+    speaker_client.add_peer(resource.spec.peer.clone()).await?;
+
+    let peer_addr = IpAddr::from_str(&resource.spec.peer.neighbor.addr).map_err(|_| Error::InvalidParameter("bgppeer.spec.peer.neighbor.addr".to_string()))?;
+    let res = speaker_client.get_peer(peer_addr).await?;
+
+    tracing::info!(peer_asn=res.neighbor.asn,peer_addr=res.neighbor.addr,state=?res.state,"get peer");
 
     // Check that bgp session is established.
-    // by calling endpoint or requeue.
+    if res.state.unwrap().ne(&peer::Status::Established) {
+        // by calling endpoint or requeue.
+        return Ok(Action::requeue(Duration::from_secs(1)));
+    }
 
 
-    Ok(Action::requeue(Duration::from_secs(5)))
+    Ok(Action::requeue(Duration::from_secs(DEFAULT_RECONCILE_REQUEUE_INTERVAL)))
 }
 
 #[instrument()]
-pub(crate) async fn run(state: State) {
+pub(crate) async fn run(state: State, interval: u64) {
     let client = Client::try_default().await.expect("failed to create kube Client");
 
     let bgp_peers = Api::<BgpPeer>::all(client.clone());
@@ -119,7 +138,7 @@ pub(crate) async fn run(state: State) {
 
     Controller::new(bgp_peers, Config::default().any_semantic())
     .shutdown_on_signal()
-    .run(reconcile, error_policy::<BgpPeer>, state.to_context(client))
+    .run(reconcile, error_policy::<BgpPeer>, state.to_context(client, interval))
     .filter_map(|x| async move { std::result::Result::ok(x) })
     .for_each(|_| futures::future::ready(()))
     .await;

@@ -13,20 +13,17 @@ pub fn get_trace_id() -> TraceId {
         .trace_id()
 }
 
-pub async fn init() {
+pub async fn init(level: tracing::Level) {
     // Setup tracing layers
     #[cfg(feature = "telemetry")]
     let telemetry = tracing_opentelemetry::layer().with_tracer(init_tracer().await);
     let logger = tracing_subscriber::fmt::layer().compact();
-    let env_filter = EnvFilter::try_from_default_env()
-        .or(EnvFilter::try_new("info"))
-        .unwrap();
 
     // Decide on layers
     #[cfg(feature = "telemetry")]
-    let collector = Registry::default().with(telemetry).with(logger).with(env_filter);
+    let collector = Registry::default().with(telemetry).with(logger).with(tracing_subscriber::filter::LevelFilter::from_level(level));
     #[cfg(not(feature = "telemetry"))]
-    let collector = Registry::default().with(logger).with(env_filter);
+    let collector = Registry::default().with(logger).with(tracing_subscriber::filter::LevelFilter::from_level(level));
 
     // Initialize tracing
     tracing::subscriber::set_global_default(collector).unwrap();

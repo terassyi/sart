@@ -1,13 +1,12 @@
 # Build the manager binary
-ARG RUST_VERSION=1.68.0
+ARG RUST_VERSION=1.72.0
 
 # BUILDPLATFORM = linux/amd64
 
 FROM --platform=$BUILDPLATFORM rust:${RUST_VERSION} as builder
 
-WORKDIR /work
-
-COPY . /work
+COPY ../controller /work/controller
+COPY ../proto /work/proto
 
 RUN apt update -y && \
 	apt install -y protobuf-compiler libprotobuf-dev
@@ -29,9 +28,9 @@ RUN case "$TARGETPLATFORM" in \
 
 RUN rustup target add $(cat /rust_target.txt)
 
-RUN cargo build --release && \
-		cp /work/target/release/controller /usr/local/bin/controller
-RUN cargo build --release
+WORKDIR /work/controller
+RUN cargo build && \
+		cp /work/controller/target/debug/controller /usr/local/bin/controller
 
 FROM debian:stable
 
@@ -39,3 +38,5 @@ RUN apt update -y && \
 	apt install -y iproute2
 
 COPY --from=builder /usr/local/bin/controller /usr/local/bin/controller
+
+ENTRYPOINT [ "/usr/local/bin/controller" ]

@@ -21,43 +21,73 @@ spec:
           spec:
             properties:
               peers:
-                properties:
-                  local_addr:
-                    nullable: true
-                    type: string
-                  local_asn:
-                    format: uint32
-                    minimum: 0.0
-                    type: integer
-                  local_name:
-                    nullable: true
-                    type: string
-                  name:
-                    nullable: true
-                    type: string
-                  neighbors:
-                    properties:
-                      addr:
-                        type: string
-                      asn:
-                        format: uint32
-                        minimum: 0.0
-                        type: integer
-                      name:
-                        nullable: true
-                        type: string
-                    required:
-                    - addr
-                    - asn
-                    type: object
-                required:
-                - local_asn
-                - neighbors
-                type: object
+                items:
+                  properties:
+                    holdTime:
+                      format: uint64
+                      minimum: 0.0
+                      nullable: true
+                      type: integer
+                    keepaliveTime:
+                      format: uint64
+                      minimum: 0.0
+                      nullable: true
+                      type: integer
+                    localAddr:
+                      nullable: true
+                      type: string
+                    localAsn:
+                      format: uint32
+                      minimum: 0.0
+                      type: integer
+                    localName:
+                      nullable: true
+                      type: string
+                    name:
+                      nullable: true
+                      type: string
+                    neighbor:
+                      properties:
+                        addr:
+                          type: string
+                        asn:
+                          format: uint32
+                          minimum: 0.0
+                          type: integer
+                        name:
+                          nullable: true
+                          type: string
+                      required:
+                      - addr
+                      - asn
+                      type: object
+                    protocol:
+                      enum:
+                      - unknown
+                      - ipv4
+                      - ipv6
+                      type: string
+                    state:
+                      enum:
+                      - NotEstablished
+                      - Idle
+                      - Active
+                      - Connect
+                      - OpenSent
+                      - OpenConfirm
+                      - Established
+                      nullable: true
+                      type: string
+                  required:
+                  - localAsn
+                  - neighbor
+                  - protocol
+                  type: object
+                nullable: true
+                type: array
               policy:
                 type: string
             required:
-            - peers
             - policy
             type: object
           status:
@@ -98,23 +128,38 @@ spec:
               advertisements:
                 items:
                   type: string
+                nullable: true
                 type: array
+              endpointTimeout:
+                format: uint64
+                minimum: 0.0
+                type: integer
               peer:
                 properties:
-                  local_addr:
+                  holdTime:
+                    format: uint64
+                    minimum: 0.0
+                    nullable: true
+                    type: integer
+                  keepaliveTime:
+                    format: uint64
+                    minimum: 0.0
+                    nullable: true
+                    type: integer
+                  localAddr:
                     nullable: true
                     type: string
-                  local_asn:
+                  localAsn:
                     format: uint32
                     minimum: 0.0
                     type: integer
-                  local_name:
+                  localName:
                     nullable: true
                     type: string
                   name:
                     nullable: true
                     type: string
-                  neighbors:
+                  neighbor:
                     properties:
                       addr:
                         type: string
@@ -129,13 +174,36 @@ spec:
                     - addr
                     - asn
                     type: object
+                  protocol:
+                    enum:
+                    - unknown
+                    - ipv4
+                    - ipv6
+                    type: string
+                  state:
+                    enum:
+                    - NotEstablished
+                    - Idle
+                    - Active
+                    - Connect
+                    - OpenSent
+                    - OpenConfirm
+                    - Established
+                    nullable: true
+                    type: string
                 required:
-                - local_asn
-                - neighbors
+                - localAsn
+                - neighbor
+                - protocol
                 type: object
+              type:
+                enum:
+                - sart
+                type: string
             required:
-            - advertisements
+            - endpointTimeout
             - peer
+            - type
             type: object
           status:
             nullable: true
@@ -143,6 +211,11 @@ spec:
               status:
                 enum:
                 - NotEstablished
+                - Idle
+                - Active
+                - Connect
+                - OpenSent
+                - OpenConfirm
                 - Established
                 type: string
             required:
@@ -179,7 +252,7 @@ spec:
         properties:
           spec:
             properties:
-              local_pref:
+              localPref:
                 format: uint32
                 minimum: 0.0
                 nullable: true
@@ -195,8 +268,9 @@ spec:
                 type: array
               protocol:
                 enum:
-                - IPv4
-                - IPv6
+                - unknown
+                - ipv4
+                - ipv6
                 type: string
               type:
                 enum:

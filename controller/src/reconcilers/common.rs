@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use kube::{Resource, runtime::controller::Action, core::DynamicResourceScope};
+use kube::{Resource, runtime::controller::Action};
 
 use tokio::time::Duration;
 
@@ -8,6 +8,13 @@ use crate::error::Error;
 use crate::context::Context;
 
 
+pub(crate) const DEFAULT_RECONCILE_REQUEUE_INTERVAL: u64 = 60 * 5;
+
+pub(crate) const META_PREFIX: &'static str = "sart.terassyi.net";
+
+pub(crate) fn finalizer(kind: &str) -> String {
+    format!("{}.{}/finalizer", kind, META_PREFIX)
+}
 
 
 

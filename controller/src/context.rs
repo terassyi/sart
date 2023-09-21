@@ -13,6 +13,8 @@ use crate::metrics::Metrics;
 pub(crate) struct Context {
     // Kubernetes client
     pub client: Client,
+    // Reconcile interval
+    pub interval: u64,
     // Diagnostics read by the web server
     pub diagnostics: Arc<RwLock<Diagnostics>>,
     // Prometheus metrics
@@ -37,9 +39,10 @@ impl State {
     }
 
     // Create a Controller Context that can update State
-    pub fn to_context(&self, client: Client) -> Arc<Context> {
+    pub fn to_context(&self, client: Client, interval: u64) -> Arc<Context> {
         Arc::new(Context {
             client,
+            interval,
             metrics: Metrics::default().register(&self.registry).unwrap(),
             diagnostics: self.diagnostics.clone(),
         })

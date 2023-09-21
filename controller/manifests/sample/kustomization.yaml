@@ -3,8 +3,12 @@ resources:
   - lb_local.yaml
   - speaker.yaml
   - controller.yaml
+  - ../rbac
 
 images:
   - name: sart:dev
-    newName: localhost:5005/sart
+    newName: sart
+    newTag: dev
+  - name: controller:dev
+    newName: sart-controller
     newTag: dev

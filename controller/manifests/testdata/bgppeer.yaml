@@ -4,5 +4,17 @@ metadata:
   name: bgppeer-sample
 spec:
   peer:
-    local_asn: 65001
-    local_name: kind-worker
+    name: worker-speaker
+    localAsn: 65001
+    localName: sart-worker
+    localAddr: 169.254.1.2
+    protocol: ipv4
+    holdTime: 180
+    keepaliveTime: 90
+    neighbor:
+      name: external-router
+      asn: 65000
+      addr: 169.254.1.1
+  type: sart
+  endpointTimeout: 10
+    
