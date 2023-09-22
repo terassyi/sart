@@ -191,11 +191,11 @@ kind-load: build-container
 	kind load docker-image sart:dev -n sart
 
 .PHONY: devenv
-devenv: generate-crd build-controller
+devenv: generate-crd build-controller generate-cert manifests/webhook/validating_webhook_patch.yaml
 	$(MAKE) -C ../devenv cluster
 	kubectl apply -f manifests/crd/crd.yaml
 	$(MAKE) kind-load
-	$(KUSTOMIZE) build manifests/webhook | kubectl -f -
+	$(KUSTOMIZE) build manifests/webhook | kubectl apply -f -
 	$(KUSTOMIZE) build manifests/sample | kubectl apply -f -
 
 .PHONY: install-bgp

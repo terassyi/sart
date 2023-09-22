@@ -26,5 +26,5 @@ Dockerfile.cross
 *~
 
 # Rust files
-manifests/cert/*
+manifests/sample/cert/*
 manifests/webhook/validating_webhook_patch.yaml

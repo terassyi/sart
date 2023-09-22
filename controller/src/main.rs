@@ -72,12 +72,12 @@ struct Args {
 
     /// Path to the server certificate file
     #[arg(long)]
-    #[clap(default_value = "/etc/controller/cert/server-cert.pem")]
+    #[clap(default_value = "/etc/controller/cert/tls.crt")]
     server_cert: String,
 
     /// Path to the server key file
     #[arg(long)]
-    #[clap(default_value = "/etc/controller/cert/server-key.pem")]
+    #[clap(default_value = "/etc/controller/cert/tls.key")]
     server_key: String,
 }
 

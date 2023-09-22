@@ -18,8 +18,9 @@ generatorOptions:
 
 secretGenerator:
   - name: sart-webhook-server-cert
+    namespace: kube-system
     files:
-    - ca.crt=../cert/cert.pem
-    - tls.crt=../cert/cert.pem
-    - tls.key=../cert/key.pem
+    - ca.crt=./cert/cert.pem
+    - tls.crt=./cert/cert.pem
+    - tls.key=./cert/key.pem
     type: "kubernetes.io/tls"
