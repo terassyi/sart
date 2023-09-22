@@ -6,16 +6,27 @@ pub(crate) mod telemetry;
 pub(crate) mod bgp;
 pub(crate) mod proto;
 pub(crate) mod speaker;
+pub(crate) mod webhook;
 
 
 
+use std::fs::File;
+use std::io::BufReader;
+
+use actix_web::{web, post};
 use actix_web::{HttpServer, App, web::Data, middleware, get, HttpRequest, Responder, HttpResponse};
-use k8s_openapi::api::core::v1::LoadBalancerIngress;
+
+use kube::core::DynamicObject;
+use kube::core::admission::AdmissionReview;
 use prometheus::{TextEncoder, Encoder};
 
+
 use clap::{Parser, ValueEnum};
+use rustls::{Certificate, PrivateKey, ServerConfig};
+
 
 use crate::{context::State, reconcilers::common::DEFAULT_RECONCILE_REQUEUE_INTERVAL};
+
 
 
 #[get("/healthz")]
@@ -43,6 +54,14 @@ async fn index(c: Data<State>, _req: HttpRequest) -> impl Responder {
     HttpResponse::Ok().json(&d)
 }
 
+#[post("/validate-sart-terassyi-net-v1alpha2-bgppeer")]
+async fn bgppeer_validation_webhook(
+    req: HttpRequest,
+    body: web::Json<AdmissionReview<DynamicObject>>,
+) -> impl Responder {
+    webhook::bgppeer::handle(req, body).await
+}
+
 
 #[derive(Parser)]
 struct Args {
@@ -50,6 +69,16 @@ struct Args {
     #[arg(short, long)]
     #[clap(value_enum, default_value_t=LogLevel::Info)]
     log: LogLevel,
+
+    /// Path to the server certificate file
+    #[arg(long)]
+    #[clap(default_value = "/etc/controller/cert/server-cert.pem")]
+    server_cert: String,
+
+    /// Path to the server key file
+    #[arg(long)]
+    #[clap(default_value = "/etc/controller/cert/server-key.pem")]
+    server_key: String,
 }
 
 #[derive(ValueEnum, Clone, Debug)]
@@ -79,6 +108,9 @@ async fn main() -> anyhow::Result<()> {
 
     let level = tracing::Level::from(args.log);
 
+    let server_cert = args.server_cert;
+    let server_key = args.server_key;
+
     telemetry::init(level).await;
 
     // Initiatilize Kubernetes controller state
@@ -93,6 +125,19 @@ async fn main() -> anyhow::Result<()> {
     let bgp_advertisement_reconciler = reconcilers::bgpadvertisement::run(state.clone(), requeue_interval);
 
 
+    // Configure TLS settings
+    let cert_chain = load_certificates_from_pem(&server_cert)?;
+    let private_key = load_private_key_from_file(&server_key).unwrap();
+
+    let server_config= ServerConfig::builder()
+        .with_safe_default_cipher_suites()
+        .with_safe_default_kx_groups()
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .with_no_client_auth()
+        .with_single_cert(cert_chain, private_key)
+        .expect("Bad certificate or key are given");
+
     // Start web server
     let server = HttpServer::new(move || {
         App::new()
@@ -103,8 +148,9 @@ async fn main() -> anyhow::Result<()> {
             .service(health)
             .service(ready)
             .service(metrics_)
+            .service(bgppeer_validation_webhook)
     })
-    .bind("0.0.0.0:8080")?
+    .bind_rustls_021("0.0.0.0:9443", server_config)?
     .shutdown_timeout(5);
 
     // Both runtimes implements graceful shutdown, so poll until both are done
@@ -117,4 +163,26 @@ async fn main() -> anyhow::Result<()> {
         bgp_advertisement_reconciler,
     ).0?;
     Ok(())
+}
+
+fn load_certificates_from_pem(path: &str) -> std::io::Result<Vec<Certificate>> {
+    let file = File::open(path)?;
+    let mut reader = BufReader::new(file);
+
+    let certs = rustls_pemfile::certs(&mut reader)?;
+
+    Ok(certs.into_iter().map(Certificate).collect())
+}
+
+fn load_private_key_from_file(path: &str) -> Result<PrivateKey, Box<dyn std::error::Error>> {
+    let file = File::open(&path)?;
+    let mut reader = BufReader::new(file);
+
+    let mut keys = rustls_pemfile::pkcs8_private_keys(&mut reader)?;
+
+    match keys.len() {
+        0 => Err(format!("No PKC8-encoded private key found in {path}").into()),
+        1 => Ok(PrivateKey(keys.remove(0))),
+        _ => Err(format!("More than one PKC8-encoded private key found in {path}").into()),
+    }
 }

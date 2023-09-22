@@ -1,0 +1,11 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: sart-validating-webhook-configuration
+webhooks:
+- name: vbgppeer.kb.io
+  clientConfig:
+    caBundle: "%CACERT%"
+- name: vbgpadvertisement.kb.io
+  clientConfig:
+    caBundle: "%CACERT%"

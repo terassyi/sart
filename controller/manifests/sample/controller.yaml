@@ -76,5 +76,14 @@ spec:
             requests:
               cpu: 10m
               memory: 64Mi
+          volumeMounts:
+          - mountPath: /etc/controller/cert
+            name: cert
+            readOnly: true
+      volumes:
+      - name: cert
+        secret:
+          defaultMode: 420
+          secretName: sart-webhook-server-cert
       serviceAccountName: sart-controller
       terminationGracePeriodSeconds: 10

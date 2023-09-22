@@ -12,3 +12,14 @@ images:
   - name: controller:dev
     newName: sart-controller
     newTag: dev
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+secretGenerator:
+  - name: sart-webhook-server-cert
+    files:
+    - ca.crt=../cert/cert.pem
+    - tls.crt=../cert/cert.pem
+    - tls.key=../cert/key.pem
+    type: "kubernetes.io/tls"

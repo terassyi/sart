@@ -168,6 +168,15 @@ $(ENVTEST): $(LOCALBIN)
 generate-crd:
 	$(CARGO) run --bin crdgen > manifests/crd/crd.yaml
 
+.PHONY: generate-cert
+generate-cert: manifests/cert/cert.pem manifests/cert/key.pem
+manifests/cert/cert.pem manifests/cert/key.pem:
+	mkdir -p manifests/cert
+	$(CARGO) run --bin certgen -- --out-dir manifests/cert
+
+manifests/webhook/validating_webhook_patch.yaml: manifests/cert/cert.pem manifests/webhook/validating_webhook_patch.yaml.tmpl
+	sed "s/%CACERT%/$$(base64 -w0 < $<)/g" $@.tmpl > $@
+
 .PHONY: build-controller
 build-controller: generate-crd
 	$(CARGO) build
@@ -186,6 +195,7 @@ devenv: generate-crd build-controller
 	$(MAKE) -C ../devenv cluster
 	kubectl apply -f manifests/crd/crd.yaml
 	$(MAKE) kind-load
+	$(KUSTOMIZE) build manifests/webhook | kubectl -f -
 	$(KUSTOMIZE) build manifests/sample | kubectl apply -f -
 
 .PHONY: install-bgp

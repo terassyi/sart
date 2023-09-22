@@ -7,6 +7,7 @@ pub(crate) mod bgp;
 pub(crate) mod telemetry;
 pub(crate) mod proto;
 pub(crate) mod speaker;
+pub(crate) mod webhook;
 
 use kube::CustomResourceExt;
 
