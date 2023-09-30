@@ -526,7 +526,7 @@ pub mod bgp_api_client {
         /// Attempt to create a new client by connecting to a given endpoint.
         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
         where
-            D: std::convert::TryInto<tonic::transport::Endpoint>,
+            D: TryInto<tonic::transport::Endpoint>,
             D::Error: Into<StdError>,
         {
             let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
@@ -582,10 +582,26 @@ pub mod bgp_api_client {
             self.inner = self.inner.accept_compressed(encoding);
             self
         }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_decoding_message_size(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_encoding_message_size(limit);
+            self
+        }
         pub async fn health(
             &mut self,
             request: impl tonic::IntoRequest<super::HealthRequest>,
-        ) -> Result<tonic::Response<()>, tonic::Status> {
+        ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -597,12 +613,17 @@ pub mod bgp_api_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/sart.v1.BgpApi/Health");
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new("sart.v1.BgpApi", "Health"));
+            self.inner.unary(req, path, codec).await
         }
         pub async fn get_bgp_info(
             &mut self,
             request: impl tonic::IntoRequest<super::GetBgpInfoRequest>,
-        ) -> Result<tonic::Response<super::GetBgpInfoResponse>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<super::GetBgpInfoResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -616,12 +637,17 @@ pub mod bgp_api_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/sart.v1.BgpApi/GetBgpInfo",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new("sart.v1.BgpApi", "GetBgpInfo"));
+            self.inner.unary(req, path, codec).await
         }
         pub async fn get_neighbor(
             &mut self,
             request: impl tonic::IntoRequest<super::GetNeighborRequest>,
-        ) -> Result<tonic::Response<super::GetNeighborResponse>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<super::GetNeighborResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -635,12 +661,18 @@ pub mod bgp_api_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/sart.v1.BgpApi/GetNeighbor",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("sart.v1.BgpApi", "GetNeighbor"));
+            self.inner.unary(req, path, codec).await
         }
         pub async fn list_neighbor(
             &mut self,
             request: impl tonic::IntoRequest<super::ListNeighborRequest>,
-        ) -> Result<tonic::Response<super::ListNeighborResponse>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<super::ListNeighborResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -654,12 +686,18 @@ pub mod bgp_api_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/sart.v1.BgpApi/ListNeighbor",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("sart.v1.BgpApi", "ListNeighbor"));
+            self.inner.unary(req, path, codec).await
         }
         pub async fn get_path(
             &mut self,
             request: impl tonic::IntoRequest<super::GetPathRequest>,
-        ) -> Result<tonic::Response<super::GetPathResponse>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<super::GetPathResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -671,12 +709,17 @@ pub mod bgp_api_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/sart.v1.BgpApi/GetPath");
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new("sart.v1.BgpApi", "GetPath"));
+            self.inner.unary(req, path, codec).await
         }
         pub async fn get_neighbor_path(
             &mut self,
             request: impl tonic::IntoRequest<super::GetNeighborPathRequest>,
-        ) -> Result<tonic::Response<super::GetNeighborPathResponse>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<super::GetNeighborPathResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -690,12 +733,15 @@ pub mod bgp_api_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/sart.v1.BgpApi/GetNeighborPath",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("sart.v1.BgpApi", "GetNeighborPath"));
+            self.inner.unary(req, path, codec).await
         }
         pub async fn set_as(
             &mut self,
             request: impl tonic::IntoRequest<super::SetAsRequest>,
-        ) -> Result<tonic::Response<()>, tonic::Status> {
+        ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -707,12 +753,14 @@ pub mod bgp_api_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/sart.v1.BgpApi/SetAS");
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new("sart.v1.BgpApi", "SetAS"));
+            self.inner.unary(req, path, codec).await
         }
         pub async fn set_router_id(
             &mut self,
             request: impl tonic::IntoRequest<super::SetRouterIdRequest>,
-        ) -> Result<tonic::Response<()>, tonic::Status> {
+        ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -726,12 +774,15 @@ pub mod bgp_api_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/sart.v1.BgpApi/SetRouterId",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("sart.v1.BgpApi", "SetRouterId"));
+            self.inner.unary(req, path, codec).await
         }
         pub async fn add_peer(
             &mut self,
             request: impl tonic::IntoRequest<super::AddPeerRequest>,
-        ) -> Result<tonic::Response<()>, tonic::Status> {
+        ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -743,12 +794,14 @@ pub mod bgp_api_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/sart.v1.BgpApi/AddPeer");
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new("sart.v1.BgpApi", "AddPeer"));
+            self.inner.unary(req, path, codec).await
         }
         pub async fn delete_peer(
             &mut self,
             request: impl tonic::IntoRequest<super::DeletePeerRequest>,
-        ) -> Result<tonic::Response<()>, tonic::Status> {
+        ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -762,12 +815,17 @@ pub mod bgp_api_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/sart.v1.BgpApi/DeletePeer",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new("sart.v1.BgpApi", "DeletePeer"));
+            self.inner.unary(req, path, codec).await
         }
         pub async fn add_path(
             &mut self,
             request: impl tonic::IntoRequest<super::AddPathRequest>,
-        ) -> Result<tonic::Response<super::AddPathResponse>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<super::AddPathResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -779,12 +837,17 @@ pub mod bgp_api_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/sart.v1.BgpApi/AddPath");
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new("sart.v1.BgpApi", "AddPath"));
+            self.inner.unary(req, path, codec).await
         }
         pub async fn delete_path(
             &mut self,
             request: impl tonic::IntoRequest<super::DeletePathRequest>,
-        ) -> Result<tonic::Response<super::DeletePathResponse>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<super::DeletePathResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -798,7 +861,9 @@ pub mod bgp_api_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/sart.v1.BgpApi/DeletePath",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new("sart.v1.BgpApi", "DeletePath"));
+            self.inner.unary(req, path, codec).await
         }
     }
 }
@@ -812,57 +877,74 @@ pub mod bgp_api_server {
         async fn health(
             &self,
             request: tonic::Request<super::HealthRequest>,
-        ) -> Result<tonic::Response<()>, tonic::Status>;
+        ) -> std::result::Result<tonic::Response<()>, tonic::Status>;
         async fn get_bgp_info(
             &self,
             request: tonic::Request<super::GetBgpInfoRequest>,
-        ) -> Result<tonic::Response<super::GetBgpInfoResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::GetBgpInfoResponse>,
+            tonic::Status,
+        >;
         async fn get_neighbor(
             &self,
             request: tonic::Request<super::GetNeighborRequest>,
-        ) -> Result<tonic::Response<super::GetNeighborResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::GetNeighborResponse>,
+            tonic::Status,
+        >;
         async fn list_neighbor(
             &self,
             request: tonic::Request<super::ListNeighborRequest>,
-        ) -> Result<tonic::Response<super::ListNeighborResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::ListNeighborResponse>,
+            tonic::Status,
+        >;
         async fn get_path(
             &self,
             request: tonic::Request<super::GetPathRequest>,
-        ) -> Result<tonic::Response<super::GetPathResponse>, tonic::Status>;
+        ) -> std::result::Result<tonic::Response<super::GetPathResponse>, tonic::Status>;
         async fn get_neighbor_path(
             &self,
             request: tonic::Request<super::GetNeighborPathRequest>,
-        ) -> Result<tonic::Response<super::GetNeighborPathResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::GetNeighborPathResponse>,
+            tonic::Status,
+        >;
         async fn set_as(
             &self,
             request: tonic::Request<super::SetAsRequest>,
-        ) -> Result<tonic::Response<()>, tonic::Status>;
+        ) -> std::result::Result<tonic::Response<()>, tonic::Status>;
         async fn set_router_id(
             &self,
             request: tonic::Request<super::SetRouterIdRequest>,
-        ) -> Result<tonic::Response<()>, tonic::Status>;
+        ) -> std::result::Result<tonic::Response<()>, tonic::Status>;
         async fn add_peer(
             &self,
             request: tonic::Request<super::AddPeerRequest>,
-        ) -> Result<tonic::Response<()>, tonic::Status>;
+        ) -> std::result::Result<tonic::Response<()>, tonic::Status>;
         async fn delete_peer(
             &self,
             request: tonic::Request<super::DeletePeerRequest>,
-        ) -> Result<tonic::Response<()>, tonic::Status>;
+        ) -> std::result::Result<tonic::Response<()>, tonic::Status>;
         async fn add_path(
             &self,
             request: tonic::Request<super::AddPathRequest>,
-        ) -> Result<tonic::Response<super::AddPathResponse>, tonic::Status>;
+        ) -> std::result::Result<tonic::Response<super::AddPathResponse>, tonic::Status>;
         async fn delete_path(
             &self,
             request: tonic::Request<super::DeletePathRequest>,
-        ) -> Result<tonic::Response<super::DeletePathResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::DeletePathResponse>,
+            tonic::Status,
+        >;
     }
     #[derive(Debug)]
     pub struct BgpApiServer<T: BgpApi> {
         inner: _Inner<T>,
         accept_compression_encodings: EnabledCompressionEncodings,
         send_compression_encodings: EnabledCompressionEncodings,
+        max_decoding_message_size: Option<usize>,
+        max_encoding_message_size: Option<usize>,
     }
     struct _Inner<T>(Arc<T>);
     impl<T: BgpApi> BgpApiServer<T> {
@@ -875,6 +957,8 @@ pub mod bgp_api_server {
                 inner,
                 accept_compression_encodings: Default::default(),
                 send_compression_encodings: Default::default(),
+                max_decoding_message_size: None,
+                max_encoding_message_size: None,
             }
         }
         pub fn with_interceptor<F>(
@@ -898,6 +982,22 @@ pub mod bgp_api_server {
             self.send_compression_encodings.enable(encoding);
             self
         }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.max_decoding_message_size = Some(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.max_encoding_message_size = Some(limit);
+            self
+        }
     }
     impl<T, B> tonic::codegen::Service<http::Request<B>> for BgpApiServer<T>
     where
@@ -911,7 +1011,7 @@ pub mod bgp_api_server {
         fn poll_ready(
             &mut self,
             _cx: &mut Context<'_>,
-        ) -> Poll<Result<(), Self::Error>> {
+        ) -> Poll<std::result::Result<(), Self::Error>> {
             Poll::Ready(Ok(()))
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
@@ -931,13 +1031,17 @@ pub mod bgp_api_server {
                             &mut self,
                             request: tonic::Request<super::HealthRequest>,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
-                            let fut = async move { (*inner).health(request).await };
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as BgpApi>::health(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -947,6 +1051,10 @@ pub mod bgp_api_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
@@ -967,15 +1075,17 @@ pub mod bgp_api_server {
                             &mut self,
                             request: tonic::Request<super::GetBgpInfoRequest>,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
+                            let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).get_bgp_info(request).await
+                                <T as BgpApi>::get_bgp_info(&inner, request).await
                             };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -985,6 +1095,10 @@ pub mod bgp_api_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
@@ -1007,15 +1121,17 @@ pub mod bgp_api_server {
                             &mut self,
                             request: tonic::Request<super::GetNeighborRequest>,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
+                            let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).get_neighbor(request).await
+                                <T as BgpApi>::get_neighbor(&inner, request).await
                             };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -1025,6 +1141,10 @@ pub mod bgp_api_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
@@ -1047,15 +1167,17 @@ pub mod bgp_api_server {
                             &mut self,
                             request: tonic::Request<super::ListNeighborRequest>,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
+                            let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).list_neighbor(request).await
+                                <T as BgpApi>::list_neighbor(&inner, request).await
                             };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -1065,6 +1187,10 @@ pub mod bgp_api_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
@@ -1085,13 +1211,17 @@ pub mod bgp_api_server {
                             &mut self,
                             request: tonic::Request<super::GetPathRequest>,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
-                            let fut = async move { (*inner).get_path(request).await };
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as BgpApi>::get_path(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -1101,6 +1231,10 @@ pub mod bgp_api_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
@@ -1123,15 +1257,17 @@ pub mod bgp_api_server {
                             &mut self,
                             request: tonic::Request<super::GetNeighborPathRequest>,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
+                            let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).get_neighbor_path(request).await
+                                <T as BgpApi>::get_neighbor_path(&inner, request).await
                             };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -1141,6 +1277,10 @@ pub mod bgp_api_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
@@ -1161,13 +1301,17 @@ pub mod bgp_api_server {
                             &mut self,
                             request: tonic::Request<super::SetAsRequest>,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
-                            let fut = async move { (*inner).set_as(request).await };
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as BgpApi>::set_as(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -1177,6 +1321,10 @@ pub mod bgp_api_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
@@ -1199,15 +1347,17 @@ pub mod bgp_api_server {
                             &mut self,
                             request: tonic::Request<super::SetRouterIdRequest>,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
+                            let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).set_router_id(request).await
+                                <T as BgpApi>::set_router_id(&inner, request).await
                             };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -1217,6 +1367,10 @@ pub mod bgp_api_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
@@ -1237,13 +1391,17 @@ pub mod bgp_api_server {
                             &mut self,
                             request: tonic::Request<super::AddPeerRequest>,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
-                            let fut = async move { (*inner).add_peer(request).await };
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as BgpApi>::add_peer(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -1253,6 +1411,10 @@ pub mod bgp_api_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
@@ -1273,13 +1435,17 @@ pub mod bgp_api_server {
                             &mut self,
                             request: tonic::Request<super::DeletePeerRequest>,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
-                            let fut = async move { (*inner).delete_peer(request).await };
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as BgpApi>::delete_peer(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -1289,6 +1455,10 @@ pub mod bgp_api_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
@@ -1309,13 +1479,17 @@ pub mod bgp_api_server {
                             &mut self,
                             request: tonic::Request<super::AddPathRequest>,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
-                            let fut = async move { (*inner).add_path(request).await };
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as BgpApi>::add_path(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -1325,6 +1499,10 @@ pub mod bgp_api_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
@@ -1345,13 +1523,17 @@ pub mod bgp_api_server {
                             &mut self,
                             request: tonic::Request<super::DeletePathRequest>,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
-                            let fut = async move { (*inner).delete_path(request).await };
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as BgpApi>::delete_path(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -1361,6 +1543,10 @@ pub mod bgp_api_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
@@ -1389,12 +1575,14 @@ pub mod bgp_api_server {
                 inner,
                 accept_compression_encodings: self.accept_compression_encodings,
                 send_compression_encodings: self.send_compression_encodings,
+                max_decoding_message_size: self.max_decoding_message_size,
+                max_encoding_message_size: self.max_encoding_message_size,
             }
         }
     }
     impl<T: BgpApi> Clone for _Inner<T> {
         fn clone(&self) -> Self {
-            Self(self.0.clone())
+            Self(Arc::clone(&self.0))
         }
     }
     impl<T: std::fmt::Debug> std::fmt::Debug for _Inner<T> {
@@ -1788,7 +1976,7 @@ pub mod fib_api_client {
         /// Attempt to create a new client by connecting to a given endpoint.
         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
         where
-            D: std::convert::TryInto<tonic::transport::Endpoint>,
+            D: TryInto<tonic::transport::Endpoint>,
             D::Error: Into<StdError>,
         {
             let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
@@ -1844,10 +2032,29 @@ pub mod fib_api_client {
             self.inner = self.inner.accept_compressed(encoding);
             self
         }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_decoding_message_size(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_encoding_message_size(limit);
+            self
+        }
         pub async fn get_route(
             &mut self,
             request: impl tonic::IntoRequest<super::GetRouteRequest>,
-        ) -> Result<tonic::Response<super::GetRouteResponse>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<super::GetRouteResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -1859,12 +2066,17 @@ pub mod fib_api_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/sart.v1.FibApi/GetRoute");
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new("sart.v1.FibApi", "GetRoute"));
+            self.inner.unary(req, path, codec).await
         }
         pub async fn list_routes(
             &mut self,
             request: impl tonic::IntoRequest<super::ListRoutesRequest>,
-        ) -> Result<tonic::Response<super::ListRoutesResponse>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<super::ListRoutesResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -1878,12 +2090,14 @@ pub mod fib_api_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/sart.v1.FibApi/ListRoutes",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new("sart.v1.FibApi", "ListRoutes"));
+            self.inner.unary(req, path, codec).await
         }
         pub async fn add_route(
             &mut self,
             request: impl tonic::IntoRequest<super::AddRouteRequest>,
-        ) -> Result<tonic::Response<()>, tonic::Status> {
+        ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -1895,12 +2109,14 @@ pub mod fib_api_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/sart.v1.FibApi/AddRoute");
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new("sart.v1.FibApi", "AddRoute"));
+            self.inner.unary(req, path, codec).await
         }
         pub async fn delete_route(
             &mut self,
             request: impl tonic::IntoRequest<super::DeleteRouteRequest>,
-        ) -> Result<tonic::Response<()>, tonic::Status> {
+        ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -1914,12 +2130,15 @@ pub mod fib_api_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/sart.v1.FibApi/DeleteRoute",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("sart.v1.FibApi", "DeleteRoute"));
+            self.inner.unary(req, path, codec).await
         }
         pub async fn add_multi_path_route(
             &mut self,
             request: impl tonic::IntoRequest<super::AddMultiPathRouteRequest>,
-        ) -> Result<tonic::Response<()>, tonic::Status> {
+        ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -1933,12 +2152,15 @@ pub mod fib_api_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/sart.v1.FibApi/AddMultiPathRoute",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("sart.v1.FibApi", "AddMultiPathRoute"));
+            self.inner.unary(req, path, codec).await
         }
         pub async fn delete_multi_path_route(
             &mut self,
             request: impl tonic::IntoRequest<super::DeleteMultiPathRouteRequest>,
-        ) -> Result<tonic::Response<()>, tonic::Status> {
+        ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -1952,7 +2174,10 @@ pub mod fib_api_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/sart.v1.FibApi/DeleteMultiPathRoute",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("sart.v1.FibApi", "DeleteMultiPathRoute"));
+            self.inner.unary(req, path, codec).await
         }
     }
 }
@@ -1966,33 +2191,41 @@ pub mod fib_api_server {
         async fn get_route(
             &self,
             request: tonic::Request<super::GetRouteRequest>,
-        ) -> Result<tonic::Response<super::GetRouteResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::GetRouteResponse>,
+            tonic::Status,
+        >;
         async fn list_routes(
             &self,
             request: tonic::Request<super::ListRoutesRequest>,
-        ) -> Result<tonic::Response<super::ListRoutesResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::ListRoutesResponse>,
+            tonic::Status,
+        >;
         async fn add_route(
             &self,
             request: tonic::Request<super::AddRouteRequest>,
-        ) -> Result<tonic::Response<()>, tonic::Status>;
+        ) -> std::result::Result<tonic::Response<()>, tonic::Status>;
         async fn delete_route(
             &self,
             request: tonic::Request<super::DeleteRouteRequest>,
-        ) -> Result<tonic::Response<()>, tonic::Status>;
+        ) -> std::result::Result<tonic::Response<()>, tonic::Status>;
         async fn add_multi_path_route(
             &self,
             request: tonic::Request<super::AddMultiPathRouteRequest>,
-        ) -> Result<tonic::Response<()>, tonic::Status>;
+        ) -> std::result::Result<tonic::Response<()>, tonic::Status>;
         async fn delete_multi_path_route(
             &self,
             request: tonic::Request<super::DeleteMultiPathRouteRequest>,
-        ) -> Result<tonic::Response<()>, tonic::Status>;
+        ) -> std::result::Result<tonic::Response<()>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct FibApiServer<T: FibApi> {
         inner: _Inner<T>,
         accept_compression_encodings: EnabledCompressionEncodings,
         send_compression_encodings: EnabledCompressionEncodings,
+        max_decoding_message_size: Option<usize>,
+        max_encoding_message_size: Option<usize>,
     }
     struct _Inner<T>(Arc<T>);
     impl<T: FibApi> FibApiServer<T> {
@@ -2005,6 +2238,8 @@ pub mod fib_api_server {
                 inner,
                 accept_compression_encodings: Default::default(),
                 send_compression_encodings: Default::default(),
+                max_decoding_message_size: None,
+                max_encoding_message_size: None,
             }
         }
         pub fn with_interceptor<F>(
@@ -2028,6 +2263,22 @@ pub mod fib_api_server {
             self.send_compression_encodings.enable(encoding);
             self
         }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.max_decoding_message_size = Some(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.max_encoding_message_size = Some(limit);
+            self
+        }
     }
     impl<T, B> tonic::codegen::Service<http::Request<B>> for FibApiServer<T>
     where
@@ -2041,7 +2292,7 @@ pub mod fib_api_server {
         fn poll_ready(
             &mut self,
             _cx: &mut Context<'_>,
-        ) -> Poll<Result<(), Self::Error>> {
+        ) -> Poll<std::result::Result<(), Self::Error>> {
             Poll::Ready(Ok(()))
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
@@ -2061,13 +2312,17 @@ pub mod fib_api_server {
                             &mut self,
                             request: tonic::Request<super::GetRouteRequest>,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
-                            let fut = async move { (*inner).get_route(request).await };
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as FibApi>::get_route(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -2077,6 +2332,10 @@ pub mod fib_api_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
@@ -2097,13 +2356,17 @@ pub mod fib_api_server {
                             &mut self,
                             request: tonic::Request<super::ListRoutesRequest>,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
-                            let fut = async move { (*inner).list_routes(request).await };
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as FibApi>::list_routes(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -2113,6 +2376,10 @@ pub mod fib_api_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
@@ -2133,13 +2400,17 @@ pub mod fib_api_server {
                             &mut self,
                             request: tonic::Request<super::AddRouteRequest>,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
-                            let fut = async move { (*inner).add_route(request).await };
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as FibApi>::add_route(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -2149,6 +2420,10 @@ pub mod fib_api_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
@@ -2171,15 +2446,17 @@ pub mod fib_api_server {
                             &mut self,
                             request: tonic::Request<super::DeleteRouteRequest>,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
+                            let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).delete_route(request).await
+                                <T as FibApi>::delete_route(&inner, request).await
                             };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -2189,6 +2466,10 @@ pub mod fib_api_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
@@ -2211,15 +2492,17 @@ pub mod fib_api_server {
                             &mut self,
                             request: tonic::Request<super::AddMultiPathRouteRequest>,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
+                            let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).add_multi_path_route(request).await
+                                <T as FibApi>::add_multi_path_route(&inner, request).await
                             };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -2229,6 +2512,10 @@ pub mod fib_api_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
@@ -2251,15 +2538,18 @@ pub mod fib_api_server {
                             &mut self,
                             request: tonic::Request<super::DeleteMultiPathRouteRequest>,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
+                            let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).delete_multi_path_route(request).await
+                                <T as FibApi>::delete_multi_path_route(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -2269,6 +2559,10 @@ pub mod fib_api_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
@@ -2297,12 +2591,14 @@ pub mod fib_api_server {
                 inner,
                 accept_compression_encodings: self.accept_compression_encodings,
                 send_compression_encodings: self.send_compression_encodings,
+                max_decoding_message_size: self.max_decoding_message_size,
+                max_encoding_message_size: self.max_encoding_message_size,
             }
         }
     }
     impl<T: FibApi> Clone for _Inner<T> {
         fn clone(&self) -> Self {
-            Self(self.0.clone())
+            Self(Arc::clone(&self.0))
         }
     }
     impl<T: std::fmt::Debug> std::fmt::Debug for _Inner<T> {
@@ -2382,7 +2678,7 @@ pub mod fib_manager_api_client {
         /// Attempt to create a new client by connecting to a given endpoint.
         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
         where
-            D: std::convert::TryInto<tonic::transport::Endpoint>,
+            D: TryInto<tonic::transport::Endpoint>,
             D::Error: Into<StdError>,
         {
             let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
@@ -2438,10 +2734,29 @@ pub mod fib_manager_api_client {
             self.inner = self.inner.accept_compressed(encoding);
             self
         }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_decoding_message_size(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_encoding_message_size(limit);
+            self
+        }
         pub async fn get_channel(
             &mut self,
             request: impl tonic::IntoRequest<super::GetChannelRequest>,
-        ) -> Result<tonic::Response<super::GetChannelResponse>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<super::GetChannelResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -2455,12 +2770,18 @@ pub mod fib_manager_api_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/sart.v1.FibManagerApi/GetChannel",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("sart.v1.FibManagerApi", "GetChannel"));
+            self.inner.unary(req, path, codec).await
         }
         pub async fn list_channel(
             &mut self,
             request: impl tonic::IntoRequest<super::ListChannelRequest>,
-        ) -> Result<tonic::Response<super::ListChannelResponse>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<super::ListChannelResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -2474,12 +2795,18 @@ pub mod fib_manager_api_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/sart.v1.FibManagerApi/ListChannel",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("sart.v1.FibManagerApi", "ListChannel"));
+            self.inner.unary(req, path, codec).await
         }
         pub async fn get_routes(
             &mut self,
             request: impl tonic::IntoRequest<super::GetRoutesRequest>,
-        ) -> Result<tonic::Response<super::GetRoutesResponse>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<super::GetRoutesResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -2493,7 +2820,10 @@ pub mod fib_manager_api_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/sart.v1.FibManagerApi/GetRoutes",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("sart.v1.FibManagerApi", "GetRoutes"));
+            self.inner.unary(req, path, codec).await
         }
     }
 }
@@ -2507,21 +2837,32 @@ pub mod fib_manager_api_server {
         async fn get_channel(
             &self,
             request: tonic::Request<super::GetChannelRequest>,
-        ) -> Result<tonic::Response<super::GetChannelResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::GetChannelResponse>,
+            tonic::Status,
+        >;
         async fn list_channel(
             &self,
             request: tonic::Request<super::ListChannelRequest>,
-        ) -> Result<tonic::Response<super::ListChannelResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::ListChannelResponse>,
+            tonic::Status,
+        >;
         async fn get_routes(
             &self,
             request: tonic::Request<super::GetRoutesRequest>,
-        ) -> Result<tonic::Response<super::GetRoutesResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::GetRoutesResponse>,
+            tonic::Status,
+        >;
     }
     #[derive(Debug)]
     pub struct FibManagerApiServer<T: FibManagerApi> {
         inner: _Inner<T>,
         accept_compression_encodings: EnabledCompressionEncodings,
         send_compression_encodings: EnabledCompressionEncodings,
+        max_decoding_message_size: Option<usize>,
+        max_encoding_message_size: Option<usize>,
     }
     struct _Inner<T>(Arc<T>);
     impl<T: FibManagerApi> FibManagerApiServer<T> {
@@ -2534,6 +2875,8 @@ pub mod fib_manager_api_server {
                 inner,
                 accept_compression_encodings: Default::default(),
                 send_compression_encodings: Default::default(),
+                max_decoding_message_size: None,
+                max_encoding_message_size: None,
             }
         }
         pub fn with_interceptor<F>(
@@ -2557,6 +2900,22 @@ pub mod fib_manager_api_server {
             self.send_compression_encodings.enable(encoding);
             self
         }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.max_decoding_message_size = Some(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.max_encoding_message_size = Some(limit);
+            self
+        }
     }
     impl<T, B> tonic::codegen::Service<http::Request<B>> for FibManagerApiServer<T>
     where
@@ -2570,7 +2929,7 @@ pub mod fib_manager_api_server {
         fn poll_ready(
             &mut self,
             _cx: &mut Context<'_>,
-        ) -> Poll<Result<(), Self::Error>> {
+        ) -> Poll<std::result::Result<(), Self::Error>> {
             Poll::Ready(Ok(()))
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
@@ -2592,13 +2951,17 @@ pub mod fib_manager_api_server {
                             &mut self,
                             request: tonic::Request<super::GetChannelRequest>,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
-                            let fut = async move { (*inner).get_channel(request).await };
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as FibManagerApi>::get_channel(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -2608,6 +2971,10 @@ pub mod fib_manager_api_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
@@ -2630,15 +2997,17 @@ pub mod fib_manager_api_server {
                             &mut self,
                             request: tonic::Request<super::ListChannelRequest>,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
+                            let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).list_channel(request).await
+                                <T as FibManagerApi>::list_channel(&inner, request).await
                             };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -2648,6 +3017,10 @@ pub mod fib_manager_api_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
@@ -2670,13 +3043,17 @@ pub mod fib_manager_api_server {
                             &mut self,
                             request: tonic::Request<super::GetRoutesRequest>,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
-                            let fut = async move { (*inner).get_routes(request).await };
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as FibManagerApi>::get_routes(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -2686,6 +3063,10 @@ pub mod fib_manager_api_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
@@ -2714,12 +3095,14 @@ pub mod fib_manager_api_server {
                 inner,
                 accept_compression_encodings: self.accept_compression_encodings,
                 send_compression_encodings: self.send_compression_encodings,
+                max_decoding_message_size: self.max_decoding_message_size,
+                max_encoding_message_size: self.max_encoding_message_size,
             }
         }
     }
     impl<T: FibManagerApi> Clone for _Inner<T> {
         fn clone(&self) -> Self {
-            Self(self.0.clone())
+            Self(Arc::clone(&self.0))
         }
     }
     impl<T: std::fmt::Debug> std::fmt::Debug for _Inner<T> {

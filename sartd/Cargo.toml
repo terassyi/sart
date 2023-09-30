@@ -3,6 +3,16 @@ name = "sartd"
 version = "0.0.5"
 edition = "2021"
 
+[[bin]]
+doc = false
+name = "sartd"
+path = "src/main.rs"
+
+[[bin]]
+doc = false
+name = "crdgen"
+path = "src/kubernetes/crd/crdgen.rs"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -19,23 +29,29 @@ clap = { version = "4.1.6", features = ["derive"] }
 bytes = "1.2"
 byteorder = "1.4"
 ipnet = "2.5.0"
-socket2 = "0.4.7"
-tonic = "0.8.3"
-prost = "0.11.6"
-prost-types = "0.11.6"
-tonic-reflection = "0.5.0"
+socket2 = "0.5.4"
+tonic = "0.10.2"
+prost = "0.12.1"
+prost-types = "0.12.1"
+tonic-reflection = "0.10.2"
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.16", features = ["json"] }
 tracing-futures = "0.2.5"
-rtnetlink = "0.12.0"
-netlink-packet-route = { version = "0.15.0", features = ["rich_nlas"] }
-netlink-proto = "0.11.1"
+rtnetlink = "0.13.1"
+netlink-packet-route = { version = "0.17.1", features = ["rich_nlas"] }
+netlink-proto = "0.11.2"
 netlink-sys = "0.8.5"
-netlink-packet-core = "0.5.0"
+netlink-packet-core = "0.7.0"
 netns-rs = "0.1.0"
+kube = { version = "0.86.0", features = ["runtime", "derive", "admission", "rustls-tls"] }
+k8s-openapi = { version = "0.20.0", features = ["schemars", "latest"] }
+serde_json = "1.0.107"
+schemars = "0.8.13"
+actix-web = { version = "4.4.0", features = ["rustls-0_21"] }
+prometheus = "0.13.3"
 
 [build-dependencies]
-tonic-build = {version = "0.8.4", features = ["prost"]}
+tonic-build = {version = "0.10.2", features = ["prost"]}
 
 [patch.crates-io]
 netlink-packet-route = { git = "https://github.com/terassyi/netlink-packet-route", branch = "next-hop-default" }

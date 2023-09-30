@@ -127,13 +127,12 @@ impl KernelRtPoller {
                 message = messages.next().fuse() => {
                     if let Some((message, _)) = message {
                         match message.payload {
-                            NetlinkPayload::Done => {
+                            NetlinkPayload::Done(_) => {
                                 tracing::debug!("netlink message done")
                             }
                             NetlinkPayload::Error(em) => {
                                 tracing::error!(error=?em, "netlink error message")
                             }
-                            NetlinkPayload::Ack(_am) => {}
                             NetlinkPayload::Noop => {}
                             NetlinkPayload::Overrun(_bytes) => {}
                             NetlinkPayload::InnerMessage(msg) => match msg {
