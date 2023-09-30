@@ -9,7 +9,7 @@ webhooks:
   - v1
   clientConfig:
     service:
-      name: webhook-service
+      name: sart-webhook-service
       namespace: system
       path: /validate-sart-terassyi-net-v1alpha2-bgpadvertisement
   failurePolicy: Fail
@@ -29,7 +29,7 @@ webhooks:
   - v1
   clientConfig:
     service:
-      name: bgppeer-webhook-service
+      name: sart-webhook-service
       namespace: system
       port: 443
       path: /validate-sart-terassyi-net-v1alpha2-bgppeer

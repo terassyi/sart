@@ -41,6 +41,10 @@ topology:
         -c '    neighbor K8S-NODES prefix-list LAB-SUBNET out'
         -c '  exit-address-family'
         -c '!'
+    router0-debug:
+      kind: linux
+      image: nicolaka/netshoot:latest
+      network-mode: container:clab-sart-router0
     control-plane0:
       kind: linux
       image: nicolaka/netshoot:latest

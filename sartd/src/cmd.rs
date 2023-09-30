@@ -1,5 +1,6 @@
 pub(crate) mod bgp;
 pub(crate) mod fib;
+pub(crate) mod agent;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
@@ -8,7 +9,7 @@ use crate::{
     trace::TraceConfig,
 };
 
-use self::{bgp::BgpCmd, fib::FibCmd};
+use self::{bgp::BgpCmd, fib::FibCmd, agent::AgentCmd};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -60,6 +61,7 @@ impl ToString for Format {
 pub(crate) enum SubCmd {
     Bgp(BgpCmd),
     Fib(FibCmd),
+    Agent(AgentCmd),
     Version,
 }
 
@@ -117,6 +119,24 @@ pub(crate) fn main() {
             }
 
             crate::fib::server::start(config, trace_conf);
-        }
+        },
+        SubCmd::Agent(a) => {
+            let trace_conf = TraceConfig {
+                level,
+                format: format.to_string(),
+                file: log_file,
+                _metrics_endpoint: None,
+            };
+            let mut config = match a.file {
+                None => panic!("A configuration file is required for Fib manager"),
+                Some(file) => crate::fib::config::Config::load(&file),
+            }
+            .unwrap();
+
+            if !a.endpoint.is_empty() {
+                config.endpoint = a.endpoint;
+            }
+
+        },
     }
 }

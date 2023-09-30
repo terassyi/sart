@@ -25,6 +25,7 @@ use clap::{Parser, ValueEnum};
 use rustls::{Certificate, PrivateKey, ServerConfig};
 
 
+use crate::reconcilers::bgppeer::BgpPeer;
 use crate::{context::State, reconcilers::common::DEFAULT_RECONCILE_REQUEUE_INTERVAL};
 
 
@@ -57,7 +58,7 @@ async fn index(c: Data<State>, _req: HttpRequest) -> impl Responder {
 #[post("/validate-sart-terassyi-net-v1alpha2-bgppeer")]
 async fn bgppeer_validation_webhook(
     req: HttpRequest,
-    body: web::Json<AdmissionReview<DynamicObject>>,
+    body: web::Json<AdmissionReview<BgpPeer>>,
 ) -> impl Responder {
     webhook::bgppeer::handle(req, body).await
 }
@@ -123,6 +124,7 @@ async fn main() -> anyhow::Result<()> {
     let bgp_peer_reconciler = reconcilers::bgppeer::run(state.clone(), requeue_interval);
     let address_pool_reconciler = reconcilers::addresspool::run(state.clone(), requeue_interval);
     let bgp_advertisement_reconciler = reconcilers::bgpadvertisement::run(state.clone(), requeue_interval);
+    let node_watcher = reconcilers::node_watcher::run(state.clone(), requeue_interval);
 
 
     // Configure TLS settings
@@ -151,6 +153,7 @@ async fn main() -> anyhow::Result<()> {
             .service(bgppeer_validation_webhook)
     })
     .bind_rustls_021("0.0.0.0:9443", server_config)?
+    .bind("0.0.0.0:8080")?
     .shutdown_timeout(5);
 
     // Both runtimes implements graceful shutdown, so poll until both are done
@@ -161,6 +164,7 @@ async fn main() -> anyhow::Result<()> {
         bgp_peer_reconciler, 
         address_pool_reconciler,
         bgp_advertisement_reconciler,
+        node_watcher,
     ).0?;
     Ok(())
 }

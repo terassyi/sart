@@ -1,7 +1,8 @@
 use async_trait::async_trait;
+use futures::TryFutureExt;
 use std::{net::IpAddr, time::Duration};
 
-use crate::{proto, error::Error, bgp::{peer::{Peer, DEFAULT_HOLD_TIME, DEFAULT_KEEPALIVE_TIME}, common::Protocol}};
+use crate::{proto, error::Error, bgp::{peer::{Peer, DEFAULT_HOLD_TIME, DEFAULT_KEEPALIVE_TIME}, common::{Protocol, Info}}};
 
 use super::speaker::Speaker;
 
@@ -9,19 +10,19 @@ pub(crate) const CLIENT_TIMEOUT: u64 = 10;
 
 pub(crate) async fn connect_bgp(
     endpoint: &str,
-) -> proto::sart::bgp_api_client::BgpApiClient<tonic::transport::Channel> {
+) -> Result<proto::sart::bgp_api_client::BgpApiClient<tonic::transport::Channel>, Error> {
     let endpoint_url = format!("http://{}", endpoint);
     proto::sart::bgp_api_client::BgpApiClient::connect(endpoint_url)
         .await
-        .unwrap()
+        .map_err( Error::GRPCConnectionError)
 }
 
 #[allow(dead_code)]
-pub(crate) async fn connect_fib(endpoint: &str) -> proto::sart::fib_manager_api_client::FibManagerApiClient<tonic::transport::Channel> {
+pub(crate) async fn connect_fib(endpoint: &str) -> Result<proto::sart::fib_manager_api_client::FibManagerApiClient<tonic::transport::Channel>, Error> {
     let endpoint_url = format!("http://{}", endpoint);
     proto::sart::fib_manager_api_client::FibManagerApiClient::connect(endpoint_url)
         .await
-        .unwrap()
+        .map_err( Error::GRPCConnectionError)
 }
 
 pub(crate) struct SartSpeaker {
@@ -41,10 +42,22 @@ impl Speaker for SartSpeaker {
             timeout,
         }
     }
+
+    async fn get_bgp_info(&self) -> Result<Info, Error> {
+        let mut client = tokio::time::timeout(Duration::from_secs(self.timeout), connect_bgp(&self.endpoint))
+            .await
+            .map_err(|_| Error::ClientTimeout)??;
+        let res = client.get_bgp_info(proto::sart::GetBgpInfoRequest{}).await.map_err(Error::GRPCError)?;
+        let info = res.get_ref().info.clone().ok_or(Error::FailedToGetData("bgp_info".to_string()))?;
+
+        Info::try_from(&info)
+
+    }
+
     async fn add_peer(&self, peer: Peer) -> Result<(), Error> {
         let mut client = tokio::time::timeout(Duration::from_secs(self.timeout), connect_bgp(&self.endpoint))
             .await
-            .map_err(|_| Error::ClientTimeout)?;
+            .map_err(|_| Error::ClientTimeout)??;
 
         client.add_peer(proto::sart::AddPeerRequest{
             peer: Some(proto::sart::Peer{
@@ -77,7 +90,7 @@ impl Speaker for SartSpeaker {
     async fn delete_peer(&self, addr: IpAddr) -> Result<(), Error> {
         let mut client = tokio::time::timeout(Duration::from_secs(self.timeout), connect_bgp(&self.endpoint))
             .await
-            .map_err(|_| Error::ClientTimeout)?;
+            .map_err(|_| Error::ClientTimeout)??;
 
         client.delete_peer(proto::sart::DeletePeerRequest{
             addr: addr.to_string(),
@@ -91,7 +104,7 @@ impl Speaker for SartSpeaker {
     async fn get_peer(&self, addr: IpAddr) -> Result<Peer, Error> {
         let mut client = tokio::time::timeout(Duration::from_secs(self.timeout), connect_bgp(&self.endpoint))
             .await
-            .map_err(|_| Error::ClientTimeout)?;
+            .map_err(|_| Error::ClientTimeout)??;
 
         let res = client.get_neighbor(proto::sart::GetNeighborRequest{
             addr: addr.to_string(),

@@ -3,4 +3,10 @@ kind: ClusterBgp
 metadata:
   name: clusterbgp-sample
 spec:
-  policy: test
+  policy:
+    nodeSelector:
+      matchLabels:
+        bgp: a
+    asnSelector:
+      from: label
+    endpoint_port: 5000

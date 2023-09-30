@@ -64,7 +64,8 @@ impl Bgp {
     pub const AD_EBGP: u8 = 20;
     pub const AD_IBGP: u8 = 200;
     const API_SERVER_PORT: u16 = 5000;
-    const DEFAULT_API_TIMEOUT: u64 = 30;
+    const DEFAULT_API_TIMEOUT: u64 = 10;
+    const DEFAULT_INTERNAL_TIMEOUT: u64 = 1;
 
     pub fn new(conf: Config, rib_event_tx: Sender<RibEvent>, api_tx: Sender<ApiResponse>) -> Self {
         let asn = conf.asn;
@@ -139,6 +140,7 @@ impl Bgp {
                     ctrl_tx,
                     api_rx,
                     Bgp::DEFAULT_API_TIMEOUT,
+                    Bgp::DEFAULT_INTERNAL_TIMEOUT,
                     signal_api,
                 )))
                 .add_service(reflection_server)

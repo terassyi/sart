@@ -1,8 +1,28 @@
+use std::net::IpAddr;
+
 use schemars::JsonSchema;
 use serde::{Serialize, Deserialize};
 
 use crate::error::Error;
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Info {
+	pub asn: u32,
+	pub router_id: IpAddr,
+	pub port: u32,
+}
+
+impl TryFrom<&crate::proto::sart::BgpInfo> for Info {
+	type Error = Error;
+	fn try_from(value: &crate::proto::sart::BgpInfo) -> Result<Self, Self::Error> {
+		let addr: IpAddr = value.router_id.parse().map_err(|_| Error::InvalidParameter("router_id".to_string()))?;
+		Ok(Self {
+			asn: value.asn,
+			router_id: addr,
+			port: value.port,
+		})
+	}
+}
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone, JsonSchema)]
 pub(crate) enum Protocol {

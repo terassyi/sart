@@ -1,15 +1,14 @@
 use std::{sync::Arc, time::Duration, net::IpAddr, str::FromStr};
 
 use chrono::Utc;
-use futures::{StreamExt};
-use futures::stream::{self, TryStreamExt};
+use futures::StreamExt;
 use k8s_openapi::api::core::v1::Node;
 use kube::{
     api::{Api, ListParams, ResourceExt},
     client::Client,
     runtime::{
         controller::{Action, Controller},
-        watcher::{Config, self}, WatchStreamExt,
+        watcher::Config,
     },
     CustomResource,
 };
@@ -18,8 +17,8 @@ use serde::{Deserialize, Serialize};
 
 use tracing::{instrument, field, Span};
 
-use crate::reconcilers::common;
-use crate::{context::{Context, State}, error::Error, reconcilers::common::{error_policy, DEFAULT_RECONCILE_REQUEUE_INTERVAL}, bgp::peer::{self, BGP_PORT, SpeakerType}, speaker::{sart::{CLIENT_TIMEOUT, SartSpeaker}, speaker::{self, DEFAULT_ENDPOINT_CONNECT_TIMEOUT, Speaker}}};
+use crate::reconcilers::common::{self, get_node_internal_addr};
+use crate::{context::{Context, State}, error::Error, reconcilers::common::{error_policy, DEFAULT_RECONCILE_REQUEUE_INTERVAL}, bgp::peer::{self, BGP_PORT, SpeakerType}, speaker::{sart::SartSpeaker, speaker::{self, DEFAULT_ENDPOINT_CONNECT_TIMEOUT, Speaker}}};
 
 use crate::telemetry;
 
@@ -31,13 +30,19 @@ use crate::telemetry;
 pub(crate) struct BgpPeerSpec {
     pub peer: peer::Peer,
     pub r#type: SpeakerType,
-    pub endpoint_timeout: u64,
+    pub endpoint: Endpoint,
     pub advertisements: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Default, Debug, JsonSchema)]
 pub(crate) struct BgpPeerStatus {
     pub status: peer::Status,
+}
+
+#[derive(Deserialize, Serialize, Clone, Default, Debug, JsonSchema)]
+pub(crate) struct Endpoint {
+    url: String,
+    timeout: u64,
 }
 
 #[instrument(skip(ctx, resource), fields(trace_id))]
@@ -86,32 +91,58 @@ async fn reconcile(resource: Arc<BgpPeer>, ctx: Arc<Context>) -> Result<Action, 
             let node_name = resource.spec.peer.local_name.as_ref().ok_or(Error::InvalidParameter(String::from("bgppeer.spec.local_name")))?;
             let speaker_node = nodes.get(node_name).await.map_err(Error::KubeError)?;
 
-            get_node_internal_addr(speaker_node).ok_or(Error::AddressNotFound)?
+            get_node_internal_addr(&speaker_node).ok_or(Error::AddressNotFound)?
         }
     };
 
+
     // Call the bgp speaker's peer creation endpoint.
-    let endpoint = format!("{}:{}", speaker_addr.to_string(), BGP_PORT);
+    let endpoint = resource.spec.endpoint.url.clone();
 
     // create API client for the speaker
     tracing::info!(endpoint=endpoint,"create speaker endpoint");
     let speaker_client = match resource.spec.r#type {
         SpeakerType::Sart => {
-            let timeout = if resource.spec.endpoint_timeout == 0 {
+            let timeout = if resource.spec.endpoint.timeout == 0 {
                 DEFAULT_ENDPOINT_CONNECT_TIMEOUT
             } else {
-                resource.spec.endpoint_timeout
+                resource.spec.endpoint.timeout
             };
             speaker::new::<SartSpeaker>(&endpoint, timeout)
         },
     };
-    tracing::info!(peer_asn=resource.spec.peer.neighbor.asn,peer_addr=resource.spec.peer.neighbor.addr,"create BGP peer");
-    speaker_client.add_peer(resource.spec.peer.clone()).await?;
 
+    // Get peer infomation from speaker
     let peer_addr = IpAddr::from_str(&resource.spec.peer.neighbor.addr).map_err(|_| Error::InvalidParameter("bgppeer.spec.peer.neighbor.addr".to_string()))?;
-    let res = speaker_client.get_peer(peer_addr).await?;
 
-    tracing::info!(peer_asn=res.neighbor.asn,peer_addr=res.neighbor.addr,state=?res.state,"get peer");
+    let res = match speaker_client.get_peer(peer_addr).await {
+        Ok(res) => {
+            // check difference
+            res
+        },
+        Err(e) => {
+            match &e {
+                Error::GRPCError(status) => {
+                    if status.code().eq(&tonic::Code::NotFound) {
+                        tracing::info!(local_asn=resource.spec.peer.local_asn,remote_asn=resource.spec.peer.neighbor.asn,local_addr=speaker_addr.to_string(),remote_addr=resource.spec.peer.neighbor.addr,"create new BGP peer");
+                        speaker_client.add_peer(resource.spec.peer.clone()).await?;
+
+                        speaker_client.get_peer(peer_addr).await?
+                    } else {
+                        tracing::error!(error=?e,"failed to get peer infomation from speaker");
+                        return Err(e);
+                    }
+                }
+                _ => {
+                    tracing::error!(error=?e,"failed to get peer infomation from speaker");
+                    return Err(e);
+                },
+            }
+        }
+    };
+
+    tracing::info!(peer_asn=res.neighbor.asn,peer_addr=res.neighbor.addr,state=?res.state,"get peer infomation");
+
 
     // Check that bgp session is established.
     if res.state.unwrap().ne(&peer::Status::Established) {
@@ -144,14 +175,3 @@ pub(crate) async fn run(state: State, interval: u64) {
     .await;
 }
 
-fn get_node_internal_addr(node: Node) -> Option<IpAddr> {
-    if let Some(status) = node.status {
-        if let Some(addrs) = status.addresses {
-            addrs.iter().find(|addr| addr.type_.eq("InternalIP")).map(|addr| IpAddr::from_str(&addr.address).ok()).flatten()
-        } else {
-            None
-        }
-    } else {
-        None
-    }
-}

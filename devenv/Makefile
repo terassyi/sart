@@ -37,6 +37,11 @@ cluster: setup
 	@echo "CREATE TOPOLOGY"
 	$(SUDO) $(CONTAINERLAB) -t $(CONTAINERLAB_CONFIG) deploy
 
+	@echo "ADD LABELS"
+	$(KUBECTL) label nodes --overwrite sart-worker bgp=a
+	$(KUBECTL) label nodes --overwrite sart-worker2 bgp=a
+	$(KUBECTL) label nodes --overwrite sart-worker3 bgp=a
+
 .PHONY: down
 down:
 	$(SUDO) $(CONTAINERLAB) -t $(CONTAINERLAB_CONFIG) destroy

@@ -23,6 +23,7 @@ pub(crate) struct ApiServer {
     tx: Sender<ControlEvent>,
     response_rx: Mutex<Receiver<ApiResponse>>,
     timeout: u64,
+    internal_timeout: u64,
     signal: Arc<Notify>,
 }
 
@@ -31,12 +32,14 @@ impl ApiServer {
         tx: Sender<ControlEvent>,
         response_rx: Receiver<ApiResponse>,
         timeout: u64,
+        internal_timeout: u64,
         signal: Arc<Notify>,
     ) -> Self {
         Self {
             tx,
             response_rx: Mutex::new(response_rx),
             timeout,
+            internal_timeout,
             signal,
         }
     }
@@ -58,7 +61,7 @@ impl BgpApi for ApiServer {
     ) -> Result<Response<GetBgpInfoResponse>, Status> {
         self.tx.send(ControlEvent::GetBgpInfo).await.unwrap();
         let mut rx = self.response_rx.lock().await;
-        match timeout(Duration::from_secs(self.timeout), rx.recv()).await {
+        match timeout(Duration::from_secs(self.internal_timeout), rx.recv()).await {
             Ok(res) => match res {
                 Some(info) => {
                     if let ApiResponse::BgpInfo(info) = info {
@@ -86,7 +89,7 @@ impl BgpApi for ApiServer {
         self.tx.send(ControlEvent::GetPeer(addr)).await.unwrap();
 
         let mut rx = self.response_rx.lock().await;
-        match timeout(Duration::from_secs(self.timeout), rx.recv()).await {
+        match timeout(Duration::from_secs(self.internal_timeout), rx.recv()).await {
             Ok(res) => match res {
                 Some(res) => {
                     if let ApiResponse::Neighbor(peer) = res {
@@ -99,7 +102,7 @@ impl BgpApi for ApiServer {
                 }
                 None => Err(Status::internal("failed to get neighbor information")),
             },
-            Err(_e) => Err(Status::deadline_exceeded("timeout")),
+            Err(_e) => Err(Status::not_found("peer not found")),
         }
     }
 
@@ -109,7 +112,7 @@ impl BgpApi for ApiServer {
     ) -> Result<Response<ListNeighborResponse>, Status> {
         self.tx.send(ControlEvent::ListPeer).await.unwrap();
         let mut rx = self.response_rx.lock().await;
-        match timeout(Duration::from_secs(self.timeout), rx.recv()).await {
+        match timeout(Duration::from_secs(self.internal_timeout), rx.recv()).await {
             Ok(res) => match res {
                 Some(res) => {
                     if let ApiResponse::Neighbors(peers) = res {
@@ -120,7 +123,7 @@ impl BgpApi for ApiServer {
                 }
                 None => Err(Status::internal("failed to get neighbors list information")),
             },
-            Err(_e) => Err(Status::deadline_exceeded("timeout")),
+            Err(_e) => Err(Status::not_found("peers not found")),
         }
     }
 
@@ -139,7 +142,7 @@ impl BgpApi for ApiServer {
         self.tx.send(ControlEvent::GetPath(family)).await.unwrap();
 
         let mut rx = self.response_rx.lock().await;
-        match timeout(Duration::from_secs(self.timeout), rx.recv()).await {
+        match timeout(Duration::from_secs(self.internal_timeout), rx.recv()).await {
             Ok(res) => match res {
                 Some(res) => {
                     if let ApiResponse::Paths(paths) = res {
@@ -150,7 +153,7 @@ impl BgpApi for ApiServer {
                 }
                 None => Err(Status::internal("failed to get path information")),
             },
-            Err(_e) => Err(Status::deadline_exceeded("timeout")),
+            Err(_e) => Err(Status::not_found("path not found")),
         }
     }
 
@@ -181,7 +184,7 @@ impl BgpApi for ApiServer {
             .unwrap();
 
         let mut rx = self.response_rx.lock().await;
-        match timeout(Duration::from_secs(self.timeout), rx.recv()).await {
+        match timeout(Duration::from_secs(self.internal_timeout), rx.recv()).await {
             Ok(res) => match res {
                 Some(res) => {
                     if let ApiResponse::Paths(paths) = res {
@@ -194,7 +197,7 @@ impl BgpApi for ApiServer {
                 }
                 None => Err(Status::internal("failed to get path information")),
             },
-            Err(_e) => Err(Status::deadline_exceeded("timeout")),
+            Err(_e) => Err(Status::not_found("neighbor's paths not found")),
         }
     }
 

@@ -169,12 +169,12 @@ generate-crd:
 	$(CARGO) run --bin crdgen > manifests/crd/crd.yaml
 
 .PHONY: generate-cert
-generate-cert: manifests/cert/cert.pem manifests/cert/key.pem
-manifests/cert/cert.pem manifests/cert/key.pem:
-	mkdir -p manifests/cert
-	$(CARGO) run --bin certgen -- --out-dir manifests/cert
+generate-cert: manifests/sample/cert/cert.pem manifests/sample/cert/key.pem
+manifests/sample/cert/cert.pem manifests/sample/cert/key.pem:
+	mkdir -p manifests/sample/cert
+	$(CARGO) run --bin certgen -- --out-dir manifests/sample/cert
 
-manifests/webhook/validating_webhook_patch.yaml: manifests/cert/cert.pem manifests/webhook/validating_webhook_patch.yaml.tmpl
+manifests/webhook/validating_webhook_patch.yaml: manifests/sample/cert/cert.pem manifests/webhook/validating_webhook_patch.yaml.tmpl
 	sed "s/%CACERT%/$$(base64 -w0 < $<)/g" $@.tmpl > $@
 
 .PHONY: build-controller
@@ -184,6 +184,14 @@ build-controller: generate-crd
 .PHONY: build-container
 build-container:
 	docker build -t sart-controller:dev ../ -f Dockerfile
+
+.PHONY: load
+load:
+	kind load docker-image sart-controller:dev -n sart
+
+.PHONY: build-load
+build-load: build-container load
+	kubectl -n kube-system rollout restart deploy/sart-controller
 
 .PHONY: kind-load
 kind-load: build-container
@@ -204,4 +212,7 @@ install-bgp:
 
 .PHONY: devenv-down
 devenv-down:
+	rm manifests/sample/cert/cert.pem || true
+	rm manifests/sample/cert/key.pem || true
+	rm manifests/webhook/validating_webhook_patch.yaml || true
 	$(MAKE) -C ../devenv down
