@@ -26,7 +26,7 @@ use crate::bgp::family::Afi;
 use crate::bgp::peer::fsm::State;
 use crate::proto;
 use crate::proto::sart::bgp_api_server::BgpApiServer;
-use crate::trace::{prepare_tracing, TraceConfig};
+use crate::trace::init::{prepare_tracing, TraceConfig};
 
 use super::capability::Capability;
 use super::capability::CapabilitySet;
@@ -83,7 +83,7 @@ impl Bgp {
     }
 
     pub async fn serve(conf: Config, trace: TraceConfig) {
-        prepare_tracing(trace);
+        prepare_tracing(trace).await;
         let _enter = tracing::info_span!("bgp").entered();
 
         let (rib_event_tx, mut rib_event_rx) = channel::<RibEvent>(128);

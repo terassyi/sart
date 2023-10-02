@@ -4,13 +4,13 @@ use prometheus::{TextEncoder, Encoder};
 use rustls::ServerConfig;
 
 use crate::{trace::init::{TraceConfig, prepare_tracing}, cert::util::*, kubernetes::context::State};
-
 use super::reconciler;
+
 use super::config::Config;
 
 
 pub(crate) fn start(config: Config, trace: TraceConfig) {
-    let agent = Agent::new(config);
+    let agent = Controller::new(config);
 
 	tokio::runtime::Builder::new_multi_thread()
 		.enable_all()
@@ -20,15 +20,15 @@ pub(crate) fn start(config: Config, trace: TraceConfig) {
 }
 
 #[tracing::instrument(skip_all)]
-async fn run(a: Agent, trace_config: TraceConfig) {
+async fn run(c: Controller, trace_config: TraceConfig) {
 	prepare_tracing(trace_config).await;
 
 	// Configure TLS settings
-    let cert_chain = load_certificates_from_pem(&a.server_cert).unwrap();
-    let private_key = load_private_key_from_file(&a.server_key).unwrap();
+    let cert_chain = load_certificates_from_pem(&c.server_cert).unwrap();
+    let private_key = load_private_key_from_file(&c.server_key).unwrap();
 
     // Initiatilize Kubernetes controller state
-    let state = State::default();
+    let state = State::new("controller");
 
 	// Start web server
     let server_config= ServerConfig::builder()
@@ -51,30 +51,30 @@ async fn run(a: Agent, trace_config: TraceConfig) {
             .service(ready)
             .service(metrics_)
     })
-    .bind_rustls_021("0.0.0.0:9443", server_config)
+    .bind_rustls_021("0.0.0.0:8443", server_config)
     .unwrap()
     .bind("0.0.0.0:8080")
     .unwrap()
     .shutdown_timeout(5);
 
-    tracing::info!("Start Agent Reconcilers");
-    
+    // Start reconcilers
+    tracing::info!("Start Controller's Reconcilers");
     tokio::spawn(async move {
-        reconciler::node_bgp::run(state.clone(), a.requeue_interval).await;
+        reconciler::cluster_bgp::run(state.clone(), c.requeue_interval).await;
     });
 
     server.run().await.unwrap()
 
 }
 
-pub(crate) struct Agent {
+pub(crate) struct Controller {
 	endpoint: String,
 	server_cert: String,
 	server_key: String,
     requeue_interval: u64,
 }
 
-impl Agent {
+impl Controller {
 	pub fn new(config: Config) -> Self {
 		Self {
 			endpoint: config.endpoint,

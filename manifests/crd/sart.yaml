@@ -1,0 +1,251 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: clusterbgps.sart.terassyi.net
+spec:
+  group: sart.terassyi.net
+  names:
+    categories: []
+    kind: ClusterBGP
+    plural: clusterbgps
+    shortNames: []
+    singular: clusterbgp
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns: []
+    name: v1alpha2
+    schema:
+      openAPIV3Schema:
+        description: Auto-generated derived type for ClusterBGPSpec via `CustomResource`
+        properties:
+          spec:
+            properties:
+              asnSelector:
+                properties:
+                  asn:
+                    format: uint32
+                    minimum: 0.0
+                    nullable: true
+                    type: integer
+                  from:
+                    enum:
+                    - asn
+                    - label
+                    type: string
+                required:
+                - from
+                type: object
+              nodeSelector:
+                description: A node selector represents the union of the results of one or more label queries over a set of nodes; that is, it represents the OR of the selectors represented by the node selector terms.
+                properties:
+                  nodeSelectorTerms:
+                    description: Required. A list of node selector terms. The terms are ORed.
+                    items:
+                      description: A null or empty node selector term matches no objects. The requirements of them are ANDed. The TopologySelectorTerm type implements a subset of the NodeSelectorTerm.
+                      properties:
+                        matchExpressions:
+                          description: A list of node selector requirements by node's labels.
+                          items:
+                            description: A node selector requirement is a selector that contains values, a key, and an operator that relates the key and values.
+                            properties:
+                              key:
+                                description: The label key that the selector applies to.
+                                type: string
+                              operator:
+                                description: Represents a key's relationship to a set of values. Valid operators are In, NotIn, Exists, DoesNotExist. Gt, and Lt.
+                                type: string
+                              values:
+                                description: An array of string values. If the operator is In or NotIn, the values array must be non-empty. If the operator is Exists or DoesNotExist, the values array must be empty. If the operator is Gt or Lt, the values array must have a single element, which will be interpreted as an integer. This array is replaced during a strategic merge patch.
+                                items:
+                                  type: string
+                                type: array
+                            required:
+                            - key
+                            - operator
+                            type: object
+                          type: array
+                        matchFields:
+                          description: A list of node selector requirements by node's fields.
+                          items:
+                            description: A node selector requirement is a selector that contains values, a key, and an operator that relates the key and values.
+                            properties:
+                              key:
+                                description: The label key that the selector applies to.
+                                type: string
+                              operator:
+                                description: Represents a key's relationship to a set of values. Valid operators are In, NotIn, Exists, DoesNotExist. Gt, and Lt.
+                                type: string
+                              values:
+                                description: An array of string values. If the operator is In or NotIn, the values array must be non-empty. If the operator is Exists or DoesNotExist, the values array must be empty. If the operator is Gt or Lt, the values array must have a single element, which will be interpreted as an integer. This array is replaced during a strategic merge patch.
+                                items:
+                                  type: string
+                                type: array
+                            required:
+                            - key
+                            - operator
+                            type: object
+                          type: array
+                      type: object
+                    type: array
+                required:
+                - nodeSelectorTerms
+                type: object
+              routerIdSelector:
+                properties:
+                  from:
+                    enum:
+                    - label
+                    type: string
+                  routerId:
+                    nullable: true
+                    type: string
+                required:
+                - from
+                type: object
+            required:
+            - asnSelector
+            - nodeSelector
+            - routerIdSelector
+            type: object
+          status:
+            nullable: true
+            type: object
+        required:
+        - spec
+        title: ClusterBGP
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: nodebgps.sart.terassyi.net
+spec:
+  group: sart.terassyi.net
+  names:
+    categories: []
+    kind: NodeBGP
+    plural: nodebgps
+    shortNames: []
+    singular: nodebgp
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns: []
+    name: v1alpha2
+    schema:
+      openAPIV3Schema:
+        description: Auto-generated derived type for NodeBGPSpec via `CustomResource`
+        properties:
+          spec:
+            properties:
+              asn:
+                format: uint32
+                minimum: 0.0
+                type: integer
+              routerId:
+                type: string
+            required:
+            - asn
+            - routerId
+            type: object
+          status:
+            nullable: true
+            type: object
+        required:
+        - spec
+        title: NodeBGP
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: bgppeertemplates.sart.terassyi.net
+spec:
+  group: sart.terassyi.net
+  names:
+    categories: []
+    kind: BGPPeerTemplate
+    plural: bgppeertemplates
+    shortNames: []
+    singular: bgppeertemplate
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns: []
+    name: v1alpha2
+    schema:
+      openAPIV3Schema:
+        description: Auto-generated derived type for BGPPeerTemplateSpec via `CustomResource`
+        properties:
+          spec:
+            properties:
+              addr:
+                nullable: true
+                type: string
+              asn:
+                format: uint32
+                minimum: 0.0
+                nullable: true
+                type: integer
+            type: object
+          status:
+            nullable: true
+            type: object
+        required:
+        - spec
+        title: BGPPeerTemplate
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: bgppeers.sart.terassyi.net
+spec:
+  group: sart.terassyi.net
+  names:
+    categories: []
+    kind: BGPPeer
+    plural: bgppeers
+    shortNames: []
+    singular: bgppeer
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns: []
+    name: v1alpha2
+    schema:
+      openAPIV3Schema:
+        description: Auto-generated derived type for BGPPeerSpec via `CustomResource`
+        properties:
+          spec:
+            properties:
+              addr:
+                type: string
+              asn:
+                format: uint32
+                minimum: 0.0
+                type: integer
+            required:
+            - addr
+            - asn
+            type: object
+          status:
+            nullable: true
+            type: object
+        required:
+        - spec
+        title: BGPPeer
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

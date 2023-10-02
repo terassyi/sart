@@ -11,7 +11,7 @@ use crate::{
         GetChannelResponse, ListChannelResponse,
     },
     proto::sart::{GetChannelRequest, GetRoutesRequest, GetRoutesResponse, ListChannelRequest},
-    trace::{prepare_tracing, TraceConfig},
+    trace::init::{prepare_tracing, TraceConfig},
 };
 
 use super::{channel::Channel, config::Config};
@@ -91,7 +91,7 @@ impl FibManagerApi for Fib {
 }
 
 async fn run(server: Fib, trace_config: TraceConfig) {
-    prepare_tracing(trace_config);
+    prepare_tracing(trace_config).await;
 
     let (mut poller, publisher_tx) = KernelRtPoller::new();
 

@@ -1,15 +1,16 @@
 pub(crate) mod agent;
 pub(crate) mod bgp;
+pub(crate) mod controller;
 pub(crate) mod fib;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
 use crate::{
     bgp::{config::Config, server},
-    trace::TraceConfig,
+    trace::init::TraceConfig,
 };
 
-use self::{agent::AgentCmd, bgp::BgpCmd, fib::FibCmd};
+use self::{agent::AgentCmd, bgp::BgpCmd, fib::FibCmd, controller::ControllerCmd};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -62,6 +63,7 @@ pub(crate) enum SubCmd {
     Bgp(BgpCmd),
     Fib(FibCmd),
     Agent(AgentCmd),
+    Controller(ControllerCmd),
     Version,
 }
 
@@ -135,6 +137,40 @@ pub(crate) fn main() {
             if !a.endpoint.is_empty() {
                 config.endpoint = a.endpoint;
             }
+
+            if let Some(cert) = a.tls_cert {
+                config.tls.cert = cert;
+            }
+            if let Some(key) = a.tls_key {
+                config.tls.key = key;
+            }
+
+            crate::agent::server::start(config, trace_conf);
+        },
+        SubCmd::Controller(c) => {
+            let trace_conf = TraceConfig {
+                level,
+                format: format.to_string(),
+                file: log_file,
+                _metrics_endpoint: None,
+            };
+            let mut config = match c.file {
+                None => crate::controller::config::Config::default(),
+                Some(file) => crate::controller::config::Config::load(&file).unwrap(),
+            };
+
+            if !c.endpoint.is_empty() {
+                config.endpoint = c.endpoint;
+            }
+
+            if let Some(cert) = c.tls_cert {
+                config.tls.cert = cert;
+            }
+            if let Some(key) = c.tls_key {
+                config.tls.key = key;
+            }
+
+            crate::controller::server::start(config, trace_conf);
         }
     }
 }
