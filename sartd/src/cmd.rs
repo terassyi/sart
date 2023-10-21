@@ -10,7 +10,7 @@ use crate::{
     trace::init::TraceConfig,
 };
 
-use self::{agent::AgentCmd, bgp::BgpCmd, fib::FibCmd, controller::ControllerCmd};
+use self::{agent::AgentCmd, bgp::BgpCmd, controller::ControllerCmd, fib::FibCmd};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -90,6 +90,9 @@ pub(crate) fn main() {
             if let Some(fib_endpoint) = b.fib_endpoint {
                 conf.fib_endpoint = Some(fib_endpoint);
             }
+            if let Some(exporter) = b.exporter {
+                conf.exporter = Some(exporter);
+            }
             if let Some(table_id) = b.fib_table_id {
                 conf.fib_table = Some(table_id);
             }
@@ -144,9 +147,12 @@ pub(crate) fn main() {
             if let Some(key) = a.tls_key {
                 config.tls.key = key;
             }
+            if let Some(p) = a.peer_state_watcher {
+                config.peer_state_watcher = p;
+            }
 
             crate::agent::server::start(config, trace_conf);
-        },
+        }
         SubCmd::Controller(c) => {
             let trace_conf = TraceConfig {
                 level,

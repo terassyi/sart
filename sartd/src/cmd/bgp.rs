@@ -17,6 +17,9 @@ pub(crate) struct BgpCmd {
     #[arg(long = "table-id", help = "Target fib table id(default is main(254))")]
     pub fib_table_id: Option<u8>,
 
+    #[arg(long = "exporter", help = "Exporter endpoint url")]
+    pub exporter: Option<String>,
+
     #[arg(
         short,
         long,

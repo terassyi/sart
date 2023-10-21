@@ -34,6 +34,8 @@ pub(crate) enum Action {
         r#as: u32,
         #[arg(long, help = "Set passive open flag")]
         passive: bool,
+        #[arg(long, help = "Name of BGP peer")]
+        name: Option<String>,
     },
     Del {
         addr: String,
@@ -94,6 +96,7 @@ pub(crate) async fn get(endpoint: &str, format: Format, addr: &str) -> Result<()
                 None => return Err(Error::InvalidRPCResponse),
             };
             println!("BGP Neighbor {}, ", peer.address);
+            println!("  Name {}", peer.name);
             println!("  Remote AS {}", peer.asn);
             println!("  Version: 4");
             println!("  Router Id: {}", peer.router_id);
@@ -162,6 +165,7 @@ pub(crate) async fn list(endpoint: &str, format: Format) -> Result<(), Error> {
             println!("BGP Neighbor List\n");
             for peer in res.get_ref().peers.iter() {
                 println!("  BGP Neighbor {}, ", peer.address);
+                println!("    Name {}", peer.name);
                 println!("    Remote AS {}", peer.asn);
                 println!("    Version: 4");
                 println!("    Router Id: {}", peer.router_id);
@@ -175,14 +179,20 @@ pub(crate) async fn list(endpoint: &str, format: Format) -> Result<(), Error> {
     Ok(())
 }
 
-pub(crate) async fn add(endpoint: &str, addr: &str, asn: u32, passive: bool) -> Result<(), Error> {
+pub(crate) async fn add(endpoint: &str, name: Option<String>, addr: &str, asn: u32, passive: bool) -> Result<(), Error> {
     let mut client = connect_bgp(endpoint).await;
 
     let address: IpAddr = addr.parse().unwrap();
 
+    let name = match name {
+        Some(n) => n,
+        None => format!("{}/{}", asn, addr),
+    };
+
     let _res = client
         .add_peer(AddPeerRequest {
             peer: Some(Peer {
+                name,
                 asn,
                 address: address.to_string(),
                 router_id: "0.0.0.0".to_string(),

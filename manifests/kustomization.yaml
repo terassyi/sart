@@ -1,6 +1,7 @@
 resources:
   - crd
   - rbac
+  - webhook
   - workloads
 
 images:

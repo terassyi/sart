@@ -1,6 +1,7 @@
+use kube::core::admission::SerializePatchError;
 use thiserror::Error;
 
-use crate::trace::error::TraceableError;
+use crate::{kubernetes, trace::error::TraceableError};
 
 #[derive(Error, Debug)]
 pub(crate) enum Error {
@@ -12,6 +13,9 @@ pub(crate) enum Error {
 
     #[error("SerializationError: {0}")]
     SerializationError(#[source] serde_json::Error),
+
+    #[error("SerializePatchError: {0}")]
+    SerializePatchError(#[source] SerializePatchError),
 
     #[error("Kube Error: {0}")]
     KubeError(#[source] kube::Error),
@@ -27,6 +31,9 @@ pub(crate) enum Error {
     // so boxing this error to break cycles
     FinalizerError(#[source] Box<kube::runtime::finalizer::Error<Error>>),
 
+    #[error("CRD Error: {0}")]
+    CRDError(#[source] kubernetes::crd::error::Error),
+
     #[error("Label matching Error: {0}")]
     LabelMatchingError(String),
 
@@ -35,6 +42,12 @@ pub(crate) enum Error {
 
     #[error("Address not found")]
     AddressNotFound,
+
+    #[error("Invalid Address")]
+    InvalidAddress,
+
+    #[error("ASN not found")]
+    AsnNotFound,
 
     #[error("Invalid ASN value")]
     InvalidAsnValue,
@@ -50,6 +63,9 @@ pub(crate) enum Error {
 
     #[error("Invalid endpoint")]
     InvalidEndpoint,
+
+    #[error("Invalid ExternalTrafficPolicy")]
+    InvalidExternalTrafficPolicy,
 }
 
 #[derive(Debug, Error)]

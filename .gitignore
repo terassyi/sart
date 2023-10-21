@@ -21,4 +21,4 @@ controller/config/samples/_v1alpha1_bgppeer.yaml
 controller/config/samples/_v1alpha1_addresspool.yaml
 
 manifests/certs/*
-manifests/webhook/validating_webhook_patch.yaml
+manifests/webhook/admission_webhook_patch.yaml

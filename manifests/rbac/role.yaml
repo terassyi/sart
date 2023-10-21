@@ -65,14 +65,28 @@ rules:
   - get
   - list
   - watch
+  - patch
+  - update
+- apiGroups:
+  - discovery.k8s.io
+  resources:
+  - endpointslices/finalizers
+  verbs:
+  - get
+  - list
+  - watch
+  - patch
+  - update
 - apiGroups:
   - discovery.k8s.io
   resources:
   - endpointslices/status
   verbs:
   - get
+  - list
   - patch
   - update
+  - watch
 - apiGroups:
   - sart.terassyi.net
   resources:
@@ -157,6 +171,32 @@ rules:
   - sart.terassyi.net
   resources:
   - bgppeers/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - sart.terassyi.net
+  resources:
+  - bgppeertemplates
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - sart.terassyi.net
+  resources:
+  - bgppeertemplates/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - sart.terassyi.net
+  resources:
+  - bgppeertempaltes/status
   verbs:
   - get
   - patch

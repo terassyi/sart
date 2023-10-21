@@ -24,6 +24,7 @@ spec:
         - command: ["sartd"]
           args:
             - bgp
+            - --exporter=127.0.0.1:5003
           env:
             - name: SARTD_BGP_NODE_IP
               valueFrom:

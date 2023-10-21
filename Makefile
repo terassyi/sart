@@ -120,18 +120,18 @@ $(CRD_DIR)/sart.yaml:
 	cd sartd; $(CARGO) run --bin crdgen > $(CRD_DIR)/sart.yaml
 
 .PHONY: certs
-certs: $(CERT_DIR)/tls.cert $(CERT_DIR)/tls.key manifests/webhook/validating_webhook_patch.yaml
+certs: $(CERT_DIR)/tls.cert $(CERT_DIR)/tls.key manifests/webhook/admission_webhook_patch.yaml
 
 .PHONY: clean-certs
 clean-certs:
 	rm -f $(CERT_DIR)/tls.cert  $(CERT_DIR)/tls.key || true
-	rm -f manifests/webhook/validating_webhook_patch.yaml || true
+	rm -f manifests/webhook/admission_webhook_patch.yaml || true
 
 $(CERT_DIR)/tls.cert:
 	mkdir -p $(CERT_DIR)
 	cd sartd; $(CARGO) run --bin certgen -- --out-dir $(CERT_DIR)
 
-manifests/webhook/validating_webhook_patch.yaml: $(CERT_DIR)/tls.key $(CERT_DIR)/tls.cert manifests/webhook/validating_webhook_patch.yaml.tmpl
+manifests/webhook/admission_webhook_patch.yaml: $(CERT_DIR)/tls.cert manifests/webhook/admission_webhook_patch.yaml.tmpl
 	sed "s/%CACERT%/$$(base64 -w0 < $<)/g" $@.tmpl > $@
 
 .PHONY: fmt
@@ -203,25 +203,31 @@ KUBECTL := $(BIN_DIR)/kubectl
 KUSTOMZIE := $(BIN_DIR)/kustomize
 
 .PHONY: kind-load
-kind-load: build-image
-	kind load docker-image sart:dev -n sart
+kind-load: build-dev-image
+	$(KIND) load docker-image sart:dev -n sart
+	$(KUBECTL) -n kube-system rollout restart ds/sartd-agent
+	$(KUBECTL) -n kube-system rollout restart deploy/sart-controller
+
 
 .PHONY: devenv
 devenv: crd certs build-dev-image
 	$(MAKE) -C devenv cluster
+
+	$(KUBECTL) label nodes --overwrite sart-worker sart.terassyi.net/asn=65001
+	$(KUBECTL) label nodes --overwrite sart-worker2 sart.terassyi.net/asn=65002
+	$(KUBECTL) label nodes --overwrite sart-worker3 sart.terassyi.net/asn=65003
+	$(KUBECTL) label nodes --overwrite sart-control-plane sart.terassyi.net/asn=65004
+
 	$(KIND) load docker-image sart:dev -n sart
 
-	$(KUSTOMZIE) build manifests/crd | $(KUBECTL) apply -f -
-	$(KUSTOMZIE) build manifests/rbac| $(KUBECTL) apply -f -
-	$(KUSTOMZIE) build manifests/webhook | $(KUBECTL) apply -f -
-	$(KUSTOMZIE) build manifests/workloads | $(KUBECTL) apply -f -
+	$(KUSTOMZIE) build manifests | $(KUBECTL) apply -f -
 
-.PHONY: install-bgp
-install-bgp:
-	kubectl apply -f manifests/testdata/clusterbgp.yaml
+.PHONY: sample
+sample:
+	$(KUSTOMZIE) build manifests/sample | $(KUBECTL) apply -f -
 
 .PHONY: devenv-down
-devenv-down: clean-certs
+devenv-down: clean-certs clean-crd
 	$(MAKE) -C devenv down
 
 .PHONY: push-image

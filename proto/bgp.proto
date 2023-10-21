@@ -136,6 +136,7 @@ message Peer {
 	MessageCounter recv_counter = 9;
 	State state = 10;
 	bool passive_open = 11;
+	string name = 12;
 }
 
 message Path {
@@ -229,4 +230,23 @@ message EnhancedRouteRefreshCapability {}
 message UnknownCapability {
 	uint32 code = 1;
 	bytes value = 2;
+}
+
+service BgpExporterApi {
+	rpc ExportPeer(ExportPeerRequest) returns (google.protobuf.Empty);
+	rpc ExportPeerState(ExportPeerStateRequest) returns (google.protobuf.Empty);
+}
+
+message ExportPeerRequest {
+	Peer peer = 1;
+}
+
+message ExportPeerStateRequest {
+	enum State {
+		UNKNOWN = 0; IDLE = 1; CONNECT = 2; ACTIVE = 3; OPEN_SENT = 4; OPEN_CONFIRM = 5; ESTABLISHED = 6;
+	}
+	uint32 asn = 1;
+	string addr = 2;
+	State state = 3;
+	string name = 4;
 }

@@ -227,9 +227,9 @@ impl BgpApi for ApiServer {
         let neighbor_config = match &req.get_ref().peer {
             Some(peer) => match NeighborConfig::try_from(peer) {
                 Ok(config) => config,
-                Err(_) => return Err(Status::aborted("")),
+                Err(e) => return Err(Status::aborted(e.to_string())),
             },
-            None => return Err(Status::aborted("")),
+            None => return Err(Status::aborted("Neighbor information is not set")),
         };
         match self.tx.send(ControlEvent::AddPeer(neighbor_config)).await {
             Ok(_) => Ok(Response::new(())),

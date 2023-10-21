@@ -41,6 +41,7 @@ cluster: setup
 	$(KUBECTL) label nodes --overwrite sart-worker bgp=a
 	$(KUBECTL) label nodes --overwrite sart-worker2 bgp=a
 	$(KUBECTL) label nodes --overwrite sart-worker3 bgp=a
+	$(KUBECTL) label nodes --overwrite sart-control-plane bgp=b
 
 .PHONY: down
 down:

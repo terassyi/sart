@@ -6,7 +6,8 @@ use crate::cert::constants::*;
 
 use super::error::{ConfigError, Error};
 
-pub(crate) const DEFAULT_ENDPOINT: &'static str = "0.0.0.0:5002";
+pub(crate) const DEFAULT_ENDPOINT: &str = "0.0.0.0:5002";
+pub(crate) const DEFAULT_PEER_STATE_WATCHER_ENDPOINT: &str = "0.0.0.0:5003";
 pub(crate) const DEFAULT_REQUEUE_INTERVAL: u64 = 30 * 60;
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -14,6 +15,7 @@ pub(crate) struct Config {
     pub endpoint: String,
     pub tls: Tls,
     pub requeue_interval: u64,
+    pub peer_state_watcher: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -38,6 +40,7 @@ impl Default for Config {
                 key: DEFAULT_TLS_KEY.to_string(),
             },
             requeue_interval: DEFAULT_REQUEUE_INTERVAL,
+            peer_state_watcher: DEFAULT_PEER_STATE_WATCHER_ENDPOINT.to_string(),
         }
     }
 }

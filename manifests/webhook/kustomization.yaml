@@ -1,8 +1,8 @@
 resources:
-  - validating_webhook.yaml
+  - admission_webhook.yaml
   - service.yaml
 patchesStrategicMerge:
-  - validating_webhook_patch.yaml
+  - admission_webhook_patch.yaml
 
 namespace: kube-system
 

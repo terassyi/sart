@@ -51,6 +51,7 @@ pub(crate) struct Bgp {
     event_signal: Arc<Notify>,
     rib_event_tx: Sender<RibEvent>,
     api_tx: Sender<ApiResponse>,
+    exporter: Option<String>,
 }
 
 impl Bgp {
@@ -69,6 +70,7 @@ impl Bgp {
 
     pub fn new(conf: Config, rib_event_tx: Sender<RibEvent>, api_tx: Sender<ApiResponse>) -> Self {
         let asn = conf.asn;
+        let exporter = conf.exporter.clone();
         Self {
             config: Arc::new(Mutex::new(conf)),
             peer_managers: HashMap::new(),
@@ -79,6 +81,7 @@ impl Bgp {
             event_signal: Arc::new(Notify::new()),
             rib_event_tx,
             api_tx,
+            exporter,
         }
     }
 
@@ -295,6 +298,7 @@ impl Bgp {
                     .map(proto::sart::AddressFamily::from)
                     .collect();
                 proto::sart::Peer {
+                    name: info.name.clone(),
                     asn: info.neighbor.get_asn(),
                     address: info.neighbor.get_addr().to_string(),
                     router_id: info.neighbor.get_router_id().to_string(),
@@ -352,7 +356,11 @@ impl Bgp {
         {
             match cap {
                 Capability::FourOctetASNumber(c) => c.set(asn),
-                _ => return Err(Error::Config(ConfigError::InvalidArgument)),
+                _ => {
+                    return Err(Error::Config(ConfigError::InvalidArgument(
+                        "failed to set ASN".to_string(),
+                    )))
+                }
             }
         }
         tracing::info!("set local asn");
@@ -397,7 +405,7 @@ impl Bgp {
         let info = Arc::new(Mutex::new(PeerInfo::new(
             local_as,
             local_router_id,
-            neighbor,
+            neighbor.clone(),
             self.global_capabilities.clone(),
             self.families.clone(),
         )));
@@ -421,7 +429,9 @@ impl Bgp {
             self.rib_event_tx.clone(),
             peer_rib_event_rx,
             self.api_tx.clone(),
-        );
+            self.exporter.clone(),
+        )
+        .await;
         let manager = PeerManager::new(info, tx);
         self.peer_managers.insert(neighbor.address, manager);
 

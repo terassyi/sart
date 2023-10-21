@@ -19,4 +19,7 @@ pub(crate) struct AgentCmd {
 
 	#[arg(long="tls-key", help = "path to TLS Key for agent")]
 	pub tls_key: Option<String>,
+
+	#[arg(long = "peer-state-watcher", help = "Endpoint URL for BGP peer state watcher")]
+	pub peer_state_watcher: Option<String>,
 }

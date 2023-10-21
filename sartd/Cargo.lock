@@ -2223,6 +2223,7 @@ dependencies = [
  "clap",
  "futures 0.3.28",
  "ipnet",
+ "json-patch",
  "k8s-openapi",
  "kube",
  "netlink-packet-core",

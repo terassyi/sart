@@ -1,11 +1,11 @@
 use std::{ops::Add, fs::File, io::Write};
 
 use clap::Parser;
-use rcgen::{CertificateParams, Certificate, ExtendedKeyUsagePurpose, KeyUsagePurpose, SerialNumber};
+use rcgen::{CertificateParams, Certificate, ExtendedKeyUsagePurpose, KeyUsagePurpose};
 use time::{OffsetDateTime, Duration};
 
-const DEFAULT_SERVICE_URL: &'static str = "sart-webhook-service.kube-system.svc";
-const DEFAULT_OUTPUT_DIR: &'static str = ".";
+const DEFAULT_SERVICE_URL: &str = "sart-webhook-service.kube-system.svc";
+const DEFAULT_OUTPUT_DIR: &str = ".";
 
 #[derive(Parser)]
 struct Args {

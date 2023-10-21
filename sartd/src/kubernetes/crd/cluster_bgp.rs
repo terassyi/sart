@@ -1,28 +1,28 @@
-use k8s_openapi::api::core::v1::NodeSelector;
-use kube::{
-    api::{Api, ListParams},
-    client::Client,
-    core::DynamicObject,
-    runtime::{
-        controller::{Action, Controller},
-        watcher::Config,
-    },
-    CustomResource, ResourceExt,
-};
+use std::collections::BTreeMap;
+
+use kube::CustomResource;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use super::bgp_peer::PeerConfig;
+
+pub(crate) const CLUSTER_BGP_FINALIZER: &str = "clusterbgp.sart.terassyi.net/finalizer";
+pub(crate) const ASN_LABEL: &str = "sart.terassyi.net/asn";
+pub(crate) const ROUTER_ID_LABEL: &str = "sart.terassyi.net/router-id";
+
 #[derive(CustomResource, Debug, Serialize, Deserialize, Default, Clone, JsonSchema)]
-// #[cfg_attr(test, derive(Default))]
 #[kube(group = "sart.terassyi.net", version = "v1alpha2", kind = "ClusterBGP")]
 #[kube(status = "ClusterBGPStatus")]
+#[kube(
+    printcolumn = r#"{"name":"AGE", "type":"date", "description":"Date from created", "jsonPath":".metadata.creationTimestamp"}"#,
+)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ClusterBGPSpec {
-    // pub policy: Policy,
-    // pub peers: Option<Vec<peer::Peer>>,
-    pub node_selector: NodeSelector,
+    pub node_selector: Option<BTreeMap<String, String>>,
     pub asn_selector: AsnSelector,
     pub router_id_selector: RouterIdSelector,
+    pub speaker: SpeakerConfig,
+    pub peers: Option<Vec<PeerConfig>>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Default, Debug, JsonSchema)]
@@ -63,6 +63,17 @@ pub(crate) struct RouterIdSelector {
 #[serde(rename_all = "camelCase")]
 pub(crate) enum RouterIdSelectionType {
     #[default]
+    #[serde(rename = "internalAddress")]
+    InternalAddress,
     #[serde(rename = "label")]
     Label,
+    #[serde(rename = "routerId")]
+    RouterId,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SpeakerConfig {
+    pub path: String,
+    pub timeout: Option<u64>,
 }
