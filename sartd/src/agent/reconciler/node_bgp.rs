@@ -42,7 +42,7 @@ async fn reconciler(nb: Arc<NodeBGP>, ctx: Arc<Context>) -> Result<Action, Error
         }
     })
     .await
-    .map_err(|e| Error::FinalizerError(Box::new(e)))
+    .map_err(|e| Error::Finalizer(Box::new(e)))
 }
 
 #[tracing::instrument(skip_all)]
@@ -108,10 +108,10 @@ async fn reconcile(api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Resul
         api.replace_status(
             &nb.name_any(),
             &PostParams::default(),
-            serde_json::to_vec(&new_nb).map_err(Error::SerializationError)?,
+            serde_json::to_vec(&new_nb).map_err(Error::Serialization)?,
         )
         .await
-        .map_err(Error::KubeError)?;
+        .map_err(Error::Kube)?;
 
         // requeue immediately
         return Ok(Action::requeue(Duration::from_secs(1)));
@@ -177,10 +177,10 @@ async fn reconcile(api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Resul
         api.replace_status(
             &nb.name_any(),
             &PostParams::default(),
-            serde_json::to_vec(&new_nb).map_err(Error::SerializationError)?,
+            serde_json::to_vec(&new_nb).map_err(Error::Serialization)?,
         )
         .await
-        .map_err(Error::KubeError)?;
+        .map_err(Error::Kube)?;
     }
 
     // create peers based on NodeBGP.spec.peers
@@ -190,11 +190,7 @@ async fn reconcile(api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Resul
             let mut errors: Vec<Error> = Vec::new();
             for p in peers.iter_mut() {
                 let bp = p.from(nb);
-                let bp_opt = match bgp_peers
-                    .get_opt(&bp.name_any())
-                    .await
-                    .map_err(Error::KubeError)
-                {
+                let bp_opt = match bgp_peers.get_opt(&bp.name_any()).await.map_err(Error::Kube) {
                     Ok(bp_opt) => bp_opt,
                     Err(e) => {
                         errors.push(e);
@@ -209,7 +205,7 @@ async fn reconcile(api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Resul
                         match bgp_peers
                             .create(&PostParams::default(), &bp)
                             .await
-                            .map_err(Error::KubeError)
+                            .map_err(Error::Kube)
                         {
                             Ok(_) => {}
                             Err(e) => {

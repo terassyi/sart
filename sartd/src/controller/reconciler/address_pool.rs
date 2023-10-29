@@ -30,20 +30,19 @@ async fn reconciler(ap: Arc<AddressPool>, ctx: Arc<Context>) -> Result<Action, E
         }
     })
     .await
-    .map_err(|e| Error::FinalizerError(Box::new(e)))
+    .map_err(|e| Error::Finalizer(Box::new(e)))
 }
 
 #[tracing::instrument(skip_all)]
 async fn reconcile(ap: &AddressPool, ctx: Arc<Context>) -> Result<Action, Error> {
     tracing::info!(name = ap.name_any(), "reconcile AddressPool");
 
-	Ok(Action::await_change())
+    Ok(Action::await_change())
 }
 
 #[tracing::instrument(skip_all)]
 async fn cleanup(ap: &AddressPool, ctx: Arc<Context>) -> Result<Action, Error> {
-
-	Ok(Action::await_change())
+    Ok(Action::await_change())
 }
 
 pub(crate) async fn run(state: State, interval: u64) {

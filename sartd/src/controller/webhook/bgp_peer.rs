@@ -138,7 +138,7 @@ fn mutate_bgp_peer(res: &AdmissionResponse, bp: &BGPPeer) -> Result<AdmissionRes
     match bp.labels().get(BGP_PEER_NODE_LABEL) {
         Some(n) => {
             if bp.spec.node_bgp_ref.ne(n) {
-                return Err(Error::LabelMatchingError(format!(
+                return Err(Error::LabelMatching(format!(
                     "{} must be equal to spec.nodeBGPRef field",
                     BGP_PEER_NODE_LABEL
                 )));
@@ -163,7 +163,7 @@ fn mutate_bgp_peer(res: &AdmissionResponse, bp: &BGPPeer) -> Result<AdmissionRes
             Ok(res
                 .clone()
                 .with_patch(json_patch::Patch(patches))
-                .map_err(Error::SerializePatchError)?)
+                .map_err(Error::SerializePatch)?)
         }
     }
 }

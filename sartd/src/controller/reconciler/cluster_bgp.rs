@@ -26,7 +26,7 @@ use crate::{
             },
             node_bgp::{NodeBGP, NodeBGPSpec},
         },
-        owner_reference::create_owner_reference,
+        util::create_owner_reference,
     },
 };
 
@@ -41,7 +41,7 @@ async fn reconciler(cb: Arc<ClusterBGP>, ctx: Arc<Context>) -> Result<Action, Er
         }
     })
     .await
-    .map_err(|e| Error::FinalizerError(Box::new(e)))
+    .map_err(|e| Error::Finalizer(Box::new(e)))
 }
 
 // reconcile() is called when a resource is applied or updated
@@ -55,7 +55,7 @@ async fn reconcile(cb: &ClusterBGP, ctx: Arc<Context>) -> Result<Action, Error> 
         None => ListParams::default(),
     };
 
-    let matched_nodes = nodes.list(&list_params).await.map_err(Error::KubeError)?;
+    let matched_nodes = nodes.list(&list_params).await.map_err(Error::Kube)?;
 
     let node_bgps = Api::<NodeBGP>::all(ctx.client.clone());
 
@@ -66,7 +66,7 @@ async fn reconcile(cb: &ClusterBGP, ctx: Arc<Context>) -> Result<Action, Error> 
         match node_bgps
             .get_opt(&node.name_any())
             .await
-            .map_err(Error::KubeError)?
+            .map_err(Error::Kube)?
         {
             Some(nb) => {
                 let mut new_nb = nb.clone();
@@ -96,7 +96,7 @@ async fn reconcile(cb: &ClusterBGP, ctx: Arc<Context>) -> Result<Action, Error> 
                     node_bgps
                         .replace(&nb.name_any(), &PostParams::default(), &new_nb)
                         .await
-                        .map_err(Error::KubeError)?;
+                        .map_err(Error::Kube)?;
                 }
             }
             None => {
@@ -127,7 +127,7 @@ async fn reconcile(cb: &ClusterBGP, ctx: Arc<Context>) -> Result<Action, Error> 
                     let p = c
                         .to_peer(&node_name, &peer_templ_api)
                         .await
-                        .map_err(Error::CRDError)?;
+                        .map_err(Error::CRD)?;
                     peers.push(p);
                 }
 
@@ -145,7 +145,7 @@ async fn reconcile(cb: &ClusterBGP, ctx: Arc<Context>) -> Result<Action, Error> 
                 node_bgps
                     .create(&PostParams::default(), &node_bgp)
                     .await
-                    .map_err(Error::KubeError)?;
+                    .map_err(Error::Kube)?;
             }
         }
     }

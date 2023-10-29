@@ -34,7 +34,6 @@ pub(crate) struct BGPAdvertisementSpec {
 #[derive(Deserialize, Serialize, Clone, Default, Debug, JsonSchema)]
 pub(crate) struct BGPAdvertisementStatus {}
 
-
 #[derive(Deserialize, Serialize, Clone, Default, Debug, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum Protocol {

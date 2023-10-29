@@ -5,13 +5,16 @@ use crate::{kubernetes, trace::error::TraceableError};
 #[derive(Debug, Error)]
 pub(crate) enum Error {
     #[error("std::io::Error")]
-    StdIoError(#[from] std::io::Error),
+    StdIo(#[from] std::io::Error),
+
+    #[error("Var Error: {0}")]
+    Var(#[source] std::env::VarError),
 
     #[error("Kube Error: {0}")]
-    KubeError(#[source] kube::Error),
+    Kube(#[source] kube::Error),
 
     #[error("config error")]
-    ConfigError(#[from] ConfigError),
+    Config(#[from] ConfigError),
 
     #[error("failed to communicate with rtnetlink: {}", e)]
     FailedToCommunicateWithNetlink {
@@ -23,7 +26,7 @@ pub(crate) enum Error {
     #[error("timeout")]
     Timeout,
     #[error("got error {0} from gRPC")]
-    GotgPRCError(#[from] tonic::Status),
+    GotgPRC(#[from] tonic::Status),
 
     #[error("Local BGP speaker is not configured")]
     LocalSpeakerIsNotConfigured,
@@ -31,16 +34,19 @@ pub(crate) enum Error {
     #[error("Finalizer Error: {0}")]
     // NB: awkward type because finalizer::Error embeds the reconciler error (which is this)
     // so boxing this error to break cycles
-    FinalizerError(#[source] Box<kube::runtime::finalizer::Error<Error>>),
+    Finalizer(#[source] Box<kube::runtime::finalizer::Error<Error>>),
 
     #[error("FailedToGetData: {0}")]
     FailedToGetData(String),
 
     #[error("SerializationError: {0}")]
-    SerializationError(#[source] serde_json::Error),
+    Serialization(#[source] serde_json::Error),
 
     #[error("CRD Error: {0}")]
-    CRDError(#[source] kubernetes::crd::error::Error),
+    CRD(#[source] kubernetes::crd::error::Error),
+
+    #[error("Kubernetes Library Error: {0}")]
+    KubeLibrary(#[source] kubernetes::error::Error),
 }
 
 #[derive(Debug, Error, Clone)]

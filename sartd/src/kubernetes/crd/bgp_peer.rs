@@ -151,7 +151,7 @@ impl PeerConfig {
         let mut bp = BGPPeerSlim::default();
 
         if let Some(templ) = &self.peer_template_ref {
-            let pt = peer_templ_api.get(templ).await.map_err(Error::KubeError)?;
+            let pt = peer_templ_api.get(templ).await.map_err(Error::Kube)?;
             if let Some(a) = pt.spec.asn {
                 bp.spec.asn = a;
             }
@@ -188,12 +188,10 @@ impl PeerConfig {
 impl BGPPeerSpec {
     pub(crate) fn validate(&self) -> Result<(), Error> {
         if self.asn == 0 {
-            return Err(Error::ValidationError("Invalid ASN".to_string()));
+            return Err(Error::Validation("Invalid ASN".to_string()));
         }
         if self.addr.is_empty() {
-            return Err(Error::ValidationError(
-                "Invalid remote peer address".to_string(),
-            ));
+            return Err(Error::Validation("Invalid remote peer address".to_string()));
         }
         Ok(())
     }

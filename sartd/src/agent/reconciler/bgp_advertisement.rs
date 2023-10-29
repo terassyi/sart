@@ -1,63 +1,50 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use futures::StreamExt;
-use kube::{runtime::{controller::Action, finalizer::{finalizer, Event}, watcher::Config, Controller}, Api, ResourceExt, Client, api::ListParams};
+use kube::{
+    api::ListParams,
+    runtime::{controller::Action, watcher::Config, Controller},
+    Api, Client, ResourceExt,
+};
 
-use crate::{kubernetes::{crd::{bgp_advertisement::{BGPAdvertisement, BGP_ADVERTISEMENT_FINALIZER}, node_bgp::NodeBGP}, context::{Context, State, error_policy}}, agent::{error::Error, reconciler::node_bgp::ENV_HOSTNAME}};
+use crate::{
+    agent::{
+        bgp::speaker,
+        error::Error,
+        reconciler::node_bgp::{DEFAULT_SPEAKER_TIMEOUT, ENV_HOSTNAME},
+    },
+    kubernetes::{
+        context::{error_policy, Context, State},
+        crd::{
+            bgp_advertisement::{BGPAdvertisement, Protocol},
+            bgp_peer::{BGPPeer, BGPPeerConditionStatus},
+            node_bgp::NodeBGP,
+        },
+        util::get_namespace,
+    },
+};
 
-
-#[tracing::instrument(skip_all, fields(trace_id))]
-async fn reconciler(ba: Arc<BGPAdvertisement>, ctx: Arc<Context>) -> Result<Action, Error> {
-	let bgp_advertisements = Api::<BGPAdvertisement>::all(ctx.client.clone());
-
-	finalizer(&bgp_advertisements, BGP_ADVERTISEMENT_FINALIZER, ba, |event| async {
-		match event {
-			Event::Apply(ba) => reconcile(&bgp_advertisements, &ba, ctx).await,
-			Event::Cleanup(ba) => cleanup(&bgp_advertisements, &ba, ctx).await,
-		}
-	})
-	.await
-	.map_err(|e| Error::FinalizerError(Box::new(e)))
-}
-
-#[tracing::instrument(skip_all, fields(trace_id))]
-async fn reconcile(api: &Api<BGPAdvertisement>, ba: &BGPAdvertisement, ctx: Arc<Context>) -> Result<Action, Error> {
-    tracing::info!(name = ba.name_any(), "Reconcile BGPAdvertisement");
-
-    let node_name = std::env::var(ENV_HOSTNAME).expect("HOSTNAME environment value is not set");
-
-    let node_bgps = Api::<NodeBGP>::all(ctx.client.clone());
-    let nb = node_bgps.get(&node_name).await.map_err(Error::KubeError)?;
-
-    Ok(Action::await_change())
-}
-
-#[tracing::instrument(skip_all, fields(trace_id))]
-async fn cleanup(api: &Api<BGPAdvertisement>, ba: &BGPAdvertisement, ctx: Arc<Context>) -> Result<Action, Error> {
-
-    Ok(Action::await_change())
-}
-
-#[tracing::instrument(skip_all, fields(trace_id))]
+#[tracing::instrument(skip_all)]
 pub(crate) async fn run(state: State, interval: u64) {
     let client = Client::try_default()
         .await
         .expect("Failed to create kube client");
 
     let bgp_advertisements = Api::<BGPAdvertisement>::all(client.clone());
-    if let Err(e) = bgp_advertisements.list(&ListParams::default().limit(1)).await {
-        tracing::error!("CRD is not queryable; {e:?}. Is the CRD installed?");
+
+    if let Err(e) = bgp_advertisements
+        .list(&ListParams::default().limit(1))
+        .await
+    {
+        tracing::error!("CRD is not queryable: {e:?}. Is the CRD installed?");
         tracing::info!("Installation: cargo run --bin crdgen | kubectl apply -f -");
         std::process::exit(1);
     }
 
-    tracing::info!("Start BGPAdvertisement reconciler");
+    tracing::info!("Start BGPAdvertisement watcher");
 
-    // let node_name = std::env::var(ENV_HOSTNAME).expect("HOSTNAME environment value is not set");
-    // let label_selector = format!("{}={}", LABEL_BGP_PEER_NODE, node_name);
-
-    // let watch_config = Config::default().labels(&label_selector);
     let watch_config = Config::default();
+
     Controller::new(bgp_advertisements, watch_config.any_semantic())
         .shutdown_on_signal()
         .run(
@@ -68,4 +55,85 @@ pub(crate) async fn run(state: State, interval: u64) {
         .filter_map(|x| async move { std::result::Result::ok(x) })
         .for_each(|_| futures::future::ready(()))
         .await;
+}
+
+#[tracing::instrument(skip_all, fields(trace_id))]
+async fn reconciler(ba: Arc<BGPAdvertisement>, ctx: Arc<Context>) -> Result<Action, Error> {
+    let ns = get_namespace::<BGPAdvertisement>(&ba).map_err(Error::KubeLibrary)?;
+
+    let node_bgps = Api::<NodeBGP>::all(ctx.client.clone());
+    let node_name = std::env::var(ENV_HOSTNAME).map_err(Error::Var)?;
+
+    let nb = node_bgps.get(&node_name).await.map_err(Error::Kube)?;
+    tracing::info!(
+        name = ba.name_any(),
+        namespace = ns,
+        peers =? ba.spec.peers,
+        "Reconcile BGPAdvertisement"
+    );
+
+    let timeout = nb.spec.speaker.timeout.unwrap_or(DEFAULT_SPEAKER_TIMEOUT);
+    let mut speaker_client =
+        speaker::connect_bgp_with_retry(&nb.spec.speaker.path, Duration::from_secs(timeout))
+            .await?;
+
+    let family = crate::proto::sart::AddressFamily {
+        afi: match ba.spec.protocol {
+            Protocol::IPv4 => crate::proto::sart::address_family::Afi::Ip4.into(),
+            Protocol::IPv6 => crate::proto::sart::address_family::Afi::Ip6.into(),
+        },
+        safi: crate::proto::sart::address_family::Safi::Unicast.into(),
+    };
+
+    if let Some(peers) = nb.spec.peers {
+        let bgp_peers = Api::<BGPPeer>::all(ctx.client.clone());
+        for p in peers.iter() {
+            let bp = bgp_peers.get(&p.name).await.map_err(Error::Kube)?;
+            if bp
+                .status
+                .as_ref()
+                .and_then(|status| {
+                    status.conditions.as_ref().and_then(|conds| {
+                        conds.last().and_then(|cond| {
+                            if cond.status != BGPPeerConditionStatus::Established {
+                                None
+                            } else {
+                                Some(cond.status)
+                            }
+                        })
+                    })
+                })
+                .is_none()
+            {
+                tracing::warn!(peer = bp.name_any(), "BGPPeer is not established");
+                continue;
+            }
+            // peer is established
+            if let Some(target_peers) = &ba.spec.peers {
+                // FIXME: find better way...
+                if target_peers.contains(&p.name) {
+                    let res = speaker_client
+                        .add_path(crate::proto::sart::AddPathRequest {
+                            family: Some(family.clone()),
+                            prefixes: vec![ba.spec.cidr.clone()],
+                            attributes: Vec::new(), // TODO: implement attributes
+                        })
+                        .await
+                        .map_err(Error::GotgPRC)?;
+                    tracing::info!(name = ba.name_any(), namespace = ns, response=?res,"Add path response");
+                } else {
+                    let res = speaker_client
+                        .delete_path(crate::proto::sart::DeletePathRequest {
+                            family: Some(family.clone()),
+                            prefixes: vec![ba.spec.cidr.clone()],
+                        })
+                        .await
+                        .map_err(Error::GotgPRC)?;
+                    tracing::info!(name = ba.name_any(), namespace = ns, response=?res,"Delete path response");
+                }
+            }
+        }
+    }
+
+    Ok(Action::await_change())
 }

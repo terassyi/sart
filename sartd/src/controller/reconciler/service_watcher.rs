@@ -29,7 +29,7 @@ use crate::{
             bgp_peer::PEER_GROUP_ANNOTATION,
             node_bgp::NodeBGP,
         },
-        owner_reference::create_owner_reference,
+        util::{create_owner_reference, get_namespace},
     },
 };
 
@@ -40,7 +40,7 @@ const SERVICE_NAME_LABEL: &str = "kubernetes.io/service-name";
 async fn reconciler(eps: Arc<EndpointSlice>, ctx: Arc<Context>) -> Result<Action, Error> {
     let ns = eps
         .namespace()
-        .ok_or(Error::KubeError(kube::error::Error::Discovery(
+        .ok_or(Error::Kube(kube::error::Error::Discovery(
             kube::error::DiscoveryError::MissingResource(format!(
                 "Namespace for {}",
                 eps.name_any()
@@ -51,11 +51,7 @@ async fn reconciler(eps: Arc<EndpointSlice>, ctx: Arc<Context>) -> Result<Action
         None => return Ok(Action::await_change()), // If the service name label is not set, ignore it
     };
     let services = Api::<Service>::namespaced(ctx.client.clone(), &ns);
-    let svc = match services
-        .get_opt(&svc_name)
-        .await
-        .map_err(Error::KubeError)?
-    {
+    let svc = match services.get_opt(&svc_name).await.map_err(Error::Kube)? {
         Some(svc) => svc,
         None => {
             tracing::warn!(
@@ -94,26 +90,17 @@ async fn reconciler(eps: Arc<EndpointSlice>, ctx: Arc<Context>) -> Result<Action
         |event| async {
             match event {
                 Event::Apply(eps) => reconcile(&eps, &svc, ctx.clone()).await,
-                Event::Cleanup(eps) => cleanup(&eps, ctx.clone()).await,
+                Event::Cleanup(eps) => cleanup(&eps, &svc, ctx.clone()).await,
             }
         },
     )
     .await
-    .map_err(|e| Error::FinalizerError(Box::new(e)))
+    .map_err(|e| Error::Finalizer(Box::new(e)))
 }
 
 #[tracing::instrument(skip_all, fields(trace_id))]
 async fn reconcile(eps: &EndpointSlice, svc: &Service, ctx: Arc<Context>) -> Result<Action, Error> {
-    let ns = match eps.namespace() {
-        Some(ns) => ns,
-        None => {
-            tracing::warn!(
-                name = eps.name_any(),
-                "Namespace is not set in EndpointSlice"
-            );
-            return Err(Error::FailedToGetData("Namespace is required".to_string()));
-        }
-    };
+    let ns = get_namespace::<EndpointSlice>(eps).map_err(Error::KubeLibrary)?;
     tracing::info!(
         name = eps.name_any(),
         namespace = ns,
@@ -155,7 +142,7 @@ async fn reconcile(eps: &EndpointSlice, svc: &Service, ctx: Arc<Context>) -> Res
         match bgp_advertisements
             .get_opt(&adv_name)
             .await
-            .map_err(Error::KubeError)?
+            .map_err(Error::Kube)?
         {
             Some(adv) => {
                 // update if changed
@@ -199,7 +186,7 @@ async fn reconcile(eps: &EndpointSlice, svc: &Service, ctx: Arc<Context>) -> Res
                     bgp_advertisements
                         .replace(&new_adv.name_any(), &PostParams::default(), &new_adv)
                         .await
-                        .map_err(Error::KubeError)?;
+                        .map_err(Error::Kube)?;
                 }
             }
             None => {
@@ -229,7 +216,7 @@ async fn reconcile(eps: &EndpointSlice, svc: &Service, ctx: Arc<Context>) -> Res
                 bgp_advertisements
                     .create(&PostParams::default(), &adv)
                     .await
-                    .map_err(Error::KubeError)?;
+                    .map_err(Error::Kube)?;
             }
         }
     }
@@ -238,8 +225,15 @@ async fn reconcile(eps: &EndpointSlice, svc: &Service, ctx: Arc<Context>) -> Res
 }
 
 #[tracing::instrument(skip_all, fields(trace_id))]
-async fn cleanup(eps: &EndpointSlice, ctx: Arc<Context>) -> Result<Action, Error> {
-    tracing::info!(name = eps.name_any(), "cleanup Endpointslice");
+async fn cleanup(eps: &EndpointSlice, svc: &Service, ctx: Arc<Context>) -> Result<Action, Error> {
+    let ns = get_namespace::<EndpointSlice>(eps).map_err(Error::KubeLibrary)?;
+
+    tracing::info!(
+        name = eps.name_any(),
+        namespace = ns,
+        "Cleanup Endpointslice"
+    );
+
     Ok(Action::await_change())
 }
 
@@ -289,7 +283,7 @@ async fn get_target_peers(
                     let nb_lists = nb_api
                         .list(&ListParams::default())
                         .await
-                        .map_err(Error::KubeError)?;
+                        .map_err(Error::Kube)?;
                     for nb in nb_lists.items.iter() {
                         let groups = get_svc_peer_groups(svc);
                         if let Some(peers) = &nb.spec.peers {
@@ -305,7 +299,7 @@ async fn get_target_peers(
                     for ep in eps.endpoints.iter() {
                         // Check wether its endpoint is available(serving?? or ready??)
                         if let Some(node_name) = &ep.node_name {
-                            match nb_api.get_opt(node_name).await.map_err(Error::KubeError)? {
+                            match nb_api.get_opt(node_name).await.map_err(Error::Kube)? {
                                 Some(nb) => {
                                     // Compare labels the Service has and labels each NodeBGP has
                                     //

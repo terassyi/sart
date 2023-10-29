@@ -11,7 +11,10 @@ use super::reconciler;
 use crate::{
     cert::util::*,
     controller::webhook,
-    kubernetes::{context::State, crd::{bgp_peer::BGPPeer, bgp_advertisement::BGPAdvertisement}},
+    kubernetes::{
+        context::State,
+        crd::{bgp_advertisement::BGPAdvertisement, bgp_peer::BGPPeer},
+    },
     trace::init::{prepare_tracing, TraceConfig},
 };
 
@@ -85,6 +88,11 @@ async fn run(c: Controller, trace_config: TraceConfig) {
     let endpointslice_state = state.clone();
     tokio::spawn(async move {
         reconciler::service_watcher::run(endpointslice_state, c.requeue_interval).await;
+    });
+
+    let bgp_advertisement_state = state.clone();
+    tokio::spawn(async move {
+        reconciler::bgp_advertisement::run(bgp_advertisement_state, c.requeue_interval).await;
     });
 
     server.run().await.unwrap()

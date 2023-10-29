@@ -6,36 +6,39 @@ use crate::{kubernetes, trace::error::TraceableError};
 #[derive(Error, Debug)]
 pub(crate) enum Error {
     #[error("std::io::Error")]
-    StdIoError(#[from] std::io::Error),
+    StdIo(#[from] std::io::Error),
 
     #[error("config error")]
-    ConfigError(#[from] ConfigError),
+    Config(#[from] ConfigError),
 
     #[error("SerializationError: {0}")]
-    SerializationError(#[source] serde_json::Error),
+    Serialization(#[source] serde_json::Error),
 
     #[error("SerializePatchError: {0}")]
-    SerializePatchError(#[source] SerializePatchError),
+    SerializePatch(#[source] SerializePatchError),
 
     #[error("Kube Error: {0}")]
-    KubeError(#[source] kube::Error),
+    Kube(#[source] kube::Error),
 
     #[error("gRPC Error: {0}")]
-    GRPCError(tonic::Status),
+    GRPC(tonic::Status),
 
     #[error("gRPC Connection Error: {0}")]
-    GRPCConnectionError(#[source] tonic::transport::Error),
+    GRPCConnection(#[source] tonic::transport::Error),
 
     #[error("Finalizer Error: {0}")]
     // NB: awkward type because finalizer::Error embeds the reconciler error (which is this)
     // so boxing this error to break cycles
-    FinalizerError(#[source] Box<kube::runtime::finalizer::Error<Error>>),
+    Finalizer(#[source] Box<kube::runtime::finalizer::Error<Error>>),
 
     #[error("CRD Error: {0}")]
-    CRDError(#[source] kubernetes::crd::error::Error),
+    CRD(#[source] kubernetes::crd::error::Error),
+
+    #[error("Kube Library Error: {0}")]
+    KubeLibrary(#[source] kubernetes::error::Error),
 
     #[error("Label matching Error: {0}")]
-    LabelMatchingError(String),
+    LabelMatching(String),
 
     #[error("Invalid parameter: {0}")]
     InvalidParameter(String),

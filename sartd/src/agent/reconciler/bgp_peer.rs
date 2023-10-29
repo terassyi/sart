@@ -41,7 +41,7 @@ async fn reconciler(bp: Arc<BGPPeer>, ctx: Arc<Context>) -> Result<Action, Error
         }
     })
     .await
-    .map_err(|e| Error::FinalizerError(Box::new(e)))
+    .map_err(|e| Error::Finalizer(Box::new(e)))
 }
 
 #[tracing::instrument(skip_all, fields(trace_id))]
@@ -97,7 +97,7 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
                                     if cond.status as i32 != peer.state {
                                         let new_state =
                                             BGPPeerConditionStatus::try_from(peer.state)
-                                                .map_err(Error::CRDError)?;
+                                                .map_err(Error::CRD)?;
                                         tracing::info!(
                                             name = bp.name_any(),
                                             asn = bp.spec.asn,
@@ -108,7 +108,7 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
                                         );
                                         conditions.push(BGPPeerCondition {
                                             status: BGPPeerConditionStatus::try_from(peer.state)
-                                                .map_err(Error::CRDError)?,
+                                                .map_err(Error::CRD)?,
                                             reason: "".to_string(),
                                         });
                                         need_status_update = true;
@@ -118,7 +118,7 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
                             }
                             None => {
                                 let state = BGPPeerConditionStatus::try_from(peer.state)
-                                    .map_err(Error::CRDError)?;
+                                    .map_err(Error::CRD)?;
                                 tracing::info!(
                                     name = bp.name_any(),
                                     asn = bp.spec.asn,
@@ -134,8 +134,8 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
                             }
                         },
                         None => {
-                            let state = BGPPeerConditionStatus::try_from(peer.state)
-                                .map_err(Error::CRDError)?;
+                            let state =
+                                BGPPeerConditionStatus::try_from(peer.state).map_err(Error::CRD)?;
                             tracing::info!(
                                 name = bp.name_any(),
                                 asn = bp.spec.asn,
@@ -170,15 +170,15 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
                 api.replace_status(
                     &bp.name_any(),
                     &PostParams::default(),
-                    serde_json::to_vec(&new_bp).map_err(Error::SerializationError)?,
+                    serde_json::to_vec(&new_bp).map_err(Error::Serialization)?,
                 )
                 .await
-                .map_err(Error::KubeError)?;
+                .map_err(Error::Kube)?;
             }
         }
         Err(status) => {
             if status.code() != tonic::Code::NotFound {
-                return Err(Error::GotgPRCError(status));
+                return Err(Error::GotgPRC(status));
             }
             // When peer doesn't exist
             tracing::info!(
@@ -208,7 +208,7 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
                     }),
                 })
                 .await
-                .map_err(Error::GotgPRCError)?;
+                .map_err(Error::GotgPRC)?;
 
             tracing::info!(asn = bp.spec.asn, addr = bp.spec.addr, "Create Peer");
 
@@ -217,7 +217,7 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
             let mut nb = node_bgps
                 .get(&bp.spec.node_bgp_ref)
                 .await
-                .map_err(Error::KubeError)?;
+                .map_err(Error::Kube)?;
 
             match nb.spec.peers.as_mut() {
                 Some(peers) => {
@@ -231,7 +231,7 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
             node_bgps
                 .replace(&nb.name_any(), &PostParams::default(), &nb)
                 .await
-                .map_err(Error::KubeError)?;
+                .map_err(Error::Kube)?;
 
             // Reconcile again after 5 second for synchronizing BGP peer state
             return Ok(Action::requeue(Duration::from_secs(5)));

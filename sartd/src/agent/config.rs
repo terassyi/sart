@@ -26,8 +26,8 @@ pub(crate) struct Tls {
 
 impl Config {
     pub fn load(file: &str) -> Result<Self, Error> {
-        let contents = fs::read_to_string(file).map_err(Error::StdIoError)?;
-        serde_yaml::from_str(&contents).map_err(|_| Error::ConfigError(ConfigError::FailedToLoad))
+        let contents = fs::read_to_string(file).map_err(Error::StdIo)?;
+        serde_yaml::from_str(&contents).map_err(|_| Error::Config(ConfigError::FailedToLoad))
     }
 }
 
