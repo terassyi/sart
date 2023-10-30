@@ -1,4 +1,8 @@
-use std::{str::FromStr, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    str::FromStr,
+    sync::Arc,
+};
 
 use futures::StreamExt;
 use ipnet::IpNet;
@@ -25,7 +29,10 @@ use crate::{
         context::{error_policy, Context, State},
         crd::{
             address_pool::AddressType,
-            bgp_advertisement::{BGPAdvertisement, BGPAdvertisementSpec, Protocol},
+            bgp_advertisement::{
+                AdvertiseStatus, BGPAdvertisement, BGPAdvertisementSpec, BGPAdvertisementStatus,
+                Protocol,
+            },
             bgp_peer::PEER_GROUP_ANNOTATION,
             node_bgp::NodeBGP,
         },
@@ -145,8 +152,6 @@ async fn reconcile(eps: &EndpointSlice, svc: &Service, ctx: Arc<Context>) -> Res
             .map_err(Error::Kube)?
         {
             Some(adv) => {
-                // update if changed
-                let mut need_update = false;
                 let mut new_adv = adv.clone();
 
                 if adv.spec.cidr.ne(cidr.to_string().as_str()) {
@@ -156,41 +161,78 @@ async fn reconcile(eps: &EndpointSlice, svc: &Service, ctx: Arc<Context>) -> Res
                         "LoadBalancer address is changed"
                     );
                     new_adv.spec.cidr = cidr.to_string();
-                    need_update = true;
-                }
-
-                if let Some(peers) = &adv.spec.peers {
-                    if peers.len() != target_peers.len() {
-                        new_adv.spec.peers = Some(target_peers.clone());
-                        need_update = true;
-                    } else {
-                        for (i, e) in peers.iter().enumerate() {
-                            if e.ne(&target_peers[i]) {
-                                new_adv.spec.peers = Some(target_peers.clone());
-                                need_update = true;
-                                break;
-                            }
+                    let mut new_target_peers: BTreeMap<String, AdvertiseStatus> = BTreeMap::new();
+                    if let Some(target_peers) = new_adv.status.and_then(|target| target.peers) {
+                        for (target, _status) in target_peers.iter() {
+                            new_target_peers.insert(target.clone(), AdvertiseStatus::NotAdvertised);
                         }
                     }
-                } else if !target_peers.is_empty() {
-                    new_adv.spec.peers = Some(target_peers.clone());
-                    need_update = true;
+                    new_adv.status = Some(BGPAdvertisementStatus {
+                        peers: Some(new_target_peers),
+                    });
+                    bgp_advertisements
+                        .replace_status(
+                            &new_adv.name_any(),
+                            &PostParams::default(),
+                            serde_json::to_vec(&new_adv).map_err(Error::Serialization)?,
+                        )
+                        .await
+                        .map_err(Error::Kube)?;
+                    return Ok(Action::await_change());
                 }
 
+                if let Some(current_targets) = new_adv
+                    .status
+                    .as_mut()
+                    .and_then(|status| status.peers.as_mut())
+                {
+                    let need_update = sync_target_peers(current_targets, &target_peers);
+                    tracing::info!(name = adv.name_any(), namespace = ns, tagets =? target_peers, status =? new_adv.status, "Sync peers");
+                    if need_update {
+                        bgp_advertisements
+                            .replace_status(
+                                &new_adv.name_any(),
+                                &PostParams::default(),
+                                serde_json::to_vec(&new_adv).map_err(Error::Serialization)?,
+                            )
+                            .await
+                            .map_err(Error::Kube)?;
+                    }
+                }
+                let need_update = match new_adv
+                    .status
+                    .as_mut()
+                    .and_then(|status| status.peers.as_mut())
+                {
+                    Some(peers) => sync_target_peers(peers, &target_peers),
+                    None => {
+                        let mut peers: BTreeMap<String, AdvertiseStatus> = BTreeMap::new();
+                        for target in target_peers.iter() {
+                            peers.insert(target.clone(), AdvertiseStatus::NotAdvertised);
+                        }
+                        new_adv.status = Some(BGPAdvertisementStatus { peers: Some(peers) });
+                        true
+                    }
+                };
+                tracing::info!(name = adv.name_any(), namespace = ns, tagets =? target_peers, status =? new_adv.status, "Sync peers");
                 if need_update {
-                    tracing::info!(
-                        name = adv.name_any(),
-                        namespace = ns,
-                        "Update BGPAdvertisement"
-                    );
                     bgp_advertisements
-                        .replace(&new_adv.name_any(), &PostParams::default(), &new_adv)
+                        .replace_status(
+                            &new_adv.name_any(),
+                            &PostParams::default(),
+                            serde_json::to_vec(&new_adv).map_err(Error::Serialization)?,
+                        )
                         .await
                         .map_err(Error::Kube)?;
                 }
             }
             None => {
                 // create new Advertisement
+                let mut peers = BTreeMap::new();
+                for p in target_peers.iter() {
+                    peers.insert(p.clone(), AdvertiseStatus::NotAdvertised);
+                }
+
                 let adv = BGPAdvertisement {
                     metadata: ObjectMeta {
                         name: Some(adv_name),
@@ -203,14 +245,14 @@ async fn reconcile(eps: &EndpointSlice, svc: &Service, ctx: Arc<Context>) -> Res
                         r#type: AddressType::Service,
                         protocol: Protocol::from(&cidr),
                         attrs: None, // TODO: implement BGP attributes
-                        peers: Some(target_peers.clone()),
                     },
-                    status: None,
+                    status: Some(BGPAdvertisementStatus { peers: Some(peers) }),
                 };
 
                 tracing::info!(
                     name = adv.name_any(),
                     namespace = ns,
+                    status = ?adv.status,
                     "Create BGPAdvertisement"
                 );
                 bgp_advertisements
@@ -337,5 +379,59 @@ fn get_svc_peer_groups(svc: &Service) -> Vec<&str> {
     match &svc.annotations().get(PEER_GROUP_ANNOTATION) {
         Some(v) => v.split(',').collect(),
         None => vec![],
+    }
+}
+
+fn sync_target_peers(peers: &mut BTreeMap<String, AdvertiseStatus>, targets: &[String]) -> bool {
+    let mut target_map: HashMap<&str, ()> = HashMap::new();
+    let mut updated = false;
+    for target in targets.iter() {
+        target_map.insert(target, ());
+        match peers.get(target) {
+            Some(_) => {}
+            None => {
+                peers.insert(target.clone(), AdvertiseStatus::NotAdvertised);
+                updated = true;
+            }
+        }
+    }
+    for (k, v) in peers.iter_mut() {
+        if target_map.get(k.as_str()).is_none() && (*v).ne(&AdvertiseStatus::Withdraw) {
+            *v = AdvertiseStatus::Withdraw;
+            updated = true;
+        }
+    }
+    updated
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest(
+        peers,
+        targets,
+        updated,
+        expected,
+        case(BTreeMap::from([]), vec![], false, BTreeMap::from([])),
+        case(BTreeMap::from([("peer1".to_string(), AdvertiseStatus::Advertised)]), vec!["peer1".to_string()], false, BTreeMap::from([])),
+        case(BTreeMap::from([("peer1".to_string(), AdvertiseStatus::Advertised), ("peer2".to_string(), AdvertiseStatus::Advertised)]), vec!["peer1".to_string(), "peer2".to_string()], false, BTreeMap::from([])),
+        case(BTreeMap::from([("peer1".to_string(), AdvertiseStatus::Advertised), ("peer2".to_string(), AdvertiseStatus::NotAdvertised)]), vec!["peer1".to_string(), "peer2".to_string()], false, BTreeMap::from([])),
+        case(BTreeMap::from([("peer1".to_string(), AdvertiseStatus::Advertised)]), vec!["peer1".to_string(), "peer2".to_string()], true, BTreeMap::from([("peer1".to_string(), AdvertiseStatus::Advertised), ("peer2".to_string(), AdvertiseStatus::NotAdvertised)])),
+        case(BTreeMap::from([("peer1".to_string(), AdvertiseStatus::Advertised), ("peer2".to_string(), AdvertiseStatus::Advertised)]), vec!["peer2".to_string()], true, BTreeMap::from([("peer1".to_string(), AdvertiseStatus::Withdraw), ("peer2".to_string(), AdvertiseStatus::Advertised)])),
+        case(BTreeMap::from([("peer1".to_string(), AdvertiseStatus::Advertised), ("peer2".to_string(), AdvertiseStatus::Advertised)]), vec!["peer2".to_string(), "peer3".to_string()], true, BTreeMap::from([("peer1".to_string(), AdvertiseStatus::Withdraw), ("peer2".to_string(), AdvertiseStatus::Advertised), ("peer3".to_string(), AdvertiseStatus::NotAdvertised)])),
+    )]
+    fn works_sync_target_peers(
+        mut peers: BTreeMap<String, AdvertiseStatus>,
+        targets: Vec<String>,
+        updated: bool,
+        expected: BTreeMap<String, AdvertiseStatus>,
+    ) {
+        let res = sync_target_peers(&mut peers, &targets);
+        assert_eq!(res, updated);
+        if res {
+            assert_eq!(peers, expected);
+        }
     }
 }

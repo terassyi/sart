@@ -1,4 +1,5 @@
 use std::marker::{Send, Sync};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -198,6 +199,42 @@ impl BgpApi for ApiServer {
                 None => Err(Status::internal("failed to get path information")),
             },
             Err(_e) => Err(Status::not_found("neighbor's paths not found")),
+        }
+    }
+
+    async fn get_path_by_prefix(
+        &self,
+        req: Request<GetPathByPrefixRequest>,
+    ) -> Result<Response<GetPathByPrefixResponse>, Status> {
+        let prefix = match IpNet::from_str(&req.get_ref().prefix) {
+            Ok(p) => p,
+            Err(e) => return Err(Status::aborted(format!("failed to parse prefix: {}", e)))
+        };
+        if req.get_ref().family.is_none() {
+            return Err(Status::aborted("failed to receive AddressFamily"));
+        }
+        let f = req.get_ref().family.as_ref().unwrap();
+        let family = match AddressFamily::new(f.afi as u16, f.safi as u8) {
+            Ok(f) => f,
+            Err(_) => return Err(Status::aborted("failed to get AddressFamily")),
+        };
+        self.tx.send(ControlEvent::GetPathByPrefix(prefix, family)).await.unwrap();
+
+        let mut rx = self.response_rx.lock().await;
+        match timeout(Duration::from_secs(self.internal_timeout), rx.recv()).await {
+            Ok(res) => match res {
+                Some(res) => {
+                    if let ApiResponse::Paths(paths) = res {
+                        Ok(Response::new(proto::sart::GetPathByPrefixResponse {
+                            paths,
+                        }))
+                    } else {
+                        Err(Status::internal("failed to get path information"))
+                    }
+                }
+                None => Err(Status::internal("failed to get path information")),
+            },
+            Err(_e) => Err(Status::not_found("path not found")),
         }
     }
 

@@ -246,6 +246,7 @@ impl Bgp {
             ControlEvent::GetNeighborPath(kind, peer_addr, family) => {
                 self.get_neighbor_path(kind, peer_addr, family).await?
             }
+            ControlEvent::GetPathByPrefix(prefix, family) => self.get_path_by_prefix(prefix, family).await?,
             ControlEvent::SetAsn(asn) => self.set_asn(asn).await?,
             ControlEvent::SetRouterId(id) => self.set_router_id(id).await?,
             ControlEvent::AddPeer(neighbor) => self.add_peer(neighbor).in_current_span().await?,
@@ -340,6 +341,13 @@ impl Bgp {
                 .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;
         }
         Ok(())
+    }
+
+    async fn get_path_by_prefix(&self, prefix: IpNet, family: AddressFamily) -> Result<(), Error> {
+        self.rib_event_tx
+            .send(RibEvent::GetPathByPrefix(prefix, family))
+            .await
+            .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))
     }
 
     #[tracing::instrument(skip(self))]

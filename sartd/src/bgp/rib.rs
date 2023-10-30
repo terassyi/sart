@@ -554,6 +554,9 @@ impl RibManager {
                 self.drop_paths(neighbor, family, path_ids, true).await
             }
             RibEvent::GetPath(family) => self.get_path(family).await,
+            RibEvent::GetPathByPrefix(prefix, family) => {
+                self.get_path_by_prefix(prefix, family).await
+            }
             _ => Err(Error::Rib(RibError::UnhandlableEvent)),
         }
     }
@@ -977,6 +980,20 @@ impl RibManager {
             let paths = all_paths
                 .iter()
                 .map(|&p| proto::sart::Path::from(p))
+                .collect();
+            self.api_tx
+                .send(ApiResponse::Paths(paths))
+                .await
+                .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))?;
+        }
+        Ok(())
+    }
+
+    async fn get_path_by_prefix(&self, prefix: IpNet, family: AddressFamily) -> Result<(), Error> {
+        if let Some(all_paths) = self.loc_rib.get(&family, &prefix) {
+            let paths = all_paths
+                .iter()
+                .map(proto::sart::Path::from)
                 .collect();
             self.api_tx
                 .send(ApiResponse::Paths(paths))

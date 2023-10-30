@@ -520,11 +520,6 @@ spec:
                 type: array
               cidr:
                 type: string
-              peers:
-                items:
-                  type: string
-                nullable: true
-                type: array
               protocol:
                 enum:
                 - ipv4
@@ -541,6 +536,16 @@ spec:
             type: object
           status:
             nullable: true
+            properties:
+              peers:
+                additionalProperties:
+                  enum:
+                  - NotAdvertised
+                  - Advertised
+                  - Withdraw
+                  type: string
+                nullable: true
+                type: object
             type: object
         required:
         - spec

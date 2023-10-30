@@ -16,6 +16,7 @@ service BgpApi {
 	rpc ListNeighbor(ListNeighborRequest) returns (ListNeighborResponse);
 	rpc GetPath(GetPathRequest) returns (GetPathResponse);
 	rpc GetNeighborPath(GetNeighborPathRequest) returns (GetNeighborPathResponse);
+	rpc GetPathByPrefix(GetPathByPrefixRequest) returns (GetPathByPrefixResponse);
 
 	rpc SetAS(SetASRequest) returns (google.protobuf.Empty);
 	rpc SetRouterId(SetRouterIdRequest) returns (google.protobuf.Empty);
@@ -67,6 +68,15 @@ message GetNeighborPathRequest {
 }
 
 message GetNeighborPathResponse {
+	repeated Path paths = 1;
+}
+
+message GetPathByPrefixRequest {
+	string prefix = 1;
+	AddressFamily family = 2;
+}
+
+message GetPathByPrefixResponse {
 	repeated Path paths = 1;
 }
 

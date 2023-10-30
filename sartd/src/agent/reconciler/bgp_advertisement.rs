@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use futures::StreamExt;
 use kube::{
-    api::ListParams,
+    api::{ListParams, PostParams},
     runtime::{controller::Action, watcher::Config, Controller},
     Api, Client, ResourceExt,
 };
@@ -16,7 +16,7 @@ use crate::{
     kubernetes::{
         context::{error_policy, Context, State},
         crd::{
-            bgp_advertisement::{BGPAdvertisement, Protocol},
+            bgp_advertisement::{AdvertiseStatus, BGPAdvertisement, Protocol},
             bgp_peer::{BGPPeer, BGPPeerConditionStatus},
             node_bgp::NodeBGP,
         },
@@ -61,17 +61,27 @@ pub(crate) async fn run(state: State, interval: u64) {
 async fn reconciler(ba: Arc<BGPAdvertisement>, ctx: Arc<Context>) -> Result<Action, Error> {
     let ns = get_namespace::<BGPAdvertisement>(&ba).map_err(Error::KubeLibrary)?;
 
+    let bgp_advertisements = Api::<BGPAdvertisement>::namespaced(ctx.client.clone(), &ns);
+
+    tracing::info!(
+        name = ba.name_any(),
+        namespace = ns,
+        "Reconcile BGPAdvertisement"
+    );
+
+    reconcile(&bgp_advertisements, &ba, ctx).await
+}
+
+#[tracing::instrument(skip_all, fields(trace_id))]
+async fn reconcile(
+    api: &Api<BGPAdvertisement>,
+    ba: &BGPAdvertisement,
+    ctx: Arc<Context>,
+) -> Result<Action, Error> {
     let node_bgps = Api::<NodeBGP>::all(ctx.client.clone());
     let node_name = std::env::var(ENV_HOSTNAME).map_err(Error::Var)?;
 
     let nb = node_bgps.get(&node_name).await.map_err(Error::Kube)?;
-    tracing::info!(
-        name = ba.name_any(),
-        namespace = ns,
-        peers =? ba.spec.peers,
-        "Reconcile BGPAdvertisement"
-    );
-
     let timeout = nb.spec.speaker.timeout.unwrap_or(DEFAULT_SPEAKER_TIMEOUT);
     let mut speaker_client =
         speaker::connect_bgp_with_retry(&nb.spec.speaker.path, Duration::from_secs(timeout))
@@ -84,6 +94,9 @@ async fn reconciler(ba: Arc<BGPAdvertisement>, ctx: Arc<Context>) -> Result<Acti
         },
         safi: crate::proto::sart::address_family::Safi::Unicast.into(),
     };
+
+    let mut new_ba = ba.clone();
+    let mut need_update = false;
 
     if let Some(peers) = nb.spec.peers {
         let bgp_peers = Api::<BGPPeer>::all(ctx.client.clone());
@@ -109,31 +122,71 @@ async fn reconciler(ba: Arc<BGPAdvertisement>, ctx: Arc<Context>) -> Result<Acti
                 continue;
             }
             // peer is established
-            if let Some(target_peers) = &ba.spec.peers {
-                // FIXME: find better way...
-                if target_peers.contains(&p.name) {
-                    let res = speaker_client
-                        .add_path(crate::proto::sart::AddPathRequest {
-                            family: Some(family.clone()),
-                            prefixes: vec![ba.spec.cidr.clone()],
-                            attributes: Vec::new(), // TODO: implement attributes
-                        })
-                        .await
-                        .map_err(Error::GotgPRC)?;
-                    tracing::info!(name = ba.name_any(), namespace = ns, response=?res,"Add path response");
-                } else {
-                    let res = speaker_client
-                        .delete_path(crate::proto::sart::DeletePathRequest {
-                            family: Some(family.clone()),
-                            prefixes: vec![ba.spec.cidr.clone()],
-                        })
-                        .await
-                        .map_err(Error::GotgPRC)?;
-                    tracing::info!(name = ba.name_any(), namespace = ns, response=?res,"Delete path response");
+            if let Some(peers) = new_ba
+                .status
+                .as_mut()
+                .and_then(|status| status.peers.as_mut())
+            {
+                if let Some(adv_status) = peers.get_mut(&p.name) {
+                    match adv_status {
+                        AdvertiseStatus::NotAdvertised => {
+                            let res = speaker_client
+                                .add_path(crate::proto::sart::AddPathRequest {
+                                    family: Some(family.clone()),
+                                    prefixes: vec![ba.spec.cidr.clone()],
+                                    attributes: Vec::new(), // TODO: implement attributes
+                                })
+                                .await
+                                .map_err(Error::GotgPRC)?;
+                            tracing::info!(name = ba.name_any(), namespace = ba.namespace(), response=?res,"Add path response");
+
+                            *adv_status = AdvertiseStatus::Advertised;
+                            need_update = true;
+                        }
+                        AdvertiseStatus::Advertised => {
+                            let res = speaker_client
+                                .add_path(crate::proto::sart::AddPathRequest {
+                                    family: Some(family.clone()),
+                                    prefixes: vec![ba.spec.cidr.clone()],
+                                    attributes: Vec::new(), // TODO: implement attributes
+                                })
+                                .await
+                                .map_err(Error::GotgPRC)?;
+                            tracing::info!(name = ba.name_any(), namespace = ba.namespace(), response=?res,"Add path response");
+                        }
+                        AdvertiseStatus::Withdraw => {
+                            let res = speaker_client
+                                .delete_path(crate::proto::sart::DeletePathRequest {
+                                    family: Some(family.clone()),
+                                    prefixes: vec![ba.spec.cidr.clone()],
+                                })
+                                .await
+                                .map_err(Error::GotgPRC)?;
+                            tracing::info!(name = ba.name_any(), namespace = ba.namespace(), response=?res,"Delete path response");
+
+                            peers.remove(&p.name);
+                            need_update = true;
+                        }
+                    }
                 }
             }
         }
-    }
 
+        if need_update {
+            api.replace_status(
+                &new_ba.name_any(),
+                &PostParams::default(),
+                serde_json::to_vec(&new_ba).map_err(Error::Serialization)?,
+            )
+            .await
+            .map_err(Error::Kube)?;
+
+            tracing::info!(
+                name = ba.name_any(),
+                namespace = ba.namespace(),
+                "Update BGPAdvertisement"
+            )
+        }
+    }
     Ok(Action::await_change())
 }

@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use ipnet::IpNet;
 use kube::CustomResource;
 use schemars::JsonSchema;
@@ -28,11 +30,20 @@ pub(crate) struct BGPAdvertisementSpec {
     pub r#type: AddressType,
     pub protocol: Protocol,
     pub attrs: Option<Vec<String>>, // TODO: implement attributes
-    pub peers: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Default, Debug, JsonSchema)]
-pub(crate) struct BGPAdvertisementStatus {}
+pub(crate) struct BGPAdvertisementStatus {
+    pub peers: Option<BTreeMap<String, AdvertiseStatus>>,
+}
+
+#[derive(Deserialize, Serialize, Clone, Default, Debug, JsonSchema, PartialEq, Eq)]
+pub(crate) enum AdvertiseStatus {
+    #[default]
+    NotAdvertised,
+    Advertised,
+    Withdraw,
+}
 
 #[derive(Deserialize, Serialize, Clone, Default, Debug, JsonSchema)]
 #[serde(rename_all = "camelCase")]

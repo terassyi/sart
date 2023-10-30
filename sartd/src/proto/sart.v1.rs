@@ -103,6 +103,20 @@ pub struct GetNeighborPathResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetPathByPrefixRequest {
+    #[prost(string, tag = "1")]
+    pub prefix: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "2")]
+    pub family: ::core::option::Option<AddressFamily>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetPathByPrefixResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub paths: ::prost::alloc::vec::Vec<Path>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SetAsRequest {
     #[prost(uint32, tag = "1")]
     pub asn: u32,
@@ -812,6 +826,31 @@ pub mod bgp_api_client {
                 .insert(GrpcMethod::new("sart.v1.BgpApi", "GetNeighborPath"));
             self.inner.unary(req, path, codec).await
         }
+        pub async fn get_path_by_prefix(
+            &mut self,
+            request: impl tonic::IntoRequest<super::GetPathByPrefixRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetPathByPrefixResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/sart.v1.BgpApi/GetPathByPrefix",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("sart.v1.BgpApi", "GetPathByPrefix"));
+            self.inner.unary(req, path, codec).await
+        }
         pub async fn set_as(
             &mut self,
             request: impl tonic::IntoRequest<super::SetAsRequest>,
@@ -1113,6 +1152,13 @@ pub mod bgp_api_server {
             request: tonic::Request<super::GetNeighborPathRequest>,
         ) -> std::result::Result<
             tonic::Response<super::GetNeighborPathResponse>,
+            tonic::Status,
+        >;
+        async fn get_path_by_prefix(
+            &self,
+            request: tonic::Request<super::GetPathByPrefixRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetPathByPrefixResponse>,
             tonic::Status,
         >;
         async fn set_as(
@@ -1477,6 +1523,52 @@ pub mod bgp_api_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = GetNeighborPathSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/sart.v1.BgpApi/GetPathByPrefix" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetPathByPrefixSvc<T: BgpApi>(pub Arc<T>);
+                    impl<
+                        T: BgpApi,
+                    > tonic::server::UnaryService<super::GetPathByPrefixRequest>
+                    for GetPathByPrefixSvc<T> {
+                        type Response = super::GetPathByPrefixResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::GetPathByPrefixRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as BgpApi>::get_path_by_prefix(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = GetPathByPrefixSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
