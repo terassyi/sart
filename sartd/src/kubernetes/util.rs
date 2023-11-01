@@ -1,5 +1,5 @@
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
-use kube::{core::ApiResource, Resource, ResourceExt};
+use kube::{core::ApiResource, Resource, ResourceExt, Api};
 
 use super::error::Error;
 
@@ -20,4 +20,8 @@ pub(crate) fn create_owner_reference<T: Resource<DynamicType = ()>>(owner: &T) -
 
 pub(crate) fn get_namespace<T: Resource<DynamicType = ()>>(resource: &T) -> Result<String, Error> {
     resource.namespace().ok_or(Error::GetNamespace)
+}
+
+pub(crate) async fn add_finalizer<T: Resource<DynamicType = ()>>(resource: &T, api: &Api<T>, finalizer_name: &str) -> Result<(), Error> {
+    Ok(())
 }

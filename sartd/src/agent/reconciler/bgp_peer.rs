@@ -66,7 +66,6 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
             node_bgp = bp.spec.node_bgp_ref,
             "Local BGP speaker is not configured"
         );
-        // return Err(Error::LocalSpeakerIsNotConfigured);
         return Ok(Action::requeue(Duration::from_secs(1)));
     }
 
@@ -242,7 +241,39 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
 }
 
 #[tracing::instrument(skip_all, fields(trace_id))]
-async fn cleanup(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Result<Action, Error> {
+async fn cleanup(_api: &Api<BGPPeer>, bp: &BGPPeer, _ctx: Arc<Context>) -> Result<Action, Error> {
+    tracing::info!(name = bp.name_any(), "Cleanup BGPPeer");
+
+    let timeout = match bp.spec.speaker.timeout {
+        Some(t) => t,
+        None => DEFAULT_SPEAKER_TIMEOUT,
+    };
+    let mut speaker_client =
+        speaker::connect_bgp_with_retry(&bp.spec.speaker.path, Duration::from_secs(timeout))
+            .await?;
+
+    match speaker_client
+        .get_neighbor(crate::proto::sart::GetNeighborRequest {
+            addr: bp.spec.addr.clone(),
+        })
+        .await
+    {
+        Ok(_peer) => {
+            tracing::info!(name = bp.name_any(), addr = bp.spec.addr, "Delete peer");
+            speaker_client
+                .delete_peer(crate::proto::sart::DeletePeerRequest {
+                    addr: bp.spec.addr.clone(),
+                })
+                .await
+                .map_err(Error::GotgPRC)?;
+        }
+        Err(status) => {
+            if status.code() != tonic::Code::NotFound {
+                return Err(Error::GotgPRC(status));
+            }
+        }
+    }
+
     Ok(Action::await_change())
 }
 

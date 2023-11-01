@@ -1,5 +1,3 @@
-use std::{f32::consts::E, sync::Arc};
-
 use kube::{api::PostParams, Api, Client, ResourceExt};
 use tonic::{transport::Server, Request, Response, Status};
 use tonic_reflection::server::Builder;

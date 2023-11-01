@@ -47,6 +47,9 @@ pub(crate) enum Error {
 
     #[error("Kubernetes Library Error: {0}")]
     KubeLibrary(#[source] kubernetes::error::Error),
+
+    #[error("Peer exists")]
+    PeerExists,
 }
 
 #[derive(Debug, Error, Clone)]

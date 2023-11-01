@@ -208,7 +208,7 @@ impl BgpApi for ApiServer {
     ) -> Result<Response<GetPathByPrefixResponse>, Status> {
         let prefix = match IpNet::from_str(&req.get_ref().prefix) {
             Ok(p) => p,
-            Err(e) => return Err(Status::aborted(format!("failed to parse prefix: {}", e)))
+            Err(e) => return Err(Status::aborted(format!("failed to parse prefix: {}", e))),
         };
         if req.get_ref().family.is_none() {
             return Err(Status::aborted("failed to receive AddressFamily"));
@@ -218,7 +218,10 @@ impl BgpApi for ApiServer {
             Ok(f) => f,
             Err(_) => return Err(Status::aborted("failed to get AddressFamily")),
         };
-        self.tx.send(ControlEvent::GetPathByPrefix(prefix, family)).await.unwrap();
+        self.tx
+            .send(ControlEvent::GetPathByPrefix(prefix, family))
+            .await
+            .unwrap();
 
         let mut rx = self.response_rx.lock().await;
         match timeout(Duration::from_secs(self.internal_timeout), rx.recv()).await {
@@ -256,6 +259,16 @@ impl BgpApi for ApiServer {
         match self.tx.send(ControlEvent::SetRouterId(router_id)).await {
             Ok(_) => Ok(Response::new(())),
             Err(_) => Err(Status::aborted("failed to send rib event")),
+        }
+    }
+
+    async fn clear_bgp_info(
+        &self,
+        req: Request<ClearBgpInfoRequest>,
+    ) -> Result<Response<()>, Status> {
+        match self.tx.send(ControlEvent::ClearBgpInfo).await {
+            Ok(_) => Ok(Response::new(())),
+            Err(_) => Err(Status::internal("failed to clear BGP server information")),
         }
     }
 

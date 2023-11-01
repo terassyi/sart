@@ -129,6 +129,9 @@ pub struct SetRouterIdRequest {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ClearBgpInfoRequest {}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AddPeerRequest {
     #[prost(message, optional, tag = "1")]
     pub peer: ::core::option::Option<Peer>,
@@ -892,6 +895,28 @@ pub mod bgp_api_client {
                 .insert(GrpcMethod::new("sart.v1.BgpApi", "SetRouterId"));
             self.inner.unary(req, path, codec).await
         }
+        pub async fn clear_bgp_info(
+            &mut self,
+            request: impl tonic::IntoRequest<super::ClearBgpInfoRequest>,
+        ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/sart.v1.BgpApi/ClearBgpInfo",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("sart.v1.BgpApi", "ClearBgpInfo"));
+            self.inner.unary(req, path, codec).await
+        }
         pub async fn add_peer(
             &mut self,
             request: impl tonic::IntoRequest<super::AddPeerRequest>,
@@ -1168,6 +1193,10 @@ pub mod bgp_api_server {
         async fn set_router_id(
             &self,
             request: tonic::Request<super::SetRouterIdRequest>,
+        ) -> std::result::Result<tonic::Response<()>, tonic::Status>;
+        async fn clear_bgp_info(
+            &self,
+            request: tonic::Request<super::ClearBgpInfoRequest>,
         ) -> std::result::Result<tonic::Response<()>, tonic::Status>;
         async fn add_peer(
             &self,
@@ -1659,6 +1688,52 @@ pub mod bgp_api_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = SetRouterIdSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/sart.v1.BgpApi/ClearBgpInfo" => {
+                    #[allow(non_camel_case_types)]
+                    struct ClearBgpInfoSvc<T: BgpApi>(pub Arc<T>);
+                    impl<
+                        T: BgpApi,
+                    > tonic::server::UnaryService<super::ClearBgpInfoRequest>
+                    for ClearBgpInfoSvc<T> {
+                        type Response = ();
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::ClearBgpInfoRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as BgpApi>::clear_bgp_info(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = ClearBgpInfoSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

@@ -51,10 +51,7 @@ async fn reconcile(api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Resul
 
     // NodeBGP.spec.asn and routerId should be immutable
 
-    let timeout = match nb.spec.speaker.timeout {
-        Some(t) => t,
-        None => DEFAULT_SPEAKER_TIMEOUT,
-    };
+    let timeout = nb.spec.speaker.timeout.unwrap_or(DEFAULT_SPEAKER_TIMEOUT);
     let mut speaker_client =
         speaker::connect_bgp_with_retry(&nb.spec.speaker.path, Duration::from_secs(timeout))
             .await?;
@@ -230,8 +227,37 @@ async fn reconcile(api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Resul
 }
 
 #[tracing::instrument(skip_all)]
-async fn cleanup(api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Result<Action, Error> {
-    tracing::info!(name = nb.name_any(), "Clean up NodeBGP");
+async fn cleanup(_api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Result<Action, Error> {
+    tracing::info!(name = nb.name_any(), "Cleanup NodeBGP");
+
+    let timeout = nb.spec.speaker.timeout.unwrap_or(DEFAULT_SPEAKER_TIMEOUT);
+    let mut speaker_client =
+        speaker::connect_bgp_with_retry(&nb.spec.speaker.path, Duration::from_secs(timeout))
+            .await?;
+
+    match speaker_client
+        .list_neighbor(crate::proto::sart::ListNeighborRequest {})
+        .await
+    {
+        Ok(peers) => {
+            if !peers.get_ref().peers.is_empty() {
+                return Err(Error::PeerExists);
+            }
+        }
+        Err(status) => {
+            if status.code() != tonic::Code::NotFound {
+                return Err(Error::GotgPRC(status));
+            }
+        }
+    }
+
+    if let Err(status) = speaker_client
+        .clear_bgp_info(crate::proto::sart::ClearBgpInfoRequest {})
+        .await
+    {
+        return Err(Error::GotgPRC(status));
+    }
+
     Ok(Action::await_change())
 }
 

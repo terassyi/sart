@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use futures::StreamExt;
 use kube::{
-    api::ListParams,
+    api::{ListParams, PostParams},
     runtime::{
         controller::Action,
         finalizer::{finalizer, Event},
@@ -16,7 +16,7 @@ use crate::{
     controller::error::Error,
     kubernetes::{
         context::{error_policy, Context, State},
-        crd::bgp_advertisement::{BGPAdvertisement, BGP_ADVERTISEMENT_FINALIZER},
+        crd::bgp_advertisement::{AdvertiseStatus, BGPAdvertisement, BGP_ADVERTISEMENT_FINALIZER},
         util::get_namespace,
     },
 };
@@ -47,7 +47,12 @@ async fn reconcile(
     ba: &BGPAdvertisement,
     ctx: Arc<Context>,
 ) -> Result<Action, Error> {
-    tracing::info!(name = ba.name_any(), "Reconcile BGPAdvertisement");
+    let ns = get_namespace::<BGPAdvertisement>(ba).map_err(Error::KubeLibrary)?;
+    tracing::info!(
+        name = ba.name_any(),
+        namespace = ns,
+        "Reconcile BGPAdvertisement"
+    );
 
     Ok(Action::await_change())
 }
@@ -58,7 +63,44 @@ async fn cleanup(
     ba: &BGPAdvertisement,
     ctx: Arc<Context>,
 ) -> Result<Action, Error> {
-    tracing::info!(name = ba.name_any(), "Cleanup BGPAdvertisement");
+    let ns = get_namespace::<BGPAdvertisement>(ba).map_err(Error::KubeLibrary)?;
+    tracing::info!(
+        name = ba.name_any(),
+        namespace = ns,
+        "Cleanup BGPAdvertisement"
+    );
+
+    let mut new_ba = ba.clone();
+    let mut need_update = false;
+    if let Some(peers) = new_ba
+        .status
+        .as_mut()
+        .and_then(|status| status.peers.as_mut())
+    {
+        if peers.is_empty() {
+            return Ok(Action::await_change());
+        }
+        for (_p, s) in peers.iter_mut() {
+            *s = AdvertiseStatus::Withdraw;
+            need_update = true;
+        }
+    }
+
+    if need_update {
+        api.replace_status(
+            &ba.name_any(),
+            &PostParams::default(),
+            serde_json::to_vec(&new_ba).map_err(Error::Serialization)?,
+        )
+        .await
+        .map_err(Error::Kube)?;
+
+        tracing::info!(
+            name = &ba.name_any(),
+            namespace = ns,
+            "Submit withdraw request"
+        );
+    }
 
     Ok(Action::await_change())
 }

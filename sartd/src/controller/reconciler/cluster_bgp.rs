@@ -155,7 +155,7 @@ async fn reconcile(cb: &ClusterBGP, ctx: Arc<Context>) -> Result<Action, Error> 
 
 // cleanup() is called when a resource is deleted
 #[tracing::instrument(skip_all)]
-async fn cleanup(cb: &ClusterBGP, ctx: Arc<Context>) -> Result<Action, Error> {
+async fn cleanup(cb: &ClusterBGP, _ctx: Arc<Context>) -> Result<Action, Error> {
     tracing::info!(name = cb.name_any(), "clean up ClusterBGP");
 
     Ok(Action::await_change())

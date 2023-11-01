@@ -6,10 +6,7 @@ use std::{
 
 use futures::StreamExt;
 use ipnet::IpNet;
-use k8s_openapi::api::{
-    core::v1::{Node, Service},
-    discovery::v1::EndpointSlice,
-};
+use k8s_openapi::api::{core::v1::Service, discovery::v1::EndpointSlice};
 use kube::{
     api::{ListParams, PostParams},
     core::ObjectMeta,
@@ -21,7 +18,6 @@ use kube::{
     },
     Api, Client, ResourceExt,
 };
-use time::format_description::modifier::End;
 
 use crate::{
     controller::error::Error,
@@ -41,54 +37,14 @@ use crate::{
 };
 
 const ENDPOINTSLICE_FINALIZER: &str = "endpointsliece.sart.terassyi.net/finalizer";
+const SERVICE_FINALIZER: &str = "service.sart.terassyi.net/finalizer";
 const SERVICE_NAME_LABEL: &str = "kubernetes.io/service-name";
 
 #[tracing::instrument(skip_all, fields(trace_id))]
 async fn reconciler(eps: Arc<EndpointSlice>, ctx: Arc<Context>) -> Result<Action, Error> {
-    let ns = eps
-        .namespace()
-        .ok_or(Error::Kube(kube::error::Error::Discovery(
-            kube::error::DiscoveryError::MissingResource(format!(
-                "Namespace for {}",
-                eps.name_any()
-            )),
-        )))?;
-    let svc_name = match eps.labels().get(SERVICE_NAME_LABEL) {
-        Some(svc) => svc.to_string(),
-        None => return Ok(Action::await_change()), // If the service name label is not set, ignore it
-    };
-    let services = Api::<Service>::namespaced(ctx.client.clone(), &ns);
-    let svc = match services.get_opt(&svc_name).await.map_err(Error::Kube)? {
-        Some(svc) => svc,
-        None => {
-            tracing::warn!(
-                name = svc_name,
-                "The Service resource associated with Endpointslice is not found"
-            );
-            return Ok(Action::await_change());
-        }
-    };
-    let service_type = match svc.spec.as_ref() {
-        Some(spec) => match spec.type_.as_ref() {
-            Some(t) => {
-                if t.eq("LoadBalancer") {
-                    t.clone()
-                } else {
-                    "".to_string()
-                }
-            }
-            None => "".to_string(),
-        },
-        None => "".to_string(),
-    };
-    if service_type.is_empty() {
-        // ignore not LoadBalancers
-        return Ok(Action::await_change());
-    }
+    let ns = get_namespace::<EndpointSlice>(&eps).map_err(Error::KubeLibrary)?;
 
     let endpointslices = Api::<EndpointSlice>::namespaced(ctx.client.clone(), &ns);
-
-    tracing::info!(name=eps.name_any(),obj=?eps,"Reconcile Endpointslice");
 
     finalizer(
         &endpointslices,
@@ -96,8 +52,8 @@ async fn reconciler(eps: Arc<EndpointSlice>, ctx: Arc<Context>) -> Result<Action
         eps,
         |event| async {
             match event {
-                Event::Apply(eps) => reconcile(&eps, &svc, ctx.clone()).await,
-                Event::Cleanup(eps) => cleanup(&eps, &svc, ctx.clone()).await,
+                Event::Apply(eps) => reconcile(&eps, ctx.clone()).await,
+                Event::Cleanup(eps) => cleanup(&eps, ctx.clone()).await,
             }
         },
     )
@@ -106,16 +62,36 @@ async fn reconciler(eps: Arc<EndpointSlice>, ctx: Arc<Context>) -> Result<Action
 }
 
 #[tracing::instrument(skip_all, fields(trace_id))]
-async fn reconcile(eps: &EndpointSlice, svc: &Service, ctx: Arc<Context>) -> Result<Action, Error> {
+async fn reconcile(eps: &EndpointSlice, ctx: Arc<Context>) -> Result<Action, Error> {
     let ns = get_namespace::<EndpointSlice>(eps).map_err(Error::KubeLibrary)?;
     tracing::info!(
         name = eps.name_any(),
         namespace = ns,
-        "reconcile Endpointslice"
+        "Reconcile Endpointslice"
     );
 
+    let svc_name = match get_svc_name_from_eps(eps) {
+        Some(n) => n,
+        None => return Ok(Action::await_change()),
+    };
+    let services = Api::<Service>::namespaced(ctx.client.clone(), &ns);
+    let svc = match services.get_opt(svc_name).await.map_err(Error::Kube)? {
+        Some(svc) => svc,
+        None => {
+            tracing::warn!(
+                name = svc_name,
+                "The Service resource associated with EndpointSlice is not found"
+            );
+            return Ok(Action::await_change());
+        }
+    };
+
+    if !is_loadbalacner(&svc) {
+        return Ok(Action::await_change());
+    }
+
     let node_bgps = Api::<NodeBGP>::all(ctx.client.clone());
-    let target_peers = get_target_peers(eps, svc, &node_bgps).await?;
+    let target_peers = get_target_peers(eps, &svc, &node_bgps).await?;
 
     let adv_cidrs = match svc.status.clone().and_then(|lb| {
         lb.load_balancer.and_then(|lb_status| {
@@ -267,7 +243,7 @@ async fn reconcile(eps: &EndpointSlice, svc: &Service, ctx: Arc<Context>) -> Res
 }
 
 #[tracing::instrument(skip_all, fields(trace_id))]
-async fn cleanup(eps: &EndpointSlice, svc: &Service, ctx: Arc<Context>) -> Result<Action, Error> {
+async fn cleanup(eps: &EndpointSlice, ctx: Arc<Context>) -> Result<Action, Error> {
     let ns = get_namespace::<EndpointSlice>(eps).map_err(Error::KubeLibrary)?;
 
     tracing::info!(
@@ -298,6 +274,10 @@ pub(crate) async fn run(state: State, interval: u64) {
         .filter_map(|x| async move { std::result::Result::ok(x) })
         .for_each(|_| futures::future::ready(()))
         .await;
+}
+
+async fn add_service_finalizer(svc: &Service) -> Result<(), Error> {
+    Ok(())
 }
 
 #[tracing::instrument(skip_all)]
@@ -373,6 +353,17 @@ async fn get_target_peers(
     target_peers.dedup();
 
     Ok(target_peers)
+}
+
+fn get_svc_name_from_eps(eps: &EndpointSlice) -> Option<&String> {
+    eps.labels().get(SERVICE_NAME_LABEL)
+}
+
+fn is_loadbalacner(svc: &Service) -> bool {
+    match svc.spec.as_ref().and_then(|spec| spec.type_.as_ref()) {
+        Some(t) => t.eq("LoadBalancer"),
+        None => false,
+    }
 }
 
 fn get_svc_peer_groups(svc: &Service) -> Vec<&str> {
