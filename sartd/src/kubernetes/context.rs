@@ -1,11 +1,23 @@
 use std::{sync::Arc, time::Duration};
 
 use chrono::{DateTime, Utc};
-use kube::{Client, runtime::{events::{Reporter, Recorder}, controller::Action}, Resource, core::DynamicResourceScope};
+use kube::{
+    core::DynamicResourceScope,
+    runtime::{
+        controller::Action,
+        events::{Recorder, Reporter},
+    },
+    Client, Resource,
+};
 use serde::Serialize;
 use tokio::sync::RwLock;
 
-use crate::trace::{metrics::Metrics, error::TraceableError};
+use crate::trace::{error::TraceableError, metrics::Metrics};
+
+pub(crate) trait Ctx {
+    fn metrics(&self) -> &Metrics;
+    fn client(&self) -> &Client;
+}
 
 // Context for our reconciler
 #[derive(Clone)]
@@ -20,13 +32,44 @@ pub(crate) struct Context {
     pub metrics: Metrics,
 }
 
+impl Ctx for Context {
+    fn client(&self) -> &Client {
+        &self.client
+    }
+
+    fn metrics(&self) -> &Metrics {
+        &self.metrics
+    }
+}
+
+pub(crate) struct ContextWith<T: Clone> {
+    inner: Context,
+    pub component: T,
+}
+
+impl<T: Clone> Ctx for ContextWith<T> {
+    fn client(&self) -> &Client {
+        &self.inner.client
+    }
+
+    fn metrics(&self) -> &Metrics {
+        &self.inner.metrics
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub(crate) struct State {
-	pub diagnostics: Arc<RwLock<Diagnostics>>,
-	pub registry: prometheus::Registry,
+    pub diagnostics: Arc<RwLock<Diagnostics>>,
+    pub registry: prometheus::Registry,
 }
 
 impl State {
+    pub fn new(component: &str) -> State {
+        State {
+            diagnostics: Arc::new(RwLock::new(Diagnostics::new(component.to_string()))),
+            registry: prometheus::Registry::default(),
+        }
+    }
     /// Metrics getter
     pub fn metrics(&self) -> Vec<prometheus::proto::MetricFamily> {
         self.registry.gather()
@@ -46,14 +89,21 @@ impl State {
             diagnostics: self.diagnostics.clone(),
         })
     }
-}
-
-impl State {
-    pub fn new(component: &str) -> State {
-        State {
-            diagnostics: Arc::new(RwLock::new(Diagnostics::new(component.to_string()))),
-            registry: prometheus::Registry::default(),
-        }
+    pub(crate) fn to_context_with<T: Clone>(
+        &self,
+        client: Client,
+        interval: u64,
+        component: T,
+    ) -> Arc<ContextWith<T>> {
+        Arc::new(ContextWith {
+            inner: Context {
+                client,
+                interval,
+                diagnostics: self.diagnostics.clone(),
+                metrics: Metrics::default().register(&self.registry).unwrap(),
+            },
+            component,
+        })
     }
 }
 
@@ -66,13 +116,14 @@ pub(crate) struct Diagnostics {
 }
 
 impl Diagnostics {
-	pub(crate) fn new(component: String) -> Self {
+    pub(crate) fn new(component: String) -> Self {
         Self {
             last_event: Utc::now(),
             reporter: component.into(),
-		}
-	}
+        }
+    }
 }
+
 impl Default for Diagnostics {
     fn default() -> Self {
         Self {
@@ -81,14 +132,24 @@ impl Default for Diagnostics {
         }
     }
 }
+
 impl Diagnostics {
-    fn recorder<T: Resource<DynamicType = (), Scope = DynamicResourceScope>>(&self, client: Client, res: T) -> Recorder {
+    fn recorder<T: Resource<DynamicType = (), Scope = DynamicResourceScope>>(
+        &self,
+        client: Client,
+        res: T,
+    ) -> Recorder {
         Recorder::new(client, self.reporter.clone(), res.object_ref(&()))
     }
 }
 
-pub(crate) fn error_policy<T: Resource<DynamicType = ()>, E: TraceableError>(resource: Arc<T>, error: &E, ctx: Arc<Context>) -> Action {
+#[tracing::instrument(skip_all)]
+pub(crate) fn error_policy<T: Resource<DynamicType = ()>, E: TraceableError, C: Ctx>(
+    resource: Arc<T>,
+    error: &E,
+    ctx: Arc<C>,
+) -> Action {
     tracing::warn!("reconcile failed: {:?}", error);
-    ctx.metrics.reconcile_failure(resource.as_ref(), error);
-    Action::requeue(Duration::from_secs(5 * 60))
+    ctx.metrics().reconcile_failure(resource.as_ref(), error);
+    Action::requeue(Duration::from_secs(10))
 }

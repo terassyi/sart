@@ -171,13 +171,17 @@ dev-container:
 in-container:
 	docker exec -it sart-dev bash
 
+NO_BUILD:=
+
 .PHONY: build-image
 build-image:
 	docker build -t sart:${IMAGE_VERSION} .
 
 .PHONY: build-dev-image
 build-dev-image:
+ifndef NO_BUILD
 	docker build -t sart:${IMAGE_VERSION} -f Dockerfile.dev .
+endif
 
 
 CERT_MANAGER_VERSION := 1.11.2
@@ -213,10 +217,10 @@ kind-load: build-dev-image
 devenv: crd certs build-dev-image
 	$(MAKE) -C devenv cluster
 
-	$(KUBECTL) label nodes --overwrite sart-worker sart.terassyi.net/asn=65001
-	$(KUBECTL) label nodes --overwrite sart-worker2 sart.terassyi.net/asn=65002
-	$(KUBECTL) label nodes --overwrite sart-worker3 sart.terassyi.net/asn=65003
-	$(KUBECTL) label nodes --overwrite sart-control-plane sart.terassyi.net/asn=65004
+	$(KUBECTL) label nodes --overwrite sart-worker sart.terassyi.net/asn=65000
+	$(KUBECTL) label nodes --overwrite sart-worker2 sart.terassyi.net/asn=65000
+	$(KUBECTL) label nodes --overwrite sart-worker3 sart.terassyi.net/asn=65000
+	$(KUBECTL) label nodes --overwrite sart-control-plane sart.terassyi.net/asn=65000
 
 	$(KIND) load docker-image sart:dev -n sart
 

@@ -1,15 +1,12 @@
-use std::{
-    collections::{BTreeMap, HashMap},
-    str::FromStr,
-    sync::Arc,
-};
+use std::{net::IpAddr, str::FromStr, sync::Arc};
 
 use futures::StreamExt;
-use ipnet::IpNet;
-use k8s_openapi::api::{core::v1::Service, discovery::v1::EndpointSlice};
+use k8s_openapi::api::{
+    core::v1::{LoadBalancerIngress, LoadBalancerStatus, Service, ServiceStatus},
+    discovery::v1::EndpointSlice,
+};
 use kube::{
     api::{ListParams, PostParams},
-    core::ObjectMeta,
     runtime::{
         controller::Action,
         finalizer::{finalizer, Event},
@@ -21,408 +18,706 @@ use kube::{
 
 use crate::{
     controller::error::Error,
+    ipam::manager::{AllocatorSet, Block},
     kubernetes::{
-        context::{error_policy, Context, State},
-        crd::{
-            address_pool::AddressType,
-            bgp_advertisement::{
-                AdvertiseStatus, BGPAdvertisement, BGPAdvertisementSpec, BGPAdvertisementStatus,
-                Protocol,
-            },
-            bgp_peer::PEER_GROUP_ANNOTATION,
-            node_bgp::NodeBGP,
-        },
-        util::{create_owner_reference, get_namespace},
+        context::{error_policy, ContextWith, Ctx, State},
+        crd::address_pool::{ADDRESS_POOL_ANNOTATION, LOADBALANCER_ADDRESS_ANNOTATION},
+        util::get_namespace,
     },
 };
 
-const ENDPOINTSLICE_FINALIZER: &str = "endpointsliece.sart.terassyi.net/finalizer";
 const SERVICE_FINALIZER: &str = "service.sart.terassyi.net/finalizer";
-const SERVICE_NAME_LABEL: &str = "kubernetes.io/service-name";
+pub(super) const SERVICE_NAME_LABEL: &str = "kubernetes.io/service-name";
+// This annoation should be annotated to Endpointslices to handle externalTrafficPolicy
+// This annotation is used only for triggering the Endpoinslice's reconciliation loop
+const SERVICE_ETP_ANNOTATION: &str = "service.sart.terassyi.net/etp";
 
 #[tracing::instrument(skip_all, fields(trace_id))]
-async fn reconciler(eps: Arc<EndpointSlice>, ctx: Arc<Context>) -> Result<Action, Error> {
-    let ns = get_namespace::<EndpointSlice>(&eps).map_err(Error::KubeLibrary)?;
+async fn reconciler(
+    svc: Arc<Service>,
+    ctx: Arc<ContextWith<Arc<AllocatorSet>>>,
+) -> Result<Action, Error> {
+    let ns = get_namespace::<Service>(&svc).map_err(Error::KubeLibrary)?;
 
-    let endpointslices = Api::<EndpointSlice>::namespaced(ctx.client.clone(), &ns);
+    let services = Api::<Service>::namespaced(ctx.client().clone(), &ns);
 
-    finalizer(
-        &endpointslices,
-        ENDPOINTSLICE_FINALIZER,
-        eps,
-        |event| async {
-            match event {
-                Event::Apply(eps) => reconcile(&eps, ctx.clone()).await,
-                Event::Cleanup(eps) => cleanup(&eps, ctx.clone()).await,
-            }
-        },
-    )
+    finalizer(&services, SERVICE_FINALIZER, svc, |event| async {
+        match event {
+            Event::Apply(svc) => reconcile(&services, &svc, ctx.clone()).await,
+            Event::Cleanup(svc) => cleanup(&services, &svc, ctx.clone()).await,
+        }
+    })
     .await
     .map_err(|e| Error::Finalizer(Box::new(e)))
 }
 
 #[tracing::instrument(skip_all, fields(trace_id))]
-async fn reconcile(eps: &EndpointSlice, ctx: Arc<Context>) -> Result<Action, Error> {
-    let ns = get_namespace::<EndpointSlice>(eps).map_err(Error::KubeLibrary)?;
-    tracing::info!(
-        name = eps.name_any(),
-        namespace = ns,
-        "Reconcile Endpointslice"
-    );
+async fn reconcile(
+    api: &Api<Service>,
+    svc: &Service,
+    ctx: Arc<ContextWith<Arc<AllocatorSet>>>,
+) -> Result<Action, Error> {
+    let ns = get_namespace::<Service>(svc).map_err(Error::KubeLibrary)?;
 
-    let svc_name = match get_svc_name_from_eps(eps) {
-        Some(n) => n,
-        None => return Ok(Action::await_change()),
-    };
-    let services = Api::<Service>::namespaced(ctx.client.clone(), &ns);
-    let svc = match services.get_opt(svc_name).await.map_err(Error::Kube)? {
-        Some(svc) => svc,
-        None => {
-            tracing::warn!(
-                name = svc_name,
-                "The Service resource associated with EndpointSlice is not found"
-            );
-            return Ok(Action::await_change());
-        }
-    };
+    tracing::info!(name = svc.name_any(), namespace = ns, "Reconcile Service");
 
-    if !is_loadbalacner(&svc) {
-        return Ok(Action::await_change());
-    }
+    let allocated_addrs = get_allocated_lb_addrs(svc);
 
-    let node_bgps = Api::<NodeBGP>::all(ctx.client.clone());
-    let target_peers = get_target_peers(eps, &svc, &node_bgps).await?;
+    if !is_loadbalacner(svc) {
+        // If Service is not LoadBalancer and it hash allocated load balancer addresses, release these
+        if let Some(allocated) = allocated_addrs {
+            let released = {
+                let c = ctx.component.clone();
+                release_lb_addrs(svc, allocated, &c)?
+            };
+            let new_svc = clear_svc_lb_addrs(svc, &released);
+            api.replace_status(
+                &svc.name_any(),
+                &PostParams::default(),
+                serde_json::to_vec(&new_svc).map_err(Error::Serialization)?,
+            )
+            .await
+            .map_err(Error::Kube)?;
 
-    let adv_cidrs = match svc.status.clone().and_then(|lb| {
-        lb.load_balancer.and_then(|lb_status| {
-            lb_status.ingress.map(|ingresses| {
-                ingresses
-                    .iter()
-                    .filter_map(|ingress| ingress.ip.clone())
-                    .collect::<Vec<String>>()
-            })
-        })
-    }) {
-        Some(cidrs) => cidrs,
-        None => {
             tracing::warn!(
                 name = svc.name_any(),
                 namespace = ns,
-                "There is no lb addresses"
-            );
-            // for development, insert dummy address
-            vec!["0.0.0.0/32".to_string()]
-            // return
+                lb_addrs=?released,
+                "Release lb addresses because this service is not a load balancer");
         }
-    };
+        return Ok(Action::await_change());
+    }
 
-    let bgp_advertisements = Api::<BGPAdvertisement>::namespaced(ctx.client.clone(), ns.as_str());
+    // In case of Service is LoadBalancer type
 
-    for adv_cidr in adv_cidrs.iter() {
-        let cidr = IpNet::from_str(adv_cidr).map_err(|_| Error::InvalidAddress)?;
-        let adv_name = format!("{}-{}", eps.name_any(), Protocol::from(&cidr));
+    // Sync the externalTrafficPolicy value
+    let etp = get_etp(svc).ok_or(Error::InvalidExternalTrafficPolicy)?;
 
-        match bgp_advertisements
-            .get_opt(&adv_name)
-            .await
-            .map_err(Error::Kube)?
-        {
-            Some(adv) => {
-                let mut new_adv = adv.clone();
+    let endpointslice_api = Api::<EndpointSlice>::namespaced(ctx.client().clone(), &ns);
+    let lp = ListParams::default().labels(&format!("{}={}", SERVICE_NAME_LABEL, svc.name_any()));
+    let epss = endpointslice_api.list(&lp).await.map_err(Error::Kube)?;
 
-                if adv.spec.cidr.ne(cidr.to_string().as_str()) {
-                    tracing::warn!(
-                        name = svc.name_any(),
-                        namespace = ns,
-                        "LoadBalancer address is changed"
-                    );
-                    new_adv.spec.cidr = cidr.to_string();
-                    let mut new_target_peers: BTreeMap<String, AdvertiseStatus> = BTreeMap::new();
-                    if let Some(target_peers) = new_adv.status.and_then(|target| target.peers) {
-                        for (target, _status) in target_peers.iter() {
-                            new_target_peers.insert(target.clone(), AdvertiseStatus::NotAdvertised);
-                        }
-                    }
-                    new_adv.status = Some(BGPAdvertisementStatus {
-                        peers: Some(new_target_peers),
-                    });
-                    bgp_advertisements
-                        .replace_status(
-                            &new_adv.name_any(),
-                            &PostParams::default(),
-                            serde_json::to_vec(&new_adv).map_err(Error::Serialization)?,
-                        )
-                        .await
-                        .map_err(Error::Kube)?;
-                    return Ok(Action::await_change());
-                }
-
-                if let Some(current_targets) = new_adv
-                    .status
-                    .as_mut()
-                    .and_then(|status| status.peers.as_mut())
-                {
-                    let need_update = sync_target_peers(current_targets, &target_peers);
-                    tracing::info!(name = adv.name_any(), namespace = ns, tagets =? target_peers, status =? new_adv.status, "Sync peers");
-                    if need_update {
-                        bgp_advertisements
-                            .replace_status(
-                                &new_adv.name_any(),
-                                &PostParams::default(),
-                                serde_json::to_vec(&new_adv).map_err(Error::Serialization)?,
-                            )
-                            .await
-                            .map_err(Error::Kube)?;
-                    }
-                }
-                let need_update = match new_adv
-                    .status
-                    .as_mut()
-                    .and_then(|status| status.peers.as_mut())
-                {
-                    Some(peers) => sync_target_peers(peers, &target_peers),
-                    None => {
-                        let mut peers: BTreeMap<String, AdvertiseStatus> = BTreeMap::new();
-                        for target in target_peers.iter() {
-                            peers.insert(target.clone(), AdvertiseStatus::NotAdvertised);
-                        }
-                        new_adv.status = Some(BGPAdvertisementStatus { peers: Some(peers) });
-                        true
-                    }
-                };
-                tracing::info!(name = adv.name_any(), namespace = ns, tagets =? target_peers, status =? new_adv.status, "Sync peers");
-                if need_update {
-                    bgp_advertisements
-                        .replace_status(
-                            &new_adv.name_any(),
-                            &PostParams::default(),
-                            serde_json::to_vec(&new_adv).map_err(Error::Serialization)?,
-                        )
-                        .await
-                        .map_err(Error::Kube)?;
+    for eps in epss.items.iter() {
+        let new_etp = match eps.annotations().get(SERVICE_ETP_ANNOTATION) {
+            Some(e) => {
+                if e.eq(&etp) {
+                    None
+                } else {
+                    Some(e)
                 }
             }
-            None => {
-                // create new Advertisement
-                let mut peers = BTreeMap::new();
-                for p in target_peers.iter() {
-                    peers.insert(p.clone(), AdvertiseStatus::NotAdvertised);
-                }
+            None => Some(&etp),
+        };
+        if let Some(e) = new_etp {
+            let mut new_eps = eps.clone();
+            new_eps
+                .annotations_mut()
+                .insert(SERVICE_ETP_ANNOTATION.to_string(), e.to_string());
 
-                let adv = BGPAdvertisement {
-                    metadata: ObjectMeta {
-                        name: Some(adv_name),
-                        namespace: eps.namespace(),
-                        owner_references: Some(vec![create_owner_reference(eps)]),
-                        ..Default::default()
-                    },
-                    spec: BGPAdvertisementSpec {
-                        cidr: cidr.to_string(),
-                        r#type: AddressType::Service,
-                        protocol: Protocol::from(&cidr),
-                        attrs: None, // TODO: implement BGP attributes
-                    },
-                    status: Some(BGPAdvertisementStatus { peers: Some(peers) }),
-                };
-
-                tracing::info!(
-                    name = adv.name_any(),
-                    namespace = ns,
-                    status = ?adv.status,
-                    "Create BGPAdvertisement"
-                );
-                bgp_advertisements
-                    .create(&PostParams::default(), &adv)
-                    .await
-                    .map_err(Error::Kube)?;
-            }
+            endpointslice_api
+                .replace(&eps.name_any(), &PostParams::default(), &new_eps)
+                .await
+                .map_err(Error::Kube)?;
         }
     }
+
+    if let Some(allocated) = allocated_addrs {
+        // If lb addresses are already allocated,
+        // validate these
+        let _c = ctx.component.clone();
+
+        tracing::info!(
+            name = svc.name_any(),
+            namespace = ns,
+            lb_addrs=?allocated,
+            "Already allocated"
+        );
+
+        return Ok(Action::await_change());
+    }
+
+    let new_allocation = {
+        let c = ctx.component.clone();
+        allocate_lb_addrs(svc, &c)?
+    };
+
+    let new_svc = update_svc_lb_addrs(svc, &new_allocation);
+    api.replace_status(
+        &svc.name_any(),
+        &PostParams::default(),
+        serde_json::to_vec(&new_svc).map_err(Error::Serialization)?,
+    )
+    .await
+    .map_err(Error::Kube)?;
+
+    tracing::info!(
+        name = svc.name_any(),
+        namespace = ns,
+        lb_addrs=?new_allocation,
+        "Update service status by the allocation lb address"
+    );
 
     Ok(Action::await_change())
 }
 
 #[tracing::instrument(skip_all, fields(trace_id))]
-async fn cleanup(eps: &EndpointSlice, ctx: Arc<Context>) -> Result<Action, Error> {
-    let ns = get_namespace::<EndpointSlice>(eps).map_err(Error::KubeLibrary)?;
+async fn cleanup(
+    api: &Api<Service>,
+    svc: &Service,
+    ctx: Arc<ContextWith<Arc<AllocatorSet>>>,
+) -> Result<Action, Error> {
+    let ns = get_namespace::<Service>(svc).map_err(Error::KubeLibrary)?;
+    tracing::info!(name = svc.name_any(), namespace = ns, "Cleanup Service");
+
+    let allocated_addrs = match get_allocated_lb_addrs(svc) {
+        Some(a) => a,
+        None => return Ok(Action::await_change()),
+    };
+
+    // If lb addresses are allocated, release these addresses any way.
+    let released = {
+        let c = ctx.component.clone();
+        release_lb_addrs(svc, allocated_addrs, &c)?
+    };
+
+    let new_svc = clear_svc_lb_addrs(svc, &released);
+    api.replace_status(
+        &svc.name_any(),
+        &PostParams::default(),
+        serde_json::to_vec(&new_svc).map_err(Error::Serialization)?,
+    )
+    .await
+    .map_err(Error::Kube)?;
 
     tracing::info!(
-        name = eps.name_any(),
+        name = svc.name_any(),
         namespace = ns,
-        "Cleanup Endpointslice"
+        lb_addrs=?released,
+        "Update service status by the release lb address"
     );
 
     Ok(Action::await_change())
 }
 
-pub(crate) async fn run(state: State, interval: u64) {
+pub(crate) async fn run(state: State, interval: u64, allocator_set: Arc<AllocatorSet>) {
     let client = Client::try_default()
         .await
         .expect("Failed to create kube client");
 
-    let endpointslices = Api::<EndpointSlice>::all(client.clone());
+    let services = Api::<Service>::all(client.clone());
 
-    tracing::info!("Start Endpointslice watcher");
+    tracing::info!("Start Service watcher");
 
-    Controller::new(endpointslices, Config::default().any_semantic())
+    Controller::new(services, Config::default().any_semantic())
         .shutdown_on_signal()
         .run(
             reconciler,
-            error_policy::<EndpointSlice, Error>,
-            state.to_context(client, interval),
+            error_policy::<Service, Error, ContextWith<Arc<AllocatorSet>>>,
+            state.to_context_with(client, interval, allocator_set),
         )
         .filter_map(|x| async move { std::result::Result::ok(x) })
         .for_each(|_| futures::future::ready(()))
         .await;
 }
 
-async fn add_service_finalizer(svc: &Service) -> Result<(), Error> {
-    Ok(())
-}
-
-#[tracing::instrument(skip_all)]
-async fn get_target_peers(
-    eps: &EndpointSlice,
-    svc: &Service,
-    nb_api: &Api<NodeBGP>,
-) -> Result<Vec<String>, Error> {
-    let ns = match eps.namespace() {
-        Some(ns) => ns,
-        None => {
-            tracing::warn!(
-                name = eps.name_any(),
-                "Namespace is not set in EndpointSlice"
-            );
-            return Err(Error::FailedToGetData("Namespace is required".to_string()));
-        }
-    };
-    let mut target_peers = Vec::new();
-
-    if let Some(svc_spec) = &svc.spec {
-        if let Some(etp) = &svc_spec.external_traffic_policy {
-            match etp.as_str() {
-                "Cluster" => {
-                    let nb_lists = nb_api
-                        .list(&ListParams::default())
-                        .await
-                        .map_err(Error::Kube)?;
-                    for nb in nb_lists.items.iter() {
-                        let groups = get_svc_peer_groups(svc);
-                        if let Some(peers) = &nb.spec.peers {
-                            for peer in peers.iter() {
-                                if peer.match_groups(&groups) {
-                                    target_peers.push(peer.name.clone())
-                                }
-                            }
-                        }
-                    }
-                }
-                "Local" => {
-                    for ep in eps.endpoints.iter() {
-                        // Check wether its endpoint is available(serving?? or ready??)
-                        if let Some(node_name) = &ep.node_name {
-                            match nb_api.get_opt(node_name).await.map_err(Error::Kube)? {
-                                Some(nb) => {
-                                    // Compare labels the Service has and labels each NodeBGP has
-                                    //
-                                    let groups = get_svc_peer_groups(svc);
-                                    if let Some(peers) = nb.spec.peers {
-                                        for peer in peers.iter() {
-                                            if peer.match_groups(&groups) {
-                                                target_peers.push(peer.name.clone())
-                                            }
-                                        }
-                                    }
-                                }
-                                None => tracing::warn!(
-                                    name = svc.name_any(),
-                                    namespace = ns,
-                                    node = node_name,
-                                    "There is no NodeBGP resource to the endpoint node"
-                                ),
-                            }
-                        }
-                    }
-                }
-                _ => return Err(Error::InvalidExternalTrafficPolicy),
-            }
-        }
-    }
-
-    target_peers.sort();
-    target_peers.dedup();
-
-    Ok(target_peers)
-}
-
-fn get_svc_name_from_eps(eps: &EndpointSlice) -> Option<&String> {
-    eps.labels().get(SERVICE_NAME_LABEL)
-}
-
-fn is_loadbalacner(svc: &Service) -> bool {
+pub(super) fn is_loadbalacner(svc: &Service) -> bool {
     match svc.spec.as_ref().and_then(|spec| spec.type_.as_ref()) {
         Some(t) => t.eq("LoadBalancer"),
         None => false,
     }
 }
 
-fn get_svc_peer_groups(svc: &Service) -> Vec<&str> {
-    match &svc.annotations().get(PEER_GROUP_ANNOTATION) {
-        Some(v) => v.split(',').collect(),
-        None => vec![],
-    }
+pub(super) fn get_allocated_lb_addrs(svc: &Service) -> Option<Vec<IpAddr>> {
+    svc.status.clone().and_then(|svc_status| {
+        svc_status.load_balancer.and_then(|lb_status| {
+            lb_status.ingress.map(|ingress| {
+                ingress
+                    .iter()
+                    .filter_map(|lb_ingress| {
+                        lb_ingress.ip.as_ref().map(|ip| IpAddr::from_str(&ip).ok())
+                    })
+                    .flatten()
+                    .collect::<Vec<IpAddr>>()
+            })
+        })
+    })
 }
 
-fn sync_target_peers(peers: &mut BTreeMap<String, AdvertiseStatus>, targets: &[String]) -> bool {
-    let mut target_map: HashMap<&str, ()> = HashMap::new();
-    let mut updated = false;
-    for target in targets.iter() {
-        target_map.insert(target, ());
-        match peers.get(target) {
-            Some(_) => {}
+fn get_required_lb_addrs(svc: &Service) -> Option<Vec<IpAddr>> {
+    svc.annotations()
+        .get(LOADBALANCER_ADDRESS_ANNOTATION)
+        .map(|s| s.split(',').collect::<Vec<&str>>())
+        .map(|addrs| {
+            addrs
+                .iter()
+                .filter_map(|addr| IpAddr::from_str(addr).ok())
+                .collect::<Vec<IpAddr>>()
+        })
+        .filter(|addrs| !addrs.is_empty())
+}
+
+fn get_desired_pools(svc: &Service) -> Option<Vec<&str>> {
+    svc.annotations()
+        .get(ADDRESS_POOL_ANNOTATION)
+        .map(|s| s.split(',').collect::<Vec<&str>>())
+}
+
+fn get_etp(svc: &Service) -> Option<String> {
+    svc.spec
+        .as_ref()
+        .and_then(|spec| spec.external_traffic_policy.clone())
+}
+
+#[tracing::instrument(skip_all)]
+fn allocate_lb_addrs(svc: &Service, allocator: &Arc<AllocatorSet>) -> Result<Vec<IpAddr>, Error> {
+    let ns = get_namespace::<Service>(svc).map_err(Error::KubeLibrary)?;
+
+    let desired_pools = get_desired_pools(svc);
+
+    let req_addr_opt = get_required_lb_addrs(svc);
+
+    let mut alloc_set = allocator.inner.lock().map_err(|_| Error::FailedToGetLock)?;
+
+    let mut allocation_result: Vec<IpAddr> = Vec::new();
+
+    let allocate = |block: &mut Block| -> Result<Option<IpAddr>, Error> {
+        match req_addr_opt {
+            Some(ref reqs) => {
+                for r in reqs.iter() {
+                    if !block.allocator.cidr().contains(r) {
+                        continue;
+                    }
+                    // allocate
+                    return block.allocator.allocate(r).map(Some).map_err(Error::Ipam);
+                }
+                Ok(None)
+            }
             None => {
-                peers.insert(target.clone(), AdvertiseStatus::NotAdvertised);
-                updated = true;
+                // allocate automatically
+                block
+                    .allocator
+                    .allocate_next()
+                    .map(Some)
+                    .map_err(Error::Ipam)
+            }
+        }
+    };
+
+    match desired_pools {
+        Some(pools) => {
+            for pool in pools.iter() {
+                let block = match alloc_set.blocks.get_mut(*pool) {
+                    Some(b) => b,
+                    None => {
+                        tracing::warn!(
+                            name = svc.name_any(),
+                            namespace = ns,
+                            desired_pool = pool,
+                            "Desired AddressBlock doesn't exist"
+                        );
+                        continue;
+                    }
+                };
+
+                match allocate(block) {
+                    Ok(res) => match res {
+                        Some(a) => {
+                            allocation_result.push(a);
+                            tracing::info!(
+                                name = svc.name_any(),
+                                namespace = ns,
+                                pool = block.pool_name,
+                                address = a.to_string(),
+                                "Allocate requested from address pool"
+                            )
+                        }
+                        None => { /* pool's cidr and requested address is not matched */ }
+                    },
+                    Err(e) => {
+                        tracing::error!(
+                            error=?e,
+                            name=svc.name_any(),
+                            namespace = ns,
+                            pool = block.pool_name,
+                            "failed to allocate from requested address pool",
+                        );
+                    }
+                }
+            }
+        }
+        None => {
+            tracing::info!("Allocate from auto assignable pool");
+            for pool in alloc_set.auto_assigns.clone().iter() {
+                let block = match alloc_set.blocks.get_mut(pool) {
+                    Some(b) => b,
+                    None => {
+                        tracing::warn!(
+                            name = svc.name_any(),
+                            namespace = ns,
+                            desired_pool = pool,
+                            "AddressBlock doesn't exist"
+                        );
+                        continue;
+                    }
+                };
+
+                match allocate(block) {
+                    Ok(res) => match res {
+                        Some(a) => {
+                            allocation_result.push(a);
+                            tracing::info!(
+                                name = svc.name_any(),
+                                namespace = ns,
+                                pool = block.pool_name,
+                                address = a.to_string(),
+                                "Allocate an address from auto asssignable address pool"
+                            );
+                            // If pool names are not specified, it is ok to allocate at least one address
+                            break;
+                        }
+                        None => { /* pool's cidr and requested address is not matched */ }
+                    },
+                    Err(e) => {
+                        tracing::error!(
+                            error=?e,
+                            name=svc.name_any(),
+                            namespace = ns,
+                            pool = block.pool_name,
+                            "failed to allocate address",
+                        );
+                    }
+                }
             }
         }
     }
-    for (k, v) in peers.iter_mut() {
-        if target_map.get(k.as_str()).is_none() && (*v).ne(&AdvertiseStatus::Withdraw) {
-            *v = AdvertiseStatus::Withdraw;
-            updated = true;
+    if allocation_result.is_empty() {
+        Err(Error::NoAllocatableAddress)
+    } else {
+        Ok(allocation_result)
+    }
+}
+
+fn release_lb_addrs(
+    svc: &Service,
+    allocated_addrs: Vec<IpAddr>,
+    allocator: &Arc<AllocatorSet>,
+) -> Result<Vec<IpAddr>, Error> {
+    let ns = get_namespace::<Service>(svc).map_err(Error::KubeLibrary)?;
+
+    let mut release_result: Vec<IpAddr> = Vec::new();
+
+    let mut alloc_set = allocator.inner.lock().map_err(|_| Error::FailedToGetLock)?;
+
+    let pools = get_desired_pools(svc)
+        .map(|p| p.iter().map(|p| p.to_string()).collect::<Vec<String>>())
+        .unwrap_or(alloc_set.auto_assigns.clone());
+
+    for pool in pools.iter() {
+        let block = match alloc_set.blocks.get_mut(pool) {
+            Some(b) => b,
+            None => {
+                tracing::warn!(
+                    name = svc.name_any(),
+                    namespace = ns,
+                    desired_pool = pool,
+                    "Desired AddressBlock doesn't exist"
+                );
+                continue;
+            }
+        };
+        for addr in allocated_addrs.iter() {
+            if !block.allocator.cidr().contains(addr) || !block.allocator.is_allocated(addr) {
+                continue;
+            }
+            match block.allocator.release(addr) {
+                Ok(a) => {
+                    release_result.push(a);
+                    tracing::info!(
+                        name = svc.name_any(),
+                        namespace = ns,
+                        pool = block.pool_name,
+                        address = a.to_string(),
+                        "Relaese address from address pool"
+                    )
+                }
+                Err(e) => {
+                    tracing::error!(
+                        error=?e,
+                        name=svc.name_any(),
+                        namespace = ns,
+                        pool = block.pool_name,
+                        "failed to allocate from requested address pool",
+                    );
+                }
+            }
         }
     }
-    updated
+
+    Ok(release_result)
+}
+
+fn update_svc_lb_addrs(svc: &Service, addrs: &[IpAddr]) -> Service {
+    let ingress: Vec<LoadBalancerIngress> = addrs
+        .iter()
+        .map(|a| LoadBalancerIngress {
+            hostname: None,
+            ip: Some(a.to_string()),
+            ports: None,
+        })
+        .collect();
+    let mut new_svc = svc.clone();
+    match new_svc.status.as_mut() {
+        Some(status) => match status.load_balancer.as_mut() {
+            Some(lb_status) => {
+                // TODO: consider weather we can override lb status
+                *lb_status = LoadBalancerStatus {
+                    ingress: Some(ingress),
+                };
+            }
+            None => {
+                *status = ServiceStatus {
+                    conditions: status.conditions.clone(),
+                    load_balancer: Some(LoadBalancerStatus {
+                        ingress: Some(ingress),
+                    }),
+                };
+            }
+        },
+        None => {
+            new_svc.status = Some(ServiceStatus {
+                conditions: None, // TODO: fill conditions
+                load_balancer: Some(LoadBalancerStatus {
+                    ingress: Some(ingress),
+                }),
+            })
+        }
+    };
+
+    new_svc
+}
+
+fn clear_svc_lb_addrs(svc: &Service, released: &[IpAddr]) -> Service {
+    let mut new_svc = svc.clone();
+    let released_str = released
+        .iter()
+        .map(|a| a.to_string())
+        .collect::<Vec<String>>();
+
+    if let Some(status) = new_svc.status.as_mut() {
+        if let Some(lb_status) = status.load_balancer.as_mut() {
+            if let Some(ingress) = lb_status.ingress.as_mut() {
+                let mut new_ingress = Vec::new();
+                for ir in ingress.iter() {
+                    if let Some(ip) = &ir.ip {
+                        if released_str.contains(ip) {
+                            continue;
+                        }
+                    }
+                    new_ingress.push(ir.clone());
+                }
+                *ingress = new_ingress;
+            }
+        }
+    }
+    new_svc
 }
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        collections::BTreeMap,
+        net::{IpAddr, Ipv4Addr, Ipv6Addr},
+    };
+
+    use k8s_openapi::api::core::v1::{
+        LoadBalancerIngress, LoadBalancerStatus, Service, ServiceStatus,
+    };
+    use kube::core::ObjectMeta;
+
+    use crate::kubernetes::crd::address_pool::LOADBALANCER_ADDRESS_ANNOTATION;
+
     use super::*;
     use rstest::rstest;
 
     #[rstest(
-        peers,
-        targets,
-        updated,
-        expected,
-        case(BTreeMap::from([]), vec![], false, BTreeMap::from([])),
-        case(BTreeMap::from([("peer1".to_string(), AdvertiseStatus::Advertised)]), vec!["peer1".to_string()], false, BTreeMap::from([])),
-        case(BTreeMap::from([("peer1".to_string(), AdvertiseStatus::Advertised), ("peer2".to_string(), AdvertiseStatus::Advertised)]), vec!["peer1".to_string(), "peer2".to_string()], false, BTreeMap::from([])),
-        case(BTreeMap::from([("peer1".to_string(), AdvertiseStatus::Advertised), ("peer2".to_string(), AdvertiseStatus::NotAdvertised)]), vec!["peer1".to_string(), "peer2".to_string()], false, BTreeMap::from([])),
-        case(BTreeMap::from([("peer1".to_string(), AdvertiseStatus::Advertised)]), vec!["peer1".to_string(), "peer2".to_string()], true, BTreeMap::from([("peer1".to_string(), AdvertiseStatus::Advertised), ("peer2".to_string(), AdvertiseStatus::NotAdvertised)])),
-        case(BTreeMap::from([("peer1".to_string(), AdvertiseStatus::Advertised), ("peer2".to_string(), AdvertiseStatus::Advertised)]), vec!["peer2".to_string()], true, BTreeMap::from([("peer1".to_string(), AdvertiseStatus::Withdraw), ("peer2".to_string(), AdvertiseStatus::Advertised)])),
-        case(BTreeMap::from([("peer1".to_string(), AdvertiseStatus::Advertised), ("peer2".to_string(), AdvertiseStatus::Advertised)]), vec!["peer2".to_string(), "peer3".to_string()], true, BTreeMap::from([("peer1".to_string(), AdvertiseStatus::Withdraw), ("peer2".to_string(), AdvertiseStatus::Advertised), ("peer3".to_string(), AdvertiseStatus::NotAdvertised)])),
-    )]
-    fn works_sync_target_peers(
-        mut peers: BTreeMap<String, AdvertiseStatus>,
-        targets: Vec<String>,
-        updated: bool,
-        expected: BTreeMap<String, AdvertiseStatus>,
-    ) {
-        let res = sync_target_peers(&mut peers, &targets);
-        assert_eq!(res, updated);
-        if res {
-            assert_eq!(peers, expected);
-        }
+		svc,
+		expected,
+		case(
+        	Service {
+        	    metadata: ObjectMeta {
+        	        annotations: Some(BTreeMap::from([(
+        	            LOADBALANCER_ADDRESS_ANNOTATION.to_string(),
+        	            "10.0.0.1".to_string(),
+        	        )])),
+        	        ..Default::default()
+        	    },
+        	    spec: None,
+        	    status: None,
+        	},
+			Some(vec![IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))])
+		),
+		case(
+        	Service {
+        	    metadata: ObjectMeta {
+					annotations: None,
+        	        ..Default::default()
+        	    },
+        	    spec: None,
+        	    status: None,
+        	},
+			None,
+		),
+		case(
+        	Service {
+        	    metadata: ObjectMeta {
+        	        annotations: Some(BTreeMap::from([(
+        	            LOADBALANCER_ADDRESS_ANNOTATION.to_string(),
+        	            "10.0.0.1,10.0.0.3".to_string(),
+        	        )])),
+        	        ..Default::default()
+        	    },
+        	    spec: None,
+        	    status: None,
+        	},
+			Some(vec![IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), IpAddr::V4(Ipv4Addr::new(10, 0, 0, 3))])
+		),
+		case(
+        	Service {
+        	    metadata: ObjectMeta {
+        	        annotations: Some(BTreeMap::from([(
+        	            LOADBALANCER_ADDRESS_ANNOTATION.to_string(),
+        	            "2001:db8::1".to_string(),
+        	        )])),
+        	        ..Default::default()
+        	    },
+        	    spec: None,
+        	    status: None,
+        	},
+			Some(vec![IpAddr::V6(Ipv6Addr::from_str("2001:db8::1").unwrap())])
+		),
+		case(
+        	Service {
+        	    metadata: ObjectMeta {
+        	        annotations: Some(BTreeMap::from([(
+        	            LOADBALANCER_ADDRESS_ANNOTATION.to_string(),
+        	            "2001:db8::1,10.0.0.1,10.0.0.3".to_string(),
+        	        )])),
+        	        ..Default::default()
+        	    },
+        	    spec: None,
+        	    status: None,
+        	},
+			Some(vec![IpAddr::V6(Ipv6Addr::from_str("2001:db8::1").unwrap()), IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), IpAddr::V4(Ipv4Addr::new(10, 0, 0, 3))])
+		),
+	)]
+    fn test_get_required_lb_addrs(svc: Service, expected: Option<Vec<IpAddr>>) {
+        let res = get_required_lb_addrs(&svc);
+        assert_eq!(res, expected);
+    }
+    #[rstest(
+		svc,
+		expected,
+		case(
+        	Service {
+        	    metadata: ObjectMeta {
+        	        ..Default::default()
+        	    },
+        	    spec: None,
+        	    status: Some(ServiceStatus {
+        	        conditions: None,
+        	        load_balancer: Some(LoadBalancerStatus {
+        	            ingress: Some(vec![LoadBalancerIngress {
+        	                ip: Some("10.0.0.1".to_string()),
+        	                ..Default::default()
+        	            }]),
+        	        }),
+        	    }),
+        	},
+			Some(vec![IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))])
+		),
+		case(
+        	Service {
+        	    metadata: ObjectMeta {
+        	        ..Default::default()
+        	    },
+        	    spec: None,
+        	    status: None,
+        	},
+			None,
+		),
+		case(
+        	Service {
+        	    metadata: ObjectMeta {
+        	        ..Default::default()
+        	    },
+        	    spec: None,
+        	    status: Some(ServiceStatus {
+        	        conditions: None,
+        	        load_balancer: Some(LoadBalancerStatus {
+        	            ingress: Some(vec![
+							LoadBalancerIngress {
+        	                	ip: Some("10.0.0.1".to_string()),
+        	                	..Default::default()
+        	            	},
+							LoadBalancerIngress {
+        	                	ip: Some("10.0.0.3".to_string()),
+        	                	..Default::default()
+        	            	},
+						]),
+        	        }),
+        	    }),
+        	},
+			Some(vec![IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), IpAddr::V4(Ipv4Addr::new(10, 0, 0, 3))])
+		),
+		case(
+        	Service {
+        	    metadata: ObjectMeta {
+        	        ..Default::default()
+        	    },
+        	    spec: None,
+        	    status: Some(ServiceStatus {
+        	        conditions: None,
+        	        load_balancer: Some(LoadBalancerStatus {
+        	            ingress: Some(vec![LoadBalancerIngress {
+        	                ip: Some("2001:db8::1".to_string()),
+        	                ..Default::default()
+        	            }]),
+        	        }),
+        	    }),
+        	},
+			Some(vec![IpAddr::V6(Ipv6Addr::from_str("2001:db8::1").unwrap())])
+		),
+		case(
+        	Service {
+        	    metadata: ObjectMeta {
+        	        ..Default::default()
+        	    },
+        	    spec: None,
+        	    status: Some(ServiceStatus {
+        	        conditions: None,
+        	        load_balancer: Some(LoadBalancerStatus {
+        	            ingress: Some(vec![
+							LoadBalancerIngress {
+        	                	ip: Some("2001:db8::1".to_string()),
+        	                	..Default::default()
+        	            	},
+							LoadBalancerIngress {
+        	                	ip: Some("10.0.0.1".to_string()),
+        	                	..Default::default()
+        	            	},
+							LoadBalancerIngress {
+        	                	ip: Some("10.0.0.3".to_string()),
+        	                	..Default::default()
+        	            	},
+						]),
+        	        }),
+        	    }),
+        	},
+			Some(vec![IpAddr::V6(Ipv6Addr::from_str("2001:db8::1").unwrap()), IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), IpAddr::V4(Ipv4Addr::new(10, 0, 0, 3))])
+		),
+	)]
+    fn test_get_allocated_lb_addrs(svc: Service, expected: Option<Vec<IpAddr>>) {
+        let res = get_allocated_lb_addrs(&svc);
+        assert_eq!(res, expected);
     }
 }

@@ -78,6 +78,11 @@ async fn cleanup(
         .and_then(|status| status.peers.as_mut())
     {
         if peers.is_empty() {
+            tracing::info!(
+                name = ba.name_any(),
+                namespace = ns,
+                "Successfully delete BGPAdvertisement"
+            );
             return Ok(Action::await_change());
         }
         for (_p, s) in peers.iter_mut() {
@@ -102,7 +107,7 @@ async fn cleanup(
         );
     }
 
-    Ok(Action::await_change())
+    Err(Error::Withdrawing)
 }
 
 #[tracing::instrument(skip_all, fields(trace_id))]
@@ -132,7 +137,7 @@ pub(crate) async fn run(state: State, interval: u64) {
         .shutdown_on_signal()
         .run(
             reconciler,
-            error_policy::<BGPAdvertisement, Error>,
+            error_policy::<BGPAdvertisement, Error, Context>,
             state.to_context(client, interval),
         )
         .filter_map(|x| async move { std::result::Result::ok(x) })

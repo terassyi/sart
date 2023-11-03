@@ -116,6 +116,32 @@ rules:
 - apiGroups:
   - sart.terassyi.net
   resources:
+  - addressblocks
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - sart.terassyi.net
+  resources:
+  - addressblocks/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - sart.terassyi.net
+  resources:
+  - addressblocks/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - sart.terassyi.net
+  resources:
   - bgpadvertisements
   verbs:
   - create

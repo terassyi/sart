@@ -179,7 +179,7 @@ pub(crate) async fn run(state: State, interval: u64) {
         .shutdown_on_signal()
         .run(
             reconciler,
-            error_policy::<ClusterBGP, Error>,
+            error_policy::<ClusterBGP, Error, Context>,
             state.to_context(client, interval),
         )
         .filter_map(|x| async move { std::result::Result::ok(x) })

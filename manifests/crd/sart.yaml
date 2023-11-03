@@ -571,6 +571,18 @@ spec:
   scope: Cluster
   versions:
   - additionalPrinterColumns:
+    - description: CIDR of Address pool
+      jsonPath: .spec.cidr
+      name: CIDR
+      type: string
+    - description: Type of Address pool
+      jsonPath: .spec.type
+      name: TYPE
+      type: string
+    - description: block size of CIDR
+      jsonPath: .spec.blockSize
+      name: BLOCKSIZE
+      type: integer
     - description: Date from created
       jsonPath: .metadata.creationTimestamp
       name: AGE
@@ -582,6 +594,18 @@ spec:
         properties:
           spec:
             properties:
+              allocType:
+                enum:
+                - bit
+                nullable: true
+                type: string
+              autoAssign:
+                nullable: true
+                type: boolean
+              blockSize:
+                format: uint32
+                minimum: 0.0
+                type: integer
               cidr:
                 type: string
               type:
@@ -589,7 +613,87 @@ spec:
                 - service
                 type: string
             required:
+            - blockSize
             - cidr
+            - type
+            type: object
+          status:
+            nullable: true
+            properties:
+              blocks:
+                items:
+                  type: string
+                nullable: true
+                type: array
+            type: object
+        required:
+        - spec
+        title: AddressPool
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: addressblocks.sart.terassyi.net
+spec:
+  group: sart.terassyi.net
+  names:
+    categories: []
+    kind: AddressBlock
+    plural: addressblocks
+    shortNames: []
+    singular: addressblock
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - description: CIDR of Address pool
+      jsonPath: .spec.cidr
+      name: CIDR
+      type: string
+    - description: Type of Address pool
+      jsonPath: .spec.type
+      name: TYPE
+      type: string
+    - description: pool name
+      jsonPath: .spec.poolRef
+      name: POOLREF
+      type: string
+    - description: node name
+      jsonPath: .spec.nodeRef
+      name: NODEREF
+      type: string
+    - description: Date from created
+      jsonPath: .metadata.creationTimestamp
+      name: AGE
+      type: date
+    name: v1alpha2
+    schema:
+      openAPIV3Schema:
+        description: Auto-generated derived type for AddressBlockSpec via `CustomResource`
+        properties:
+          spec:
+            properties:
+              autoAssign:
+                type: boolean
+              cidr:
+                type: string
+              nodeRef:
+                nullable: true
+                type: string
+              poolRef:
+                type: string
+              type:
+                enum:
+                - service
+                type: string
+            required:
+            - autoAssign
+            - cidr
+            - poolRef
             - type
             type: object
           status:
@@ -597,7 +701,7 @@ spec:
             type: object
         required:
         - spec
-        title: AddressPool
+        title: AddressBlock
         type: object
     served: true
     storage: true

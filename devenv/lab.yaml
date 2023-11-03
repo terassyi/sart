@@ -34,7 +34,7 @@ topology:
           -c '  bgp router-id 9.9.9.9'
           -c '  bgp bestpath as-path multipath-relax'
           -c '  neighbor K8S-NODES peer-group'
-          -c '  neighbor K8S-NODES remote-as external'
+          -c '  neighbor K8S-NODES remote-as internal'
           -c '  neighbor 169.254.1.2 peer-group K8S-NODES'
           -c '  neighbor 169.254.2.2 peer-group K8S-NODES'
           -c '  neighbor 169.254.3.2 peer-group K8S-NODES'

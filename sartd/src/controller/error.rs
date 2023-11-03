@@ -1,12 +1,15 @@
 use kube::core::admission::SerializePatchError;
 use thiserror::Error;
 
-use crate::{kubernetes, trace::error::TraceableError};
+use crate::{agent::error, ipam, kubernetes, trace::error::TraceableError};
 
 #[derive(Error, Debug)]
 pub(crate) enum Error {
     #[error("std::io::Error")]
     StdIo(#[from] std::io::Error),
+
+    #[error("failed to get lock")]
+    FailedToGetLock,
 
     #[error("config error")]
     Config(#[from] ConfigError),
@@ -36,6 +39,9 @@ pub(crate) enum Error {
 
     #[error("Kube Library Error: {0}")]
     KubeLibrary(#[source] kubernetes::error::Error),
+
+    #[error("Ipam Error: {0}")]
+    Ipam(#[source] ipam::error::Error),
 
     #[error("Label matching Error: {0}")]
     LabelMatching(String),
@@ -69,6 +75,15 @@ pub(crate) enum Error {
 
     #[error("Invalid ExternalTrafficPolicy")]
     InvalidExternalTrafficPolicy,
+
+    #[error("allocatable address is not found")]
+    NoAllocatableAddress,
+
+    #[error("Failed to release address")]
+    ReleaseAddress,
+
+    #[error("Withdrawing yet")]
+    Withdrawing,
 }
 
 #[derive(Debug, Error)]

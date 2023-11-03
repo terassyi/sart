@@ -1,0 +1,10 @@
+apiVersion: sart.terassyi.net/v1alpha2
+kind: AddressPool 
+metadata:
+  name: sample-lb-pool
+spec:
+  cidr: 10.0.1.0/24
+  type: service
+  allocType: bit
+  blockSize: 24
+  autoAssign: true
