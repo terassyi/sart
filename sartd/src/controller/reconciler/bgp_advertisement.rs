@@ -132,7 +132,7 @@ pub(crate) async fn run(state: State, interval: u64) {
         .shutdown_on_signal()
         .run(
             reconciler,
-            error_policy::<BGPAdvertisement, Error>,
+            error_policy::<BGPAdvertisement, Error, Context>,
             state.to_context(client, interval),
         )
         .filter_map(|x| async move { std::result::Result::ok(x) })

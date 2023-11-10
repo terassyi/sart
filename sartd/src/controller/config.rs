@@ -6,7 +6,7 @@ use crate::cert::constants::*;
 
 use super::error::{ConfigError, Error};
 
-pub(crate) const DEFAULT_ENDPOINT: &'static str = "0.0.0.0:5002";
+pub(crate) const DEFAULT_ENDPOINT: &str = "0.0.0.0:5002";
 pub(crate) const DEFAULT_REQUEUE_INTERVAL: u64 = 30 * 60;
 
 #[derive(Debug, Deserialize, Serialize)]

@@ -1176,7 +1176,7 @@ impl Peer {
             }
             _ => {}
         }
-        self.move_state(Event::MESSAGE_BGP_OPEN_MSG_ERROR);
+        self.move_state(Event::MESSAGE_BGP_OPEN_MSG_ERROR).await;
         Ok(())
     }
 

@@ -1,3 +1,4 @@
+mod address_block;
 mod address_pool;
 mod bgp_advertisement;
 mod bgp_peer;
@@ -37,5 +38,10 @@ fn main() {
     print!(
         "{}",
         serde_yaml::to_string(&address_pool::AddressPool::crd()).unwrap()
+    );
+    println!("---");
+    print!(
+        "{}",
+        serde_yaml::to_string(&address_block::AddressBlock::crd()).unwrap()
     );
 }

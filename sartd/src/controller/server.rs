@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use actix_web::{
     get, middleware, post,
     web::{self, Data},
@@ -11,6 +13,7 @@ use super::reconciler;
 use crate::{
     cert::util::*,
     controller::webhook,
+    ipam::manager::AllocatorSet,
     kubernetes::{
         context::State,
         crd::{bgp_advertisement::BGPAdvertisement, bgp_peer::BGPPeer},
@@ -71,6 +74,8 @@ async fn run(c: Controller, trace_config: TraceConfig) {
     .unwrap()
     .shutdown_timeout(5);
 
+    let allocator_set = Arc::new(AllocatorSet::new());
+
     // Start reconcilers
     tracing::info!("Start ClusterBGP reconciler");
     let cluster_bgp_state = state.clone();
@@ -84,12 +89,22 @@ async fn run(c: Controller, trace_config: TraceConfig) {
         reconciler::address_pool::run(address_pool_state, c.requeue_interval).await;
     });
 
+    tracing::info!("Start AddressBlock reconciler");
+    let address_block_state = state.clone();
+    let ab_allocator_set = allocator_set.clone();
+    tokio::spawn(async move {
+        reconciler::address_block::run(address_block_state, c.requeue_interval, ab_allocator_set)
+            .await;
+    });
+
     tracing::info!("Start Endpointslice watcher");
     let endpointslice_state = state.clone();
     tokio::spawn(async move {
-        reconciler::service_watcher::run(endpointslice_state, c.requeue_interval).await;
+        reconciler::service_watcher::run(endpointslice_state, c.requeue_interval, allocator_set)
+            .await;
     });
 
+    tracing::info!("Start BGPAdvertisement reconciler");
     let bgp_advertisement_state = state.clone();
     tokio::spawn(async move {
         reconciler::bgp_advertisement::run(bgp_advertisement_state, c.requeue_interval).await;

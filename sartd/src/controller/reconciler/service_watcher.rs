@@ -1,12 +1,19 @@
 use std::{
     collections::{BTreeMap, HashMap},
+    net::{IpAddr, Ipv4Addr},
     str::FromStr,
     sync::Arc,
 };
 
 use futures::StreamExt;
 use ipnet::IpNet;
-use k8s_openapi::api::{core::v1::Service, discovery::v1::EndpointSlice};
+use k8s_openapi::{
+    api::{
+        core::v1::{LoadBalancerIngress, LoadBalancerStatus, Service, ServiceStatus},
+        discovery::v1::EndpointSlice,
+    },
+    apimachinery::pkg::apis::meta::v1::Condition,
+};
 use kube::{
     api::{ListParams, PostParams},
     core::ObjectMeta,
@@ -21,10 +28,11 @@ use kube::{
 
 use crate::{
     controller::error::Error,
+    ipam::{self, manager::AllocatorSet},
     kubernetes::{
-        context::{error_policy, Context, State},
+        context::{error_policy, ContextWith, Ctx, State},
         crd::{
-            address_pool::AddressType,
+            address_pool::{AddressType, ADDRESS_POOL_ANNOTATION, LOADBALANCER_ADDRESS_ANNOTATION},
             bgp_advertisement::{
                 AdvertiseStatus, BGPAdvertisement, BGPAdvertisementSpec, BGPAdvertisementStatus,
                 Protocol,
@@ -37,14 +45,16 @@ use crate::{
 };
 
 const ENDPOINTSLICE_FINALIZER: &str = "endpointsliece.sart.terassyi.net/finalizer";
-const SERVICE_FINALIZER: &str = "service.sart.terassyi.net/finalizer";
 const SERVICE_NAME_LABEL: &str = "kubernetes.io/service-name";
 
 #[tracing::instrument(skip_all, fields(trace_id))]
-async fn reconciler(eps: Arc<EndpointSlice>, ctx: Arc<Context>) -> Result<Action, Error> {
+async fn reconciler(
+    eps: Arc<EndpointSlice>,
+    ctx: Arc<ContextWith<Arc<AllocatorSet>>>,
+) -> Result<Action, Error> {
     let ns = get_namespace::<EndpointSlice>(&eps).map_err(Error::KubeLibrary)?;
 
-    let endpointslices = Api::<EndpointSlice>::namespaced(ctx.client.clone(), &ns);
+    let endpointslices = Api::<EndpointSlice>::namespaced(ctx.client().clone(), &ns);
 
     finalizer(
         &endpointslices,
@@ -62,7 +72,10 @@ async fn reconciler(eps: Arc<EndpointSlice>, ctx: Arc<Context>) -> Result<Action
 }
 
 #[tracing::instrument(skip_all, fields(trace_id))]
-async fn reconcile(eps: &EndpointSlice, ctx: Arc<Context>) -> Result<Action, Error> {
+async fn reconcile(
+    eps: &EndpointSlice,
+    ctx: Arc<ContextWith<Arc<AllocatorSet>>>,
+) -> Result<Action, Error> {
     let ns = get_namespace::<EndpointSlice>(eps).map_err(Error::KubeLibrary)?;
     tracing::info!(
         name = eps.name_any(),
@@ -74,7 +87,7 @@ async fn reconcile(eps: &EndpointSlice, ctx: Arc<Context>) -> Result<Action, Err
         Some(n) => n,
         None => return Ok(Action::await_change()),
     };
-    let services = Api::<Service>::namespaced(ctx.client.clone(), &ns);
+    let services = Api::<Service>::namespaced(ctx.client().clone(), &ns);
     let svc = match services.get_opt(svc_name).await.map_err(Error::Kube)? {
         Some(svc) => svc,
         None => {
@@ -90,20 +103,22 @@ async fn reconcile(eps: &EndpointSlice, ctx: Arc<Context>) -> Result<Action, Err
         return Ok(Action::await_change());
     }
 
-    let node_bgps = Api::<NodeBGP>::all(ctx.client.clone());
+    let node_bgps = Api::<NodeBGP>::all(ctx.client().clone());
     let target_peers = get_target_peers(eps, &svc, &node_bgps).await?;
 
-    let adv_cidrs = match svc.status.clone().and_then(|lb| {
+    let mut new_allocation = false;
+    let lb_addrs = match svc.status.clone().and_then(|lb| {
         lb.load_balancer.and_then(|lb_status| {
             lb_status.ingress.map(|ingresses| {
                 ingresses
                     .iter()
                     .filter_map(|ingress| ingress.ip.clone())
-                    .collect::<Vec<String>>()
+                    .filter_map(|ip| IpAddr::from_str(&ip).ok())
+                    .collect::<Vec<IpAddr>>()
             })
         })
     }) {
-        Some(cidrs) => cidrs,
+        Some(addrs) => addrs,
         None => {
             tracing::warn!(
                 name = svc.name_any(),
@@ -111,12 +126,40 @@ async fn reconcile(eps: &EndpointSlice, ctx: Arc<Context>) -> Result<Action, Err
                 "There is no lb addresses"
             );
             // for development, insert dummy address
-            vec!["0.0.0.0/32".to_string()]
-            // return
+            let component = ctx.component.clone();
+            let allocated_addrs = allocate_lb_addr(&component, &svc)?;
+            new_allocation = true;
+            vec![allocated_addrs]
         }
     };
 
-    let bgp_advertisements = Api::<BGPAdvertisement>::namespaced(ctx.client.clone(), ns.as_str());
+    if new_allocation {
+        let new_svc = update_svc_lb_addresses(&svc, &lb_addrs);
+        services
+            .replace_status(
+                &svc.name_any(),
+                &PostParams::default(),
+                serde_json::to_vec(&new_svc).map_err(Error::Serialization)?,
+            )
+            .await
+            .map_err(Error::Kube)?;
+        tracing::info!(
+            name = svc.name_any(),
+            namespace = ns,
+            lb_addr=?lb_addrs,
+            "Update service status for the allocation lb address"
+        );
+    }
+
+    let adv_cidrs = lb_addrs
+        .iter()
+        .map(|addr| match addr {
+            IpAddr::V4(a) => format!("{a}/32"),
+            IpAddr::V6(a) => format!("{a}/128"),
+        })
+        .collect::<Vec<String>>();
+
+    let bgp_advertisements = Api::<BGPAdvertisement>::namespaced(ctx.client().clone(), ns.as_str());
 
     for adv_cidr in adv_cidrs.iter() {
         let cidr = IpNet::from_str(adv_cidr).map_err(|_| Error::InvalidAddress)?;
@@ -243,7 +286,10 @@ async fn reconcile(eps: &EndpointSlice, ctx: Arc<Context>) -> Result<Action, Err
 }
 
 #[tracing::instrument(skip_all, fields(trace_id))]
-async fn cleanup(eps: &EndpointSlice, ctx: Arc<Context>) -> Result<Action, Error> {
+async fn cleanup(
+    eps: &EndpointSlice,
+    ctx: Arc<ContextWith<Arc<AllocatorSet>>>,
+) -> Result<Action, Error> {
     let ns = get_namespace::<EndpointSlice>(eps).map_err(Error::KubeLibrary)?;
 
     tracing::info!(
@@ -255,7 +301,7 @@ async fn cleanup(eps: &EndpointSlice, ctx: Arc<Context>) -> Result<Action, Error
     Ok(Action::await_change())
 }
 
-pub(crate) async fn run(state: State, interval: u64) {
+pub(crate) async fn run(state: State, interval: u64, allocator_set: Arc<AllocatorSet>) {
     let client = Client::try_default()
         .await
         .expect("Failed to create kube client");
@@ -268,16 +314,107 @@ pub(crate) async fn run(state: State, interval: u64) {
         .shutdown_on_signal()
         .run(
             reconciler,
-            error_policy::<EndpointSlice, Error>,
-            state.to_context(client, interval),
+            error_policy::<EndpointSlice, Error, ContextWith<Arc<AllocatorSet>>>,
+            // state.to_context(client, interval),
+            state.to_context_with::<Arc<AllocatorSet>>(client, interval, allocator_set),
         )
         .filter_map(|x| async move { std::result::Result::ok(x) })
         .for_each(|_| futures::future::ready(()))
         .await;
 }
 
-async fn add_service_finalizer(svc: &Service) -> Result<(), Error> {
-    Ok(())
+#[tracing::instrument(skip_all)]
+fn allocate_lb_addr(allocator: &Arc<AllocatorSet>, svc: &Service) -> Result<IpAddr, Error> {
+    let mut alloc_set = allocator.inner.lock().map_err(|_| Error::FailedToGetLock)?;
+
+    // Get address pool names from specified annoation.
+    // If valid annotations are not specified, get pools that is set auto-assign as true from AllocatorSet from given context.
+    let pools = svc
+        .annotations()
+        .get(ADDRESS_POOL_ANNOTATION)
+        .map(|p| vec![p.clone()])
+        .unwrap_or(alloc_set.auto_assigns.clone());
+
+    // TODO: handle multiple addresses
+    let lb_ip = match svc.annotations().get(LOADBALANCER_ADDRESS_ANNOTATION) {
+        Some(addr) => match IpAddr::from_str(addr) {
+            Ok(ip) => Some(ip),
+            Err(e) => {
+                tracing::warn!("failed to parse given loadBalancerIPs");
+                None
+            }
+        },
+        None => None,
+    };
+
+    for pool_name in pools.iter() {
+        let block = match alloc_set.blocks.get_mut(pool_name) {
+            Some(b) => b,
+            None => continue,
+        };
+
+        if let Some(lb_ip) = lb_ip {
+            if !block.allocator.cidr().contains(&lb_ip) {
+                continue;
+            }
+            // try to allocate the specified address
+            return block.allocator.allocate(&lb_ip).map_err(Error::Ipam);
+        } else {
+            match block.allocator.allocate_next() {
+                Ok(addr) => return Ok(addr),
+                Err(e) => match e {
+                    ipam::error::Error::Full => {
+                        tracing::warn!(name = block.name, "address block is full");
+                        continue;
+                    }
+                    _ => return Err(Error::Ipam(e)),
+                },
+            }
+        }
+    }
+
+    // if reach here, address is not allocated.
+    Err(Error::NoAllocatableAddress)
+}
+
+fn update_svc_lb_addresses(svc: &Service, addrs: &[IpAddr]) -> Service {
+    let ingress: Vec<LoadBalancerIngress> = addrs
+        .iter()
+        .map(|a| LoadBalancerIngress {
+            hostname: None,
+            ip: Some(a.to_string()),
+            ports: None,
+        })
+        .collect();
+    let mut new_svc = svc.clone();
+    match new_svc.status.as_mut() {
+        Some(status) => match status.load_balancer.as_mut() {
+            Some(lb_status) => {
+                // TODO: consider weather we can override lb status
+                *lb_status = LoadBalancerStatus {
+                    ingress: Some(ingress),
+                };
+            }
+            None => {
+                *status = ServiceStatus {
+                    conditions: status.conditions.clone(),
+                    load_balancer: Some(LoadBalancerStatus {
+                        ingress: Some(ingress),
+                    }),
+                };
+            }
+        },
+        None => {
+            new_svc.status = Some(ServiceStatus {
+                conditions: None, // TODO: fill conditions
+                load_balancer: Some(LoadBalancerStatus {
+                    ingress: Some(ingress),
+                }),
+            })
+        }
+    };
+
+    new_svc
 }
 
 #[tracing::instrument(skip_all)]
