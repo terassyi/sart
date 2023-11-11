@@ -10,7 +10,7 @@ COPY ./sart /home/sart
 COPY ./proto /home/proto
 
 RUN apt update -y && \
-	apt install -y protobuf-compiler libprotobuf-dev
+	apt install -y protobuf-compiler libprotobuf-dev mold
 
 ENV CC_aarch64_unknown_linux_musl=clang
 ENV AR_aarch64_unknown_linux_musl=llvm-ar

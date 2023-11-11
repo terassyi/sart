@@ -6,7 +6,7 @@ WORKDIR /home
 COPY . /home/
 
 RUN apt update -y && \
-	apt install -y tcpdump iproute2 iputils-ping net-tools protobuf-compiler libprotobuf-dev
+	apt install -y tcpdump iproute2 iputils-ping net-tools protobuf-compiler libprotobuf-dev mold
 RUN make build
 
 FROM debian:stable
