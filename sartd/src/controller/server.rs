@@ -58,8 +58,6 @@ async fn run(c: Controller, trace_config: TraceConfig) {
     let server = HttpServer::new(move || {
         App::new()
             .app_data(Data::new(server_state.clone()))
-            .wrap(middleware::Logger::default().exclude("/healthz"))
-            .wrap(middleware::Logger::default().exclude("/readyz"))
             .service(index)
             .service(health)
             .service(ready)
@@ -67,6 +65,11 @@ async fn run(c: Controller, trace_config: TraceConfig) {
             .service(bgp_peer_validating_webhook)
             .service(bgp_peer_mutating_webhook)
             .service(bgp_advertisement_validating_webhook)
+            .wrap(
+                middleware::Logger::default()
+                    .exclude("/healthz")
+                    .exclude("/readyz"),
+            )
     })
     .bind_rustls_021("0.0.0.0:8443", server_config)
     .unwrap()
@@ -97,11 +100,18 @@ async fn run(c: Controller, trace_config: TraceConfig) {
             .await;
     });
 
+    tracing::info!("Start Service watcher");
+    let service_state = state.clone();
+    let svc_allocator_set = allocator_set.clone();
+    tokio::spawn(async move {
+        reconciler::service_watcher::run(service_state, c.requeue_interval, svc_allocator_set)
+            .await;
+    });
+
     tracing::info!("Start Endpointslice watcher");
     let endpointslice_state = state.clone();
     tokio::spawn(async move {
-        reconciler::service_watcher::run(endpointslice_state, c.requeue_interval, allocator_set)
-            .await;
+        reconciler::endpointslice_watcher::run(endpointslice_state, c.requeue_interval).await;
     });
 
     tracing::info!("Start BGPAdvertisement reconciler");

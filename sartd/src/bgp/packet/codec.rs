@@ -734,6 +734,23 @@ mod tests {
                 Prefix::new(IpNet::V4(Ipv4Net::new(Ipv4Addr::new(10, 10, 1, 0), 24).unwrap()), None),
             ],
         }),
+        case("testdata/messages/frr-ibgp-fail", true, false, Message::Open {
+            version: 4,
+            as_num: 65000,
+            hold_time: 9,
+            identifier: Ipv4Addr::new(9, 9, 9, 9),
+            capabilities: vec![
+                Capability::MultiProtocol(AddressFamily{ afi: Afi::IPv4, safi: Safi::Unicast }),
+                Capability::Unsupported(0x80, Vec::new()), // Unsupported Route Refresh Cisco
+                Capability::RouteRefresh,
+                Capability::EnhancedRouteRefresh,
+                Capability::FourOctetASNumber(65000),
+                Capability::BGPExtendedMessage,
+                Capability::AddPath(AddressFamily{ afi: Afi::IPv4, safi: Safi::Unicast}, 1),
+                Capability::Unsupported(0x49, vec![0x02, 0x52, 0x30, 0x00]),
+                Capability::GracefulRestart(Capability::GRACEFUL_RESTART_R, 120, vec![]),
+            ]
+        }),
     )]
     fn works_codec_encode(path: &str, as4_enabled: bool, path_id_enabled: bool, msg: Message) {
         let mut file = std::fs::File::open(path).unwrap();

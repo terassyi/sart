@@ -138,7 +138,7 @@ async fn reconcile(
                                 })
                                 .await
                                 .map_err(Error::GotgPRC)?;
-                            tracing::info!(name = ba.name_any(), namespace = ba.namespace(), response=?res,"Add path response");
+                            tracing::info!(name = ba.name_any(), namespace = ba.namespace(), status=?adv_status, response=?res,"Add path response");
 
                             *adv_status = AdvertiseStatus::Advertised;
                             need_update = true;
@@ -152,7 +152,7 @@ async fn reconcile(
                                 })
                                 .await
                                 .map_err(Error::GotgPRC)?;
-                            tracing::info!(name = ba.name_any(), namespace = ba.namespace(), response=?res,"Add path response");
+                            tracing::info!(name = ba.name_any(), namespace = ba.namespace(), status=?adv_status ,response=?res,"Add path response");
                         }
                         AdvertiseStatus::Withdraw => {
                             let res = speaker_client
@@ -162,7 +162,7 @@ async fn reconcile(
                                 })
                                 .await
                                 .map_err(Error::GotgPRC)?;
-                            tracing::info!(name = ba.name_any(), namespace = ba.namespace(), response=?res,"Delete path response");
+                            tracing::info!(name = ba.name_any(), namespace = ba.namespace(), status=?adv_status, response=?res,"Delete path response");
 
                             peers.remove(&p.name);
                             need_update = true;

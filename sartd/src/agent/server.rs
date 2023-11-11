@@ -48,12 +48,15 @@ async fn run(a: Agent, trace_config: TraceConfig) {
     let server = HttpServer::new(move || {
         App::new()
             .app_data(Data::new(server_state.clone()))
-            .wrap(middleware::Logger::default().exclude("/healthz"))
-            .wrap(middleware::Logger::default().exclude("/readyz"))
             .service(index)
             .service(health)
             .service(ready)
             .service(metrics_)
+            .wrap(
+                middleware::Logger::default()
+                    .exclude("/healthz")
+                    .exclude("/readyz"),
+            )
     })
     .bind_rustls_021("0.0.0.0:9443", server_config)
     .unwrap()

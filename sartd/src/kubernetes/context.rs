@@ -143,6 +143,7 @@ impl Diagnostics {
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub(crate) fn error_policy<T: Resource<DynamicType = ()>, E: TraceableError, C: Ctx>(
     resource: Arc<T>,
     error: &E,
@@ -150,5 +151,5 @@ pub(crate) fn error_policy<T: Resource<DynamicType = ()>, E: TraceableError, C: 
 ) -> Action {
     tracing::warn!("reconcile failed: {:?}", error);
     ctx.metrics().reconcile_failure(resource.as_ref(), error);
-    Action::requeue(Duration::from_secs(5 * 60))
+    Action::requeue(Duration::from_secs(10))
 }

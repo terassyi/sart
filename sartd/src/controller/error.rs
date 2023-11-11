@@ -1,9 +1,7 @@
-use std::sync::PoisonError;
-
 use kube::core::admission::SerializePatchError;
 use thiserror::Error;
 
-use crate::{ipam, kubernetes, trace::error::TraceableError};
+use crate::{agent::error, ipam, kubernetes, trace::error::TraceableError};
 
 #[derive(Error, Debug)]
 pub(crate) enum Error {
@@ -80,6 +78,12 @@ pub(crate) enum Error {
 
     #[error("allocatable address is not found")]
     NoAllocatableAddress,
+
+    #[error("Failed to release address")]
+    ReleaseAddress,
+
+    #[error("Withdrawing yet")]
+    Withdrawing,
 }
 
 #[derive(Debug, Error)]
