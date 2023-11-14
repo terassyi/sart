@@ -1016,9 +1016,9 @@ dependencies = [
 
 [[package]]
 name = "http"
-version = "0.2.11"
+version = "0.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8947b1a6fad4393052c7ba1f4cd97bed3e953a95c79c92ad9b051a04611d9fbb"
+checksum = "f95b9abcae896730d42b78e09c155ed4ddf82c07b4de772c64aee5b2d8b7c150"
 dependencies = [
  "bytes",
  "fnv",
@@ -1479,7 +1479,8 @@ dependencies = [
 [[package]]
 name = "netlink-packet-route"
 version = "0.17.1"
-source = "git+https://github.com/terassyi/netlink-packet-route?branch=next-hop-default#0af334bae6c3966ca0b4b8a51050723bec165d9b"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "053998cea5a306971f88580d0829e90f270f940befd7cf928da179d4187a5a66"
 dependencies = [
  "anyhow",
  "bitflags 1.3.2",
@@ -2052,9 +2053,9 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "0.38.21"
+version = "0.38.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b426b0506e5d50a7d8dafcf2e81471400deb602392c7dd110815afb4eaf02a3"
+checksum = "ffb93593068e9babdad10e4fce47dc9b3ac25315a72a59766ffd9e9a71996a04"
 dependencies = [
  "bitflags 2.4.1",
  "errno",
@@ -2119,47 +2120,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ad4cc8da4ef723ed60bced201181d83791ad433213d8c24efffda1eec85d741"
 
 [[package]]
-name = "sartd"
-version = "0.0.5"
-dependencies = [
- "anyhow",
- "clap",
- "k8s-openapi",
- "kube",
- "rcgen",
- "sartd-cmd",
- "sartd-kubernetes",
- "serde_yaml",
- "time",
-]
-
-[[package]]
-name = "sartd-bgp"
-version = "0.0.5"
-dependencies = [
- "byteorder",
- "bytes",
- "futures",
- "ipnet",
- "prost",
- "prost-types",
- "rstest",
- "sartd-proto",
- "sartd-trace",
- "sartd-util",
- "serde",
- "serde_yaml",
- "socket2 0.5.5",
- "thiserror",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "tonic",
- "tracing",
- "tracing-futures",
-]
-
-[[package]]
 name = "sartd-cert"
 version = "0.0.5"
 dependencies = [
@@ -2169,38 +2129,6 @@ dependencies = [
  "rustls",
  "rustls-pemfile",
  "time",
-]
-
-[[package]]
-name = "sartd-cmd"
-version = "0.0.5"
-dependencies = [
- "clap",
- "sartd-bgp",
- "sartd-fib",
- "sartd-kubernetes",
- "sartd-trace",
-]
-
-[[package]]
-name = "sartd-fib"
-version = "0.0.5"
-dependencies = [
- "futures",
- "ipnet",
- "netlink-packet-core",
- "netlink-packet-route",
- "netlink-sys",
- "rtnetlink",
- "sartd-proto",
- "sartd-trace",
- "serde",
- "serde_yaml",
- "thiserror",
- "tokio",
- "tokio-stream",
- "tonic",
- "tracing",
 ]
 
 [[package]]
@@ -2263,14 +2191,6 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "sartd-util"
-version = "0.0.5"
-dependencies = [
- "prost",
- "prost-types",
 ]
 
 [[package]]
@@ -2839,13 +2759,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "tracing-futures"
-version = "0.2.5"
+name = "tracing-log"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97d095ae15e245a057c8e8451bab9b3ee1e1f68e9ba2b4fbc18d0ac5237835f2"
+checksum = "f751112709b4e791d8ce53e32c4ed2d353565a795ce84da2285393f41557bdf2"
 dependencies = [
- "pin-project",
- "tracing",
+ "log",
+ "once_cell",
+ "tracing-core",
 ]
 
 [[package]]
@@ -2872,7 +2793,7 @@ dependencies = [
  "smallvec",
  "tracing",
  "tracing-core",
- "tracing-log",
+ "tracing-log 0.2.0",
  "tracing-subscriber",
  "web-time",
 ]
@@ -2889,9 +2810,9 @@ dependencies = [
 
 [[package]]
 name = "tracing-subscriber"
-version = "0.3.18"
+version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad0f048c97dbd9faa9b7df56362b8ebcaa52adb06b498c050d2f4e32f90a7a8b"
+checksum = "30a651bc37f915e81f087d86e62a18eec5f79550c7faff886f7090b4ea757c77"
 dependencies = [
  "matchers",
  "nu-ansi-term",
@@ -2904,7 +2825,7 @@ dependencies = [
  "thread_local",
  "tracing",
  "tracing-core",
- "tracing-log",
+ "tracing-log 0.1.4",
  "tracing-serde",
 ]
 

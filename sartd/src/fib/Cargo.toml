@@ -1,0 +1,24 @@
+[package]
+name = "sartd-fib"
+version = "0.0.5"
+edition = "2021"
+
+[dependencies]
+futures = "0.3.29"
+ipnet = "2.9.0"
+netlink-packet-core = "0.7.0"
+netlink-sys = "0.8.5"
+rtnetlink = "0.13.1"
+serde = { version = "1.0.192", features = ["derive"] }
+thiserror = "1.0.50"
+tokio = { version = "1.34.0", features = ["sync", "time"] }
+tokio-stream = { version = "0.1.14", features = ["net"] }
+tonic = "0.10.2"
+sartd-proto = { path = "../proto" }
+sartd-trace = { path = "../trace" }
+serde_yaml = "0.9.27"
+tracing = "0.1.40"
+netlink-packet-route = { version = "0.17.1", features = ["rich_nlas"] }
+
+[patch.crates-io]
+netlink-packet-route = { git = "https://github.com/terassyi/netlink-packet-route", branch = "next-hop-default", features = ["rich_nlas"] }

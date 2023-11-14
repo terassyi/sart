@@ -12,6 +12,8 @@
 staticd.conf
 gobgp.conf
 logs*
+**/target
+
 devenv/.lab.yaml.bak
 devenv/clab-sart
 e2e/controller/manifests/addresspool.yaml
