@@ -143,7 +143,13 @@ test: unit-test controller-test e2e-test
 
 .PHONY: unit-test
 unit-test:
-	cd sartd; $(CARGO) test
+	cd sartd; $(CARGO) test -p sartd-bgp
+	cd sartd; $(CARGO) test -p sartd-cert
+	cd sartd; $(CARGO) test -p sartd-fib
+	cd sartd; $(CARGO) test -p sartd-ipam
+	cd sartd; $(CARGO) test -p sartd-kubernetes
+	cd sartd; $(CARGO) test -p sartd-trace
+	cd sartd; $(CARGO) test -p sartd-util
 
 .PHONY: e2e-test
 e2e-test: sart-e2e-test controller-e2e-test
