@@ -122,9 +122,11 @@ router_id: 1.1.1.1
 fib_endpoint: test
 neighbors:
   - asn: 100
+    name: test
     router_id: 2.2.2.2
     address: 2.2.2.2
   - asn: 200
+    name: test2
     router_id: 3.3.3.3
     address: '::1'
     passive: true

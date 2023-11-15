@@ -1,4 +1,3 @@
-
 use kube::CustomResourceExt;
 use sartd_kubernetes::crd;
 

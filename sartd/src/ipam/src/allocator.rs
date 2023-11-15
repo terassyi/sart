@@ -272,8 +272,8 @@ mod tests {
         index,
         case(IpNet::V4(Ipv4Net::from_str("10.0.0.0/24").unwrap()), IpAddr::V4(Ipv4Addr::from_str("10.0.0.1").unwrap()), 1),
         case(IpNet::V4(Ipv4Net::from_str("10.0.0.0/24").unwrap()), IpAddr::V4(Ipv4Addr::from_str("10.0.0.139").unwrap()), 139),
-        case(IpNet::V6(Ipv6Net::from_str("2001:db8::/64").unwrap()), IpAddr::V6(Ipv6Addr::from_str("2001:db8::1").unwrap()), 1),
-        case(IpNet::V6(Ipv6Net::from_str("2001:db8::/64").unwrap()), IpAddr::V6(Ipv6Addr::from_str("2001:db8::80").unwrap()), 128),
+        case(IpNet::V6(Ipv6Net::from_str("2001:db8::/96").unwrap()), IpAddr::V6(Ipv6Addr::from_str("2001:db8::1").unwrap()), 1),
+        case(IpNet::V6(Ipv6Net::from_str("2001:db8::/96").unwrap()), IpAddr::V6(Ipv6Addr::from_str("2001:db8::80").unwrap()), 128),
     )]
     fn works_bit_allocator_allocate(cidr: IpNet, addr: IpAddr, index: u128) {
         let mut alloc = BitAllocator::new(cidr);

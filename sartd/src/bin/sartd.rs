@@ -1,4 +1,3 @@
-
 fn main() {
-	sartd_cmd::cmd::run()
+    sartd_cmd::cmd::run()
 }

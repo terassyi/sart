@@ -10,8 +10,6 @@ pub(super) struct BitSet {
 impl BitSet {
     pub(super) fn new(size: u128) -> BitSet {
         let l = (size / 128) + if size % 128 > 0 { 1 } else { 0 };
-        println!("{size}");
-        println!("{l}");
         BitSet {
             inner: vec![0; l as usize],
             size,

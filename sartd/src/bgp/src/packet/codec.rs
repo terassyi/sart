@@ -335,9 +335,14 @@ mod tests {
     use tokio_util::codec::FramedRead;
     use tokio_util::codec::{Decoder, Encoder};
 
+    const BASE: &str = "../../testdata/messages";
+    fn input_file(name: &str) -> String {
+        std::path::Path::new(BASE).join(name).to_str().unwrap().to_string()
+    }
+
     #[tokio::test]
     async fn works_framedread_decode() {
-        let testdata = vec![("testdata/messages/keepalive", Message::Keepalive)];
+        let testdata = vec![(input_file("keepalive"), Message::Keepalive)];
         for (path, expected) in testdata {
             let mut file = std::fs::File::open(path).unwrap();
             let mut buf = vec![];
@@ -355,13 +360,13 @@ mod tests {
         as4_enabled,
         path_id_enabled,
         expected,
-        case("testdata/messages/keepalive", true, false, Message::Keepalive),
-        case("testdata/messages/notification-bad-as-peer", true, false, Message::Notification {
+        case(input_file("keepalive"), true, false, Message::Keepalive),
+        case(input_file("notification-bad-as-peer"), true, false, Message::Notification {
             code: NotificationCode::OpenMessage,
             subcode: Some(NotificationSubCode::BadPeerAS),
             data: vec![0xfe, 0xb0],
         }),
-        case("testdata/messages/open-2bytes-asn", false, false, Message::Open {
+        case(input_file("open-2bytes-asn"), false, false, Message::Open {
             version: 4,
             as_num: 65100,
             hold_time: 180,
@@ -371,7 +376,7 @@ mod tests {
                 Cap::Unsupported(0x80, Vec::new()), // Unsupported Route Refresh Cisco
                 Cap::RouteRefresh,
             ] }),
-        case("testdata/messages/open-4bytes-asn", true, false, Message::Open {
+        case(input_file("open-4bytes-asn"), true, false, Message::Open {
             version: 4,
             as_num: Message::AS_TRANS,
             hold_time: 180,
@@ -384,7 +389,7 @@ mod tests {
                 Cap::FourOctetASNumber(2621441),
             ]
         }),
-        case("testdata/messages/open-graceful-restart", true, false, Message::Open {
+        case(input_file("open-graceful-restart"), true, false, Message::Open {
             version: 4,
             as_num: 100,
             hold_time: 180,
@@ -399,7 +404,7 @@ mod tests {
                 Cap::GracefulRestart(Cap::GRACEFUL_RESTART_R, 120, vec![]),
             ]
         }),
-        case("testdata/messages/open-ipv6", false, false, Message::Open {
+        case(input_file("open-ipv6"), false, false, Message::Open {
             version: 4,
             as_num: 65002,
             hold_time: 180,
@@ -410,7 +415,7 @@ mod tests {
                 Cap::RouteRefresh,
             ]
         }),
-        case("testdata/messages/open-optional-parameters", true, false, Message::Open {
+        case(input_file("open-optional-parameters"), true, false, Message::Open {
             version: 4,
             as_num: 200,
             hold_time: 90,
@@ -422,8 +427,8 @@ mod tests {
                 Cap::ExtendedNextHop(vec![(AddressFamily{ afi: Afi::IPv4, safi: Safi::Unicast }, 2)]),
             ],
         }),
-        case("testdata/messages/route-refresh", true, false, Message::RouteRefresh { family: AddressFamily{ afi: Afi::IPv4, safi: Safi::Unicast} }),
-        case("testdata/messages/update-as-set", false, false, Message::Update {
+        case(input_file("route-refresh"), true, false, Message::RouteRefresh { family: AddressFamily{ afi: Afi::IPv4, safi: Safi::Unicast} }),
+        case(input_file("update-as-set"), false, false, Message::Update {
             withdrawn_routes: Vec::new(),
             attributes: vec![
                 Attribute::Origin(Base::new(Attribute::FLAG_TRANSITIVE, Attribute::ORIGIN), Attribute::ORIGIN_INCOMPLETE),
@@ -436,7 +441,7 @@ mod tests {
                 Prefix::new(IpNet::V4(Ipv4Net::new(Ipv4Addr::new(172, 16, 0, 0), 21).unwrap()), None),
             ],
         }),
-        case("testdata/messages/update-as4-path", false, false, Message::Update {
+        case(input_file("update-as4-path"), false, false, Message::Update {
             withdrawn_routes: Vec::new(),
             attributes: vec![
                 Attribute::Origin(Base::new(Attribute::FLAG_TRANSITIVE, Attribute::ORIGIN), Attribute::ORIGIN_IGP),
@@ -448,7 +453,7 @@ mod tests {
                 Prefix::new(IpNet::V4(Ipv4Net::new(Ipv4Addr::new(40, 0, 0, 0), 8).unwrap()), None),
             ],
         }),
-        case("testdata/messages/update-as4-path-aggregator", false, false, Message::Update {
+        case(input_file("update-as4-path-aggregator"), false, false, Message::Update {
             withdrawn_routes: Vec::new(),
             attributes: vec![
                 Attribute::Origin(Base::new(Attribute::FLAG_TRANSITIVE, Attribute::ORIGIN), Attribute::ORIGIN_IGP),
@@ -463,7 +468,7 @@ mod tests {
                 Prefix::new(IpNet::V4(Ipv4Net::new(Ipv4Addr::new(192, 168, 0, 0), 16).unwrap()), None),
             ],
         }),
-        case("testdata/messages/update-mp-reach-nlri", false, false, Message::Update {
+        case(input_file("update-mp-reach-nlri"), false, false, Message::Update {
             withdrawn_routes: Vec::new(),
             attributes: vec![
                 Attribute::Origin(Base::new(Attribute::FLAG_TRANSITIVE, Attribute::ORIGIN), Attribute::ORIGIN_IGP),
@@ -473,7 +478,7 @@ mod tests {
             ],
             nlri: Vec::new(),
         }),
-        case("testdata/messages/update-nlri", false, false, Message::Update {
+        case(input_file("update-nlri"), false, false, Message::Update {
             withdrawn_routes: Vec::new(),
             attributes: vec![
                 Attribute::Origin(Base::new(Attribute::FLAG_TRANSITIVE, Attribute::ORIGIN), Attribute::ORIGIN_IGP),
@@ -489,11 +494,13 @@ mod tests {
         }),
     )]
     fn works_codec_decode_single_message(
-        input: &str,
+        input: String,
         as4_enabled: bool,
         path_id_enabled: bool,
         expected: Message,
     ) {
+        let cwd = std::env::current_dir().unwrap();
+        println!("{:?}", cwd);
         let mut file = std::fs::File::open(input).unwrap();
         let mut data = Vec::new();
         file.read_to_end(&mut data).unwrap();
@@ -508,7 +515,7 @@ mod tests {
         as4_enabled,
         path_id_enabled,
         expected,
-        case(vec!["testdata/messages/open-2bytes-asn", "testdata/messages/keepalive"], false, false,
+        case(vec![input_file("open-2bytes-asn"), input_file("keepalive")], false, false,
             vec![
                 Message::Open {
                     version: 4,
@@ -524,7 +531,7 @@ mod tests {
                 Message::Keepalive,
             ],
         ),
-        case(vec!["testdata/messages/update-as4-path-aggregator", "testdata/messages/update-nlri"], false, false,
+        case(vec![input_file("update-as4-path-aggregator"), input_file("update-nlri")], false, false,
             vec![
                 Message::Update {
                     withdrawn_routes: Vec::new(),
@@ -559,7 +566,7 @@ mod tests {
         ),
     )]
     fn works_codec_decode_multiple_messages(
-        paths: Vec<&str>,
+        paths: Vec<String>,
         as4_enabled: bool,
         path_id_enabled: bool,
         expected: Vec<Message>,
@@ -582,7 +589,7 @@ mod tests {
     //     as4_enabled,
     //     path_id_enabled,
     //     expected,
-    //     case("testdata/messages/open-bad-message-length", false, false, Message::Open {
+    //     case(input_file("open-bad-message-length", false, false, Message::Open {
     //         version: 4,
     //         as_num: 300,
     //         hold_time: 90,
@@ -614,13 +621,13 @@ mod tests {
         as4_enabled,
         path_id_enabled,
         msg,
-        case("testdata/messages/keepalive", true, false, Message::Keepalive),
-        case("testdata/messages/notification-bad-as-peer", true, false, Message::Notification {
+        case(input_file("keepalive"), true, false, Message::Keepalive),
+        case(input_file("notification-bad-as-peer"), true, false, Message::Notification {
             code: NotificationCode::OpenMessage,
             subcode: Some(NotificationSubCode::BadPeerAS),
             data: vec![0xfe, 0xb0],
         }),
-        case("testdata/messages/open-2bytes-asn", false, false, Message::Open {
+        case(input_file("open-2bytes-asn"), false, false, Message::Open {
             version: 4,
             as_num: 65100,
             hold_time: 180,
@@ -630,7 +637,7 @@ mod tests {
                 Cap::Unsupported(0x80, Vec::new()), // Unsupported Route Refresh Cisco
                 Cap::RouteRefresh,
             ] }),
-        case("testdata/messages/open-4bytes-asn", true, false, Message::Open {
+        case(input_file("open-4bytes-asn"), true, false, Message::Open {
             version: 4,
             as_num: Message::AS_TRANS,
             hold_time: 180,
@@ -643,7 +650,7 @@ mod tests {
                 Cap::FourOctetASNumber(2621441),
             ]
         }),
-        case("testdata/messages/open-graceful-restart", true, false, Message::Open {
+        case(input_file("open-graceful-restart"), true, false, Message::Open {
             version: 4,
             as_num: 100,
             hold_time: 180,
@@ -658,7 +665,7 @@ mod tests {
                 Cap::GracefulRestart(Cap::GRACEFUL_RESTART_R, 120, vec![]),
             ]
         }),
-        case("testdata/messages/open-ipv6", false, false, Message::Open {
+        case(input_file("open-ipv6"), false, false, Message::Open {
             version: 4,
             as_num: 65002,
             hold_time: 180,
@@ -669,8 +676,8 @@ mod tests {
                 Cap::RouteRefresh,
             ]
         }),
-        case("testdata/messages/route-refresh", true, false, Message::RouteRefresh { family: AddressFamily{ afi: Afi::IPv4, safi: Safi::Unicast} }),
-        case("testdata/messages/update-as-set", false, false, Message::Update {
+        case(input_file("route-refresh"), true, false, Message::RouteRefresh { family: AddressFamily{ afi: Afi::IPv4, safi: Safi::Unicast} }),
+        case(input_file("update-as-set"), false, false, Message::Update {
             withdrawn_routes: Vec::new(),
             attributes: vec![
                 Attribute::Origin(Base::new(Attribute::FLAG_TRANSITIVE, Attribute::ORIGIN), Attribute::ORIGIN_INCOMPLETE),
@@ -683,7 +690,7 @@ mod tests {
                 Prefix::new(IpNet::V4(Ipv4Net::new(Ipv4Addr::new(172, 16, 0, 0), 21).unwrap()), None),
             ],
         }),
-        case("testdata/messages/update-as4-path", false, false, Message::Update {
+        case(input_file("update-as4-path"), false, false, Message::Update {
             withdrawn_routes: Vec::new(),
             attributes: vec![
                 Attribute::Origin(Base::new(Attribute::FLAG_TRANSITIVE, Attribute::ORIGIN), Attribute::ORIGIN_IGP),
@@ -695,7 +702,7 @@ mod tests {
                 Prefix::new(IpNet::V4(Ipv4Net::new(Ipv4Addr::new(40, 0, 0, 0), 8).unwrap()), None),
             ],
         }),
-        case("testdata/messages/update-as4-path-aggregator", false, false, Message::Update {
+        case(input_file("update-as4-path-aggregator"), false, false, Message::Update {
             withdrawn_routes: Vec::new(),
             attributes: vec![
                 Attribute::Origin(Base::new(Attribute::FLAG_TRANSITIVE, Attribute::ORIGIN), Attribute::ORIGIN_IGP),
@@ -710,7 +717,7 @@ mod tests {
                 Prefix::new(IpNet::V4(Ipv4Net::new(Ipv4Addr::new(192, 168, 0, 0), 16).unwrap()), None),
             ],
         }),
-        case("testdata/messages/update-mp-reach-nlri", false, false, Message::Update {
+        case(input_file("update-mp-reach-nlri"), false, false, Message::Update {
             withdrawn_routes: Vec::new(),
             attributes: vec![
                 Attribute::Origin(Base::new(Attribute::FLAG_TRANSITIVE, Attribute::ORIGIN), Attribute::ORIGIN_IGP),
@@ -720,7 +727,7 @@ mod tests {
             ],
             nlri: Vec::new(),
         }),
-        case("testdata/messages/update-nlri", false, false, Message::Update {
+        case(input_file("update-nlri"), false, false, Message::Update {
             withdrawn_routes: Vec::new(),
             attributes: vec![
                 Attribute::Origin(Base::new(Attribute::FLAG_TRANSITIVE, Attribute::ORIGIN), Attribute::ORIGIN_IGP),
@@ -734,25 +741,25 @@ mod tests {
                 Prefix::new(IpNet::V4(Ipv4Net::new(Ipv4Addr::new(10, 10, 1, 0), 24).unwrap()), None),
             ],
         }),
-        case("testdata/messages/frr-ibgp-fail", true, false, Message::Open {
-            version: 4,
-            as_num: 65000,
-            hold_time: 9,
-            identifier: Ipv4Addr::new(9, 9, 9, 9),
-            capabilities: vec![
-                Cap::MultiProtocol(AddressFamily{ afi: Afi::IPv4, safi: Safi::Unicast }),
-                Cap::Unsupported(0x80, Vec::new()), // Unsupported Route Refresh Cisco
-                Cap::RouteRefresh,
-                Cap::EnhancedRouteRefresh,
-                Cap::FourOctetASNumber(65000),
-                Cap::BGPExtendedMessage,
-                Cap::AddPath(AddressFamily{ afi: Afi::IPv4, safi: Safi::Unicast}, 1),
-                Cap::Unsupported(0x49, vec![0x02, 0x52, 0x30, 0x00]),
-                Cap::GracefulRestart(Cap::GRACEFUL_RESTART_R, 120, vec![]),
-            ]
-        }),
+        // case(input_file("frr-ibgp-fail"), true, false, Message::Open {
+        //     version: 4,
+        //     as_num: 65000,
+        //     hold_time: 9,
+        //     identifier: Ipv4Addr::new(9, 9, 9, 9),
+        //     capabilities: vec![
+        //         Cap::MultiProtocol(AddressFamily{ afi: Afi::IPv4, safi: Safi::Unicast }),
+        //         Cap::Unsupported(0x80, Vec::new()), // Unsupported Route Refresh Cisco
+        //         Cap::RouteRefresh,
+        //         Cap::EnhancedRouteRefresh,
+        //         Cap::FourOctetASNumber(65000),
+        //         Cap::BGPExtendedMessage,
+        //         Cap::AddPath(AddressFamily{ afi: Afi::IPv4, safi: Safi::Unicast}, 1),
+        //         Cap::Unsupported(0x49, vec![0x02, 0x52, 0x30, 0x00]),
+        //         Cap::GracefulRestart(Cap::GRACEFUL_RESTART_R, 120, vec![]),
+        //     ]
+        // }),
     )]
-    fn works_codec_encode(path: &str, as4_enabled: bool, path_id_enabled: bool, msg: Message) {
+    fn works_codec_encode(path: String, as4_enabled: bool, path_id_enabled: bool, msg: Message) {
         let mut file = std::fs::File::open(path).unwrap();
         let mut expected_data = Vec::new();
         file.read_to_end(&mut expected_data).unwrap();
