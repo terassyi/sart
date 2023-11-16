@@ -43,6 +43,6 @@ channels:
       tables:
       - 254
 ";
-        let conf: Config = serde_yaml::from_str(yaml_str).unwrap();
+        let _conf: Config = serde_yaml::from_str(yaml_str).unwrap();
     }
 }

@@ -78,11 +78,29 @@ pub enum Error {
     #[error("allocatable address is not found")]
     NoAllocatableAddress,
 
+    #[error("no available address block")]
+    NoAllocatableBlock,
+
     #[error("Failed to release address")]
     ReleaseAddress,
 
+    #[error("Unavailable allocation")]
+    UnavailableAllocation,
+
     #[error("Withdrawing yet")]
     Withdrawing,
+
+    #[error("Auto assignable pool must be one")]
+    AutoAssignMustBeOne,
+
+    #[error("Failed to enable auto assign")]
+    FailedToEnableAutoAssign,
+
+    #[error("Block is not empty")]
+    NotEmpty,
+
+    #[error("Cannot delete")]
+    CannotDelete,
 }
 
 #[derive(Debug, Error)]

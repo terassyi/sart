@@ -230,7 +230,7 @@ impl Attribute {
     pub fn decode(
         data: &mut BytesMut,
         as4_enabled: bool,
-        add_path_enabled: bool,
+        _add_path_enabled: bool,
     ) -> Result<Self, Error> {
         // packet::capability will be convert to bgp capability.
         let b = Base {

@@ -139,7 +139,7 @@ impl From<UpdateMessageError> for u8 {
                 length: _,
                 value: _,
             } => 5,
-            UpdateMessageError::InvalidOriginAttribute(u8) => 6,
+            UpdateMessageError::InvalidOriginAttribute(_) => 6,
             UpdateMessageError::InvalidNextHopAttribute => 8,
             UpdateMessageError::OptionalAttributeError => 9,
             UpdateMessageError::InvalidNetworkField => 10,

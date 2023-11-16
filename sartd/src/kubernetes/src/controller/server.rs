@@ -5,6 +5,7 @@ use actix_web::{
     web::{self, Data},
     App, HttpRequest, HttpResponse, HttpServer, Responder,
 };
+use k8s_openapi::api::core::v1::Service;
 use kube::core::admission::AdmissionReview;
 use prometheus::{Encoder, TextEncoder};
 use rustls::ServerConfig;
@@ -14,7 +15,7 @@ use sartd_trace::init::{prepare_tracing, TraceConfig};
 
 use crate::{
     context::State,
-    crd::{bgp_advertisement::BGPAdvertisement, bgp_peer::BGPPeer},
+    crd::{address_pool::AddressPool, bgp_advertisement::BGPAdvertisement, bgp_peer::BGPPeer},
 };
 
 use super::{reconciler, webhook};
@@ -63,6 +64,8 @@ async fn run(c: Controller, trace_config: TraceConfig) {
             .service(bgp_peer_validating_webhook)
             .service(bgp_peer_mutating_webhook)
             .service(bgp_advertisement_validating_webhook)
+            .service(address_pool_validating_webhook)
+            .service(service_mutating_webhook)
             .wrap(
                 middleware::Logger::default()
                     .exclude("/healthz")
@@ -122,7 +125,6 @@ async fn run(c: Controller, trace_config: TraceConfig) {
 }
 
 pub struct Controller {
-    endpoint: String,
     server_cert: String,
     server_key: String,
     requeue_interval: u64,
@@ -131,7 +133,6 @@ pub struct Controller {
 impl Controller {
     pub fn new(config: Config) -> Self {
         Self {
-            endpoint: config.endpoint,
             server_cert: config.tls.cert,
             server_key: config.tls.key,
             requeue_interval: config.requeue_interval,
@@ -186,4 +187,20 @@ async fn bgp_advertisement_validating_webhook(
     body: web::Json<AdmissionReview<BGPAdvertisement>>,
 ) -> impl Responder {
     webhook::bgp_advertisement::handle_validation(req, body).await
+}
+
+#[post("/validate-sart-terassyi-net-v1alpha2-addresspool")]
+async fn address_pool_validating_webhook(
+    req: HttpRequest,
+    body: web::Json<AdmissionReview<AddressPool>>,
+) -> impl Responder {
+    webhook::address_pool::handle_validation(req, body).await
+}
+
+#[post("/mutate-v1-service")]
+async fn service_mutating_webhook(
+    req: HttpRequest,
+    body: web::Json<AdmissionReview<Service>>,
+) -> impl Responder {
+    webhook::service::handle_mutation(req, body).await
 }

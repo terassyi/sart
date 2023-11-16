@@ -12,7 +12,7 @@ pub fn load_certificates_from_pem(path: &str) -> std::io::Result<Vec<Certificate
 }
 
 pub fn load_private_key_from_file(path: &str) -> Result<PrivateKey, Box<dyn std::error::Error>> {
-    let file = File::open(&path)?;
+    let file = File::open(path)?;
     let mut reader = BufReader::new(file);
 
     let mut keys = rustls_pemfile::pkcs8_private_keys(&mut reader)?;

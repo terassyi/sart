@@ -308,9 +308,9 @@ impl TryFrom<i32> for NextHopFlags {
     }
 }
 
-impl Into<u8> for NextHopFlags {
-    fn into(self) -> u8 {
-        match self {
+impl From<NextHopFlags> for u8 {
+    fn from(val: NextHopFlags) -> Self {
+        match val {
             NextHopFlags::Empty => 0,
             NextHopFlags::Dead => 1,
             NextHopFlags::Pervasive => 2,
@@ -463,9 +463,9 @@ pub enum Protocol {
     Other(u8),
 }
 
-impl Into<u8> for Protocol {
-    fn into(self) -> u8 {
-        match self {
+impl From<Protocol> for u8 {
+    fn from(val: Protocol) -> Self {
+        match val {
             Protocol::Unspec => 0,
             Protocol::Redirect => 1,
             Protocol::Kernel => 2,
@@ -479,9 +479,9 @@ impl Into<u8> for Protocol {
     }
 }
 
-impl Into<i32> for Protocol {
-    fn into(self) -> i32 {
-        match self {
+impl From<Protocol> for i32 {
+    fn from(val: Protocol) -> Self {
+        match val {
             Protocol::Unspec => 0,
             Protocol::Redirect => 1,
             Protocol::Kernel => 2,

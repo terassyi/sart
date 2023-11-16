@@ -27,7 +27,7 @@ use crate::{
 use super::node_bgp::{DEFAULT_SPEAKER_TIMEOUT, ENV_HOSTNAME};
 
 #[tracing::instrument(skip_all, fields(trace_id))]
-async fn reconciler(bp: Arc<BGPPeer>, ctx: Arc<Context>) -> Result<Action, Error> {
+pub async fn reconciler(bp: Arc<BGPPeer>, ctx: Arc<Context>) -> Result<Action, Error> {
     let bgp_peers = Api::<BGPPeer>::all(ctx.client.clone());
 
     finalizer(&bgp_peers, BGP_PEER_FINALIZER, bp, |event| async {

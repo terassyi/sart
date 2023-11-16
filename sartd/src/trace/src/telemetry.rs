@@ -1,5 +1,5 @@
 use opentelemetry::trace::TraceId;
-use tracing_subscriber::{prelude::*, EnvFilter, Registry};
+use tracing_subscriber::{prelude::*, Registry};
 
 ///  Fetch an opentelemetry::trace::TraceId as hex through the full tracing stack
 pub fn get_trace_id() -> TraceId {
@@ -21,9 +21,14 @@ pub async fn init(level: tracing::Level) {
 
     // Decide on layers
     #[cfg(feature = "telemetry")]
-    let collector = Registry::default().with(telemetry).with(logger).with(tracing_subscriber::filter::LevelFilter::from_level(level));
+    let collector = Registry::default()
+        .with(telemetry)
+        .with(logger)
+        .with(tracing_subscriber::filter::LevelFilter::from_level(level));
     #[cfg(not(feature = "telemetry"))]
-    let collector = Registry::default().with(logger).with(tracing_subscriber::filter::LevelFilter::from_level(level));
+    let collector = Registry::default()
+        .with(logger)
+        .with(tracing_subscriber::filter::LevelFilter::from_level(level));
 
     // Initialize tracing
     tracing::subscriber::set_global_default(collector).unwrap();

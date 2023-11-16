@@ -29,7 +29,7 @@ use crate::{
 };
 
 #[tracing::instrument(skip_all, fields(trace_id))]
-async fn reconciler(cb: Arc<ClusterBGP>, ctx: Arc<Context>) -> Result<Action, Error> {
+pub async fn reconciler(cb: Arc<ClusterBGP>, ctx: Arc<Context>) -> Result<Action, Error> {
     let cluster_bgps = Api::<ClusterBGP>::all(ctx.client.clone());
 
     finalizer(&cluster_bgps, CLUSTER_BGP_FINALIZER, cb, |event| async {
@@ -250,11 +250,41 @@ fn match_selector(labels: &BTreeMap<String, String>, selector: &BTreeMap<String,
 
 #[cfg(test)]
 mod tests {
+    use http::Response;
+    use hyper::Body;
+    use k8s_openapi::api::core::v1::Node;
+    use kube::core::ObjectMeta;
+    use kube::ResourceExt;
     use rstest::rstest;
     use std::collections::BTreeMap;
 
+    use crate::context::Context;
+    use crate::controller::error::Error;
+    use crate::crd::bgp_peer::PeerConfig;
+    use crate::crd::bgp_peer_template::BGPPeerTemplate;
+    use crate::crd::bgp_peer_template::BGPPeerTemplateSpec;
+    use crate::crd::cluster_bgp::AsnSelectionType;
+    use crate::crd::cluster_bgp::AsnSelector;
+    use crate::crd::cluster_bgp::ClusterBGP;
+    use crate::crd::cluster_bgp::ClusterBGPSpec;
+    use crate::crd::cluster_bgp::RouterIdSelectionType;
+    use crate::crd::cluster_bgp::RouterIdSelector;
+    use crate::crd::cluster_bgp::SpeakerConfig;
+    use crate::crd::node_bgp::NodeBGP;
+    use crate::crd::node_bgp::NodeBGPSpec;
+    use crate::fixture::reconciler::api_server_response_not_found;
+    use crate::fixture::reconciler::api_server_response_resource;
+    use crate::fixture::reconciler::assert_resource_request;
+    use crate::fixture::reconciler::test_cluster_bgp;
+    use crate::fixture::reconciler::test_node_list;
+    use crate::fixture::reconciler::timeout_after_1s;
+    use crate::fixture::reconciler::ApiServerVerifier;
+    use crate::fixture::reconciler::TestBgpSelector;
+    use crate::util::create_owner_reference;
+
     use super::get_label_selector;
     use super::match_selector;
+    use super::reconcile;
 
     #[rstest(
 		selector,
@@ -286,5 +316,252 @@ mod tests {
     ) {
         let res = match_selector(&labels, &selector);
         assert_eq!(res, expected);
+    }
+
+    enum Scenario {
+        Create(ClusterBGP),
+        Update(ClusterBGP),
+    }
+
+    impl ApiServerVerifier {
+        fn cluster_bgp_run(self, scenario: Scenario) -> tokio::task::JoinHandle<()> {
+            tokio::spawn(async move {
+                match scenario {
+                    Scenario::Create(cb) => {
+                        self.list_node(&cb)
+                            .await
+                            .unwrap()
+                            .create_node_bgps(&cb)
+                            .await
+                    }
+                    Scenario::Update(cb) => {
+                        self.list_node(&cb)
+                            .await
+                            .unwrap()
+                            .update_node_bgps(&cb)
+                            .await
+                    }
+                }
+                .expect("reconcile completed without error");
+            })
+        }
+
+        async fn list_node(mut self, cb: &ClusterBGP) -> Result<Self, Error> {
+            let (request, send) = self.0.next_request().await.expect("service not called");
+            assert_resource_request(
+                &request,
+                &Node::default(),
+                None,
+                true,
+                get_node_selector_from_cb(cb),
+                http::Method::GET,
+            );
+            send.send_response(
+                Response::builder()
+                    .body(Body::from(
+                        serde_json::to_vec(&test_node_list(TestBgpSelector::All)).unwrap(),
+                    ))
+                    .unwrap(),
+            );
+            Ok(self)
+        }
+
+        async fn create_node_bgps(mut self, cb: &ClusterBGP) -> Result<Self, Error> {
+            let test_bgp_selector = Self::get_test_bgp_selector(cb);
+            for node in test_node_list(test_bgp_selector) {
+                let (request, send) = self.0.next_request().await.expect("service not called");
+                let nb = NodeBGP {
+                    metadata: ObjectMeta {
+                        name: Some(node.name_any()),
+                        ..Default::default()
+                    },
+                    spec: NodeBGPSpec::default(),
+                    status: None,
+                };
+                assert_resource_request(&request, &nb, None, false, None, http::Method::GET);
+                send.send_response(
+                    Response::builder()
+                        // .body(Body::from(api_server_response_resource(&nb)))
+                        .status(http::StatusCode::NOT_FOUND)
+                        .body(Body::from(api_server_response_not_found(&nb)))
+                        .unwrap(),
+                );
+
+                if let Some(need_call_req) = cb
+                    .spec
+                    .peers
+                    .clone()
+                    .map(|peers| peers.into_iter().filter_map(|p| p.peer_template_ref))
+                {
+                    for p in need_call_req {
+                        let (request, send) =
+                            self.0.next_request().await.expect("service not called");
+                        let peer_tmpl = BGPPeerTemplate {
+                            metadata: ObjectMeta {
+                                name: Some(p),
+                                ..Default::default()
+                            },
+                            spec: BGPPeerTemplateSpec::default(),
+                            status: None,
+                        };
+                        assert_resource_request(
+                            &request,
+                            &peer_tmpl,
+                            None,
+                            false,
+                            None,
+                            http::Method::GET,
+                        );
+                        send.send_response(
+                            Response::builder()
+                                .body(Body::from(api_server_response_resource(&peer_tmpl)))
+                                .unwrap(),
+                        );
+                    }
+                }
+                let (request, send) = self.0.next_request().await.expect("service not called");
+                assert_resource_request(&request, &nb, None, false, None, http::Method::POST);
+                send.send_response(
+                    Response::builder()
+                        .body(Body::from(api_server_response_resource(&nb)))
+                        .unwrap(),
+                );
+            }
+            Ok(self)
+        }
+
+        async fn update_node_bgps(mut self, cb: &ClusterBGP) -> Result<Self, Error> {
+            let test_bgp_selector = Self::get_test_bgp_selector(cb);
+            for node in test_node_list(test_bgp_selector) {
+                let (request, send) = self.0.next_request().await.expect("service not called");
+                let mut nb = NodeBGP {
+                    metadata: ObjectMeta {
+                        name: Some(node.name_any()),
+                        ..Default::default()
+                    },
+                    spec: NodeBGPSpec::default(),
+                    status: None,
+                };
+                assert_resource_request(&request, &nb, None, false, None, http::Method::GET);
+                send.send_response(
+                    Response::builder()
+                        .body(Body::from(api_server_response_resource(&nb)))
+                        .unwrap(),
+                );
+
+                // NodeBGP's owner reference shouldn't be created here
+                // Create it
+                nb.owner_references_mut().push(create_owner_reference(cb));
+                let (request, send) = self.0.next_request().await.expect("service not called");
+                assert_resource_request(&request, &nb, None, false, None, http::Method::PUT);
+                send.send_response(
+                    Response::builder()
+                        .body(Body::from(api_server_response_resource(&nb)))
+                        .unwrap(),
+                );
+            }
+            Ok(self)
+        }
+
+        fn get_test_bgp_selector(cb: &ClusterBGP) -> TestBgpSelector {
+            match cb.labels().get("bgp") {
+                Some(v) => match v.as_str() {
+                    "a" => TestBgpSelector::A,
+                    "b" => TestBgpSelector::B,
+                    _ => panic!("unhandlable bgp selector value"),
+                },
+                None => TestBgpSelector::All,
+            }
+        }
+    }
+
+    fn get_node_selector_from_cb(cb: &ClusterBGP) -> Option<String> {
+        // escape '=' to %3D (url encode)
+        cb.spec
+            .node_selector
+            .clone()
+            .and_then(|s| s.get("bgp").map(|v| format!("&labelSelector=bgp%3D{v}")))
+    }
+
+    #[tokio::test]
+    async fn create_cluster_bgp_match_all() {
+        let (testctx, fakeserver, _) = Context::test();
+        let cb = test_cluster_bgp();
+
+        let mocksvr = fakeserver.cluster_bgp_run(Scenario::Create(cb.clone()));
+        reconcile(&cb, testctx).await.expect("reconciler");
+        timeout_after_1s(mocksvr).await;
+    }
+
+    #[tokio::test]
+    async fn create_cluster_bgp_match_selector_a() {
+        let (testctx, fakeserver, _) = Context::test();
+        let cb = ClusterBGP {
+            metadata: ObjectMeta {
+                name: Some("test-cb".to_string()),
+                ..Default::default()
+            },
+            spec: ClusterBGPSpec {
+                node_selector: Some(BTreeMap::from([("bgp".to_string(), "a".to_string())])),
+                asn_selector: AsnSelector {
+                    from: AsnSelectionType::Asn,
+                    asn: Some(65000),
+                },
+                router_id_selector: RouterIdSelector {
+                    from: RouterIdSelectionType::InternalAddress,
+                    router_id: None,
+                },
+                speaker: SpeakerConfig {
+                    path: "localhost:5000".to_string(),
+                    timeout: None,
+                },
+                peers: Some(vec![PeerConfig {
+                    peer_template_ref: Some("test-bgp-peer-templ".to_string()),
+                    peer_config: None,
+                    node_bgp_selector: None,
+                }]),
+            },
+            status: None,
+        };
+
+        let mocksvr = fakeserver.cluster_bgp_run(Scenario::Create(cb.clone()));
+        reconcile(&cb, testctx).await.expect("reconciler");
+        timeout_after_1s(mocksvr).await;
+    }
+
+    #[tokio::test]
+    async fn update_cluster_bgp_no_owner_reference() {
+        let (testctx, fakeserver, _) = Context::test();
+        let cb = ClusterBGP {
+            metadata: ObjectMeta {
+                name: Some("test-cb".to_string()),
+                ..Default::default()
+            },
+            spec: ClusterBGPSpec {
+                node_selector: None,
+                asn_selector: AsnSelector {
+                    from: AsnSelectionType::Asn,
+                    asn: Some(65000),
+                },
+                router_id_selector: RouterIdSelector {
+                    from: RouterIdSelectionType::InternalAddress,
+                    router_id: None,
+                },
+                speaker: SpeakerConfig {
+                    path: "localhost:5000".to_string(),
+                    timeout: None,
+                },
+                peers: Some(vec![PeerConfig {
+                    peer_template_ref: Some("test-bgp-peer-templ".to_string()),
+                    peer_config: None,
+                    node_bgp_selector: None,
+                }]),
+            },
+            status: None,
+        };
+
+        let mocksvr = fakeserver.cluster_bgp_run(Scenario::Update(cb.clone()));
+        reconcile(&cb, testctx).await.expect("reconciler");
+        timeout_after_1s(mocksvr).await;
     }
 }

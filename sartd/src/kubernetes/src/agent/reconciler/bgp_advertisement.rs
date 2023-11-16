@@ -54,7 +54,7 @@ pub async fn run(state: State, interval: u64) {
 }
 
 #[tracing::instrument(skip_all, fields(trace_id))]
-async fn reconciler(ba: Arc<BGPAdvertisement>, ctx: Arc<Context>) -> Result<Action, Error> {
+pub async fn reconciler(ba: Arc<BGPAdvertisement>, ctx: Arc<Context>) -> Result<Action, Error> {
     let ns = get_namespace::<BGPAdvertisement>(&ba).map_err(Error::KubeLibrary)?;
 
     let bgp_advertisements = Api::<BGPAdvertisement>::namespaced(ctx.client.clone(), &ns);

@@ -84,6 +84,10 @@ impl BitSet {
         self.inner = vec![0; l];
     }
 
+    pub(super) fn is_empty(&self) -> bool {
+        self.inner.iter().sum::<u128>() == 0
+    }
+
     fn get_inner_index(index: u128) -> (usize, usize) {
         ((index as usize / 128), (index as usize % 128))
     }

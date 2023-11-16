@@ -1,0 +1,10 @@
+[package]
+name = "sartd-mock"
+version = "0.0.5"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tonic = "0.10.2"
+sartd-proto = { path = "../proto" }

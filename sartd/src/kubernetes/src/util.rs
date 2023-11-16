@@ -21,3 +21,14 @@ pub fn create_owner_reference<T: Resource<DynamicType = ()>>(owner: &T) -> Owner
 pub fn get_namespace<T: Resource<DynamicType = ()>>(resource: &T) -> Result<String, Error> {
     resource.namespace().ok_or(Error::GetNamespace)
 }
+
+pub fn get_namespaced_name<T: Resource<DynamicType = ()>>(resource: &T) -> String {
+    match resource.namespace() {
+        Some(ns) => format!("{ns}/{}", resource.name_any()),
+        None => resource.name_any(),
+    }
+}
+
+pub fn escape_slash(s: &str) -> String {
+    s.replace('/', "~1")
+}

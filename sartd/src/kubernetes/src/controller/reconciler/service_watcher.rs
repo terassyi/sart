@@ -1,4 +1,4 @@
-use std::{net::IpAddr, str::FromStr, sync::Arc};
+use std::{collections::HashMap, net::IpAddr, str::FromStr, sync::Arc};
 
 use futures::StreamExt;
 use k8s_openapi::api::{
@@ -24,14 +24,15 @@ use crate::{
 };
 use sartd_ipam::manager::{AllocatorSet, Block};
 
-const SERVICE_FINALIZER: &str = "service.sart.terassyi.net/finalizer";
+pub const SERVICE_FINALIZER: &str = "service.sart.terassyi.net/finalizer";
 pub(super) const SERVICE_NAME_LABEL: &str = "kubernetes.io/service-name";
 // This annoation should be annotated to Endpointslices to handle externalTrafficPolicy
 // This annotation is used only for triggering the Endpoinslice's reconciliation loop
-const SERVICE_ETP_ANNOTATION: &str = "service.sart.terassyi.net/etp";
+pub const SERVICE_ETP_ANNOTATION: &str = "service.sart.terassyi.net/etp";
+pub const RELEASE_ANNOTATION: &str = "service.sart.terassyi.net/release";
 
 #[tracing::instrument(skip_all, fields(trace_id))]
-async fn reconciler(
+pub async fn reconciler(
     svc: Arc<Service>,
     ctx: Arc<ContextWith<Arc<AllocatorSet>>>,
 ) -> Result<Action, Error> {
@@ -59,24 +60,21 @@ async fn reconcile(
 
     tracing::info!(name = svc.name_any(), namespace = ns, "Reconcile Service");
 
-    let allocated_addrs = get_allocated_lb_addrs(svc);
-
-    if !is_loadbalacner(svc) {
-        // If Service is not LoadBalancer and it hash allocated load balancer addresses, release these
-        if let Some(allocated) = allocated_addrs {
+    if !is_loadbalancer(svc) {
+        // If Service is not LoadBalancer and it has allocated load balancer addresses, release these.
+        // Once Service resources are changed from LoadBalance to other types,
+        // the status field of it will be removed immediately.
+        // So, for propagating addresses we have to release, we will add an annotation "service.sart.terassyi.net/release".
+        // When reconciler is triggered with some service that is not LoadBalancer,
+        // we check its annotation.
+        // And if it has, we have to release its addresses.
+        let releasable_addrs = get_releasable_addrs(svc);
+        tracing::info!(name = svc.name_any(), namespace = ns, releasable=?releasable_addrs, "not LoadBalancer");
+        if let Some(addrs) = releasable_addrs {
             let released = {
                 let c = ctx.component.clone();
-                release_lb_addrs(svc, allocated, &c)?
+                release_lb_addrs(svc, &addrs, &c)?
             };
-            let new_svc = clear_svc_lb_addrs(svc, &released);
-            api.replace_status(
-                &svc.name_any(),
-                &PostParams::default(),
-                serde_json::to_vec(&new_svc).map_err(Error::Serialization)?,
-            )
-            .await
-            .map_err(Error::Kube)?;
-
             tracing::warn!(
                 name = svc.name_any(),
                 namespace = ns,
@@ -87,6 +85,21 @@ async fn reconcile(
     }
 
     // In case of Service is LoadBalancer type
+
+    // Ensure that some blocks are available.
+    let block_avaialble = {
+        let c = ctx.component.clone();
+        let alloc_set = c.inner.lock().map_err(|_| Error::FailedToGetLock)?;
+        !alloc_set.blocks.is_empty()
+    };
+    if !block_avaialble {
+        tracing::warn!(
+            name = svc.name_any(),
+            namespace = ns,
+            "Any address blocks is not set."
+        );
+        return Err(Error::NoAllocatableBlock);
+    }
 
     // Sync the externalTrafficPolicy value
     let etp = get_etp(svc).ok_or(Error::InvalidExternalTrafficPolicy)?;
@@ -101,7 +114,7 @@ async fn reconcile(
                 if e.eq(&etp) {
                     None
                 } else {
-                    Some(e)
+                    Some(&etp)
                 }
             }
             None => Some(&etp),
@@ -119,27 +132,63 @@ async fn reconcile(
         }
     }
 
-    if let Some(allocated) = allocated_addrs {
-        // If lb addresses are already allocated,
-        // validate these
-        let _c = ctx.component.clone();
-
-        tracing::info!(
-            name = svc.name_any(),
-            namespace = ns,
-            lb_addrs=?allocated,
-            "Already allocated"
-        );
-
-        return Ok(Action::await_change());
-    }
-
-    let new_allocation = {
+    let actual_addrs = get_allocated_lb_addrs(svc).unwrap_or_default();
+    // Get from given service's stauts field.
+    // This should be the single source of truth for current state.
+    // Collected addresses must be marked as allocated.
+    // Addresses that don't belong to any blocks will be ignored.
+    // In this part, some blocks should be available.
+    let actual_allocation: HashMap<String, Vec<MarkedAllocation>> = {
         let c = ctx.component.clone();
-        allocate_lb_addrs(svc, &c)?
+        let alloc_set = c.inner.lock().map_err(|_| Error::FailedToGetLock)?;
+        alloc_set
+            .get_blocks_from_addrs(&actual_addrs)
+            .clone()
+            .into_iter()
+            .map(|(n, addrs)| {
+                (
+                    n,
+                    addrs
+                        .iter()
+                        .map(|a| MarkedAllocation::Allocated(*a))
+                        .collect::<Vec<MarkedAllocation>>(),
+                )
+            })
+            .collect()
     };
 
-    let new_svc = update_svc_lb_addrs(svc, &new_allocation);
+    // Allocation information stored in allocaters(in memory) may be flushed
+    // because of restarting the controller.
+    // Soe actual allocation that is from given Service resources is more reliable.
+
+    // Desired allocation information is from annotations of given service resource.
+    // This information should be stored in the controller and its resource('s status) finally.
+    let desired_allocation = {
+        let c = ctx.component.clone();
+        build_desired_allocation(svc, &c)?
+    };
+
+    let merged_allocation = merge_marked_allocation(actual_allocation, desired_allocation);
+
+    let c = ctx.component.clone();
+    let mut remained = Vec::new();
+    let mut removed = Vec::new();
+    {
+        let mut alloc_set = c.inner.lock().map_err(|_| Error::FailedToGetLock)?;
+        for (block_name, allocs) in merged_allocation.iter() {
+            if let Some(block) = alloc_set.get_mut(block_name) {
+                let (mut a, mut r) = update_allocations(block, allocs)?;
+                remained.append(&mut a);
+                removed.append(&mut r);
+            }
+        }
+    }
+    if actual_addrs.eq(&remained) {
+        return Ok(Action::await_change());
+    }
+    tracing::info!(name = svc.name_any(), namespace = ns, remained=?remained, released=?removed, "Update allocation.");
+
+    let new_svc = update_svc_lb_addrs(svc, &remained);
     api.replace_status(
         &svc.name_any(),
         &PostParams::default(),
@@ -151,7 +200,7 @@ async fn reconcile(
     tracing::info!(
         name = svc.name_any(),
         namespace = ns,
-        lb_addrs=?new_allocation,
+        lb_addrs=?remained,
         "Update service status by the allocation lb address"
     );
 
@@ -175,7 +224,7 @@ async fn cleanup(
     // If lb addresses are allocated, release these addresses any way.
     let released = {
         let c = ctx.component.clone();
-        release_lb_addrs(svc, allocated_addrs, &c)?
+        release_lb_addrs(svc, &allocated_addrs, &c)?
     };
 
     let new_svc = clear_svc_lb_addrs(svc, &released);
@@ -218,27 +267,40 @@ pub async fn run(state: State, interval: u64, allocator_set: Arc<AllocatorSet>) 
         .await;
 }
 
-pub(super) fn is_loadbalacner(svc: &Service) -> bool {
+pub fn is_loadbalancer(svc: &Service) -> bool {
     match svc.spec.as_ref().and_then(|spec| spec.type_.as_ref()) {
         Some(t) => t.eq("LoadBalancer"),
         None => false,
     }
 }
 
-pub(super) fn get_allocated_lb_addrs(svc: &Service) -> Option<Vec<IpAddr>> {
+pub fn get_allocated_lb_addrs(svc: &Service) -> Option<Vec<IpAddr>> {
     svc.status.clone().and_then(|svc_status| {
         svc_status.load_balancer.and_then(|lb_status| {
             lb_status.ingress.map(|ingress| {
                 ingress
                     .iter()
                     .filter_map(|lb_ingress| {
-                        lb_ingress.ip.as_ref().map(|ip| IpAddr::from_str(&ip).ok())
+                        lb_ingress.ip.as_ref().map(|ip| IpAddr::from_str(ip).ok())
                     })
                     .flatten()
                     .collect::<Vec<IpAddr>>()
             })
         })
     })
+}
+
+fn get_releasable_addrs(svc: &Service) -> Option<Vec<IpAddr>> {
+    svc.annotations()
+        .get(RELEASE_ANNOTATION)
+        .map(|s| s.split(',').collect::<Vec<&str>>())
+        .map(|addrs| {
+            addrs
+                .iter()
+                .filter_map(|addr| IpAddr::from_str(addr).ok())
+                .collect::<Vec<IpAddr>>()
+        })
+        .filter(|addrs| !addrs.is_empty())
 }
 
 fn get_required_lb_addrs(svc: &Service) -> Option<Vec<IpAddr>> {
@@ -266,138 +328,102 @@ fn get_etp(svc: &Service) -> Option<String> {
         .and_then(|spec| spec.external_traffic_policy.clone())
 }
 
-#[tracing::instrument(skip_all)]
-fn allocate_lb_addrs(svc: &Service, allocator: &Arc<AllocatorSet>) -> Result<Vec<IpAddr>, Error> {
-    let ns = get_namespace::<Service>(svc).map_err(Error::KubeLibrary)?;
-
-    let desired_pools = get_desired_pools(svc);
-
-    let req_addr_opt = get_required_lb_addrs(svc);
-
-    let mut alloc_set = allocator.inner.lock().map_err(|_| Error::FailedToGetLock)?;
-
-    let mut allocation_result: Vec<IpAddr> = Vec::new();
-
-    let allocate = |block: &mut Block| -> Result<Option<IpAddr>, Error> {
-        match req_addr_opt {
-            Some(ref reqs) => {
-                for r in reqs.iter() {
-                    if !block.allocator.cidr().contains(r) {
-                        continue;
-                    }
-                    // allocate
-                    return block.allocator.allocate(r).map(Some).map_err(Error::Ipam);
-                }
-                Ok(None)
-            }
+fn build_desired_allocation(
+    svc: &Service,
+    allocator: &Arc<AllocatorSet>,
+) -> Result<HashMap<String, Vec<MarkedAllocation>>, Error> {
+    let alloc_set = allocator.inner.lock().map_err(|_| Error::FailedToGetLock)?;
+    let pools = match get_desired_pools(svc) {
+        Some(pools) => pools.iter().map(|a| a.to_string()).collect::<Vec<String>>(),
+        None => match &alloc_set.auto_assign {
+            Some(a) => vec![a.to_string()],
             None => {
-                // allocate automatically
-                block
-                    .allocator
-                    .allocate_next()
-                    .map(Some)
-                    .map_err(Error::Ipam)
+                return Err(Error::NoAllocatableAddress);
             }
+        },
+    };
+    let res: HashMap<String, Vec<MarkedAllocation>> = match get_required_lb_addrs(svc) {
+        Some(addrs) => {
+            //
+            let blocks = alloc_set.get_blocks_from_addrs(&addrs);
+            pools
+                .into_iter()
+                .map(|name| match blocks.get(&name) {
+                    Some(addrs) => {
+                        let markers = addrs
+                            .iter()
+                            .map(|a| MarkedAllocation::NotMarked(Some(*a)))
+                            .collect::<Vec<MarkedAllocation>>();
+                        (name, markers)
+                    }
+                    None => (name, vec![MarkedAllocation::NotMarked(None)]),
+                })
+                .collect()
+        }
+        None => {
+            // Desired addresses are not set.
+            pools
+                .into_iter()
+                .map(|n| (n, vec![MarkedAllocation::NotMarked(None)]))
+                .collect()
         }
     };
 
-    match desired_pools {
-        Some(pools) => {
-            for pool in pools.iter() {
-                let block = match alloc_set.blocks.get_mut(*pool) {
-                    Some(b) => b,
-                    None => {
-                        tracing::warn!(
-                            name = svc.name_any(),
-                            namespace = ns,
-                            desired_pool = pool,
-                            "Desired AddressBlock doesn't exist"
-                        );
-                        continue;
-                    }
-                };
-
-                match allocate(block) {
-                    Ok(res) => match res {
-                        Some(a) => {
-                            allocation_result.push(a);
-                            tracing::info!(
-                                name = svc.name_any(),
-                                namespace = ns,
-                                pool = block.pool_name,
-                                address = a.to_string(),
-                                "Allocate requested from address pool"
-                            )
-                        }
-                        None => { /* pool's cidr and requested address is not matched */ }
-                    },
-                    Err(e) => {
-                        tracing::error!(
-                            error=?e,
-                            name=svc.name_any(),
-                            namespace = ns,
-                            pool = block.pool_name,
-                            "failed to allocate from requested address pool",
-                        );
-                    }
-                }
-            }
-        }
-        None => {
-            tracing::info!("Allocate from auto assignable pool");
-            for pool in alloc_set.auto_assigns.clone().iter() {
-                let block = match alloc_set.blocks.get_mut(pool) {
-                    Some(b) => b,
-                    None => {
-                        tracing::warn!(
-                            name = svc.name_any(),
-                            namespace = ns,
-                            desired_pool = pool,
-                            "AddressBlock doesn't exist"
-                        );
-                        continue;
-                    }
-                };
-
-                match allocate(block) {
-                    Ok(res) => match res {
-                        Some(a) => {
-                            allocation_result.push(a);
-                            tracing::info!(
-                                name = svc.name_any(),
-                                namespace = ns,
-                                pool = block.pool_name,
-                                address = a.to_string(),
-                                "Allocate an address from auto asssignable address pool"
-                            );
-                            // If pool names are not specified, it is ok to allocate at least one address
-                            break;
-                        }
-                        None => { /* pool's cidr and requested address is not matched */ }
-                    },
-                    Err(e) => {
-                        tracing::error!(
-                            error=?e,
-                            name=svc.name_any(),
-                            namespace = ns,
-                            pool = block.pool_name,
-                            "failed to allocate address",
-                        );
-                    }
-                }
-            }
-        }
-    }
-    if allocation_result.is_empty() {
-        Err(Error::NoAllocatableAddress)
-    } else {
-        Ok(allocation_result)
-    }
+    Ok(res)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum MarkedAllocation {
+    NotMarked(Option<IpAddr>),
+    Allocated(IpAddr),
+    Allocate(Option<IpAddr>),
+    Release(IpAddr),
+}
+
+fn update_allocations(
+    block: &mut Block,
+    allocs: &[MarkedAllocation],
+) -> Result<(Vec<IpAddr>, Vec<IpAddr>), Error> {
+    let mut remained = Vec::new();
+    let mut removed = Vec::new();
+    for ma in allocs.iter() {
+        match ma {
+            MarkedAllocation::Allocate(addr_opt) => match addr_opt {
+                Some(addr) => {
+                    // Allocate the specified address.
+                    let addr = block.allocator.allocate(addr, true).map_err(Error::Ipam)?;
+                    remained.push(addr);
+                }
+                None => {
+                    // Allocate an adderss.
+                    let addr = block.allocator.allocate_next().map_err(Error::Ipam)?;
+                    remained.push(addr);
+                }
+            },
+            MarkedAllocation::Release(addr) => {
+                // Release the address.
+                let addr = block.allocator.release(addr).map_err(Error::Ipam)?;
+                removed.push(addr);
+            }
+            MarkedAllocation::Allocated(addr) => {
+                // Allocate if not stored in the block.
+                if !block.allocator.is_allocated(addr) {
+                    block.allocator.allocate(addr, true).map_err(Error::Ipam)?;
+                }
+                remained.push(*addr);
+            }
+            MarkedAllocation::NotMarked(_a) => return Err(Error::UnavailableAllocation),
+        }
+    }
+    remained.sort();
+    removed.sort();
+    Ok((remained, removed))
+}
+
+#[tracing::instrument(skip_all)]
 fn release_lb_addrs(
     svc: &Service,
-    allocated_addrs: Vec<IpAddr>,
+    allocated_addrs: &[IpAddr],
     allocator: &Arc<AllocatorSet>,
 ) -> Result<Vec<IpAddr>, Error> {
     let ns = get_namespace::<Service>(svc).map_err(Error::KubeLibrary)?;
@@ -408,7 +434,14 @@ fn release_lb_addrs(
 
     let pools = get_desired_pools(svc)
         .map(|p| p.iter().map(|p| p.to_string()).collect::<Vec<String>>())
-        .unwrap_or(alloc_set.auto_assigns.clone());
+        .unwrap_or(match &alloc_set.auto_assign {
+            Some(d) => vec![d.to_string()],
+            None => vec![],
+        });
+
+    if pools.is_empty() {
+        return Err(Error::NoAllocatableBlock);
+    }
 
     for pool in pools.iter() {
         let block = match alloc_set.blocks.get_mut(pool) {
@@ -467,7 +500,6 @@ fn update_svc_lb_addrs(svc: &Service, addrs: &[IpAddr]) -> Service {
     match new_svc.status.as_mut() {
         Some(status) => match status.load_balancer.as_mut() {
             Some(lb_status) => {
-                // TODO: consider weather we can override lb status
                 *lb_status = LoadBalancerStatus {
                     ingress: Some(ingress),
                 };
@@ -520,6 +552,109 @@ fn clear_svc_lb_addrs(svc: &Service, released: &[IpAddr]) -> Service {
     new_svc
 }
 
+fn get_diff(prev: &[String], now: &[String]) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let removed = prev
+        .iter()
+        .filter(|p| !now.contains(p))
+        .cloned()
+        .collect::<Vec<String>>();
+    let added = now
+        .iter()
+        .filter(|n| !prev.contains(n) && !removed.contains(n))
+        .cloned()
+        .collect::<Vec<String>>();
+    let shared = prev
+        .iter()
+        .filter(|p| now.contains(p))
+        .cloned()
+        .collect::<Vec<String>>();
+    (added, shared, removed)
+}
+
+fn merge_marked_allocation(
+    actual_allocation: HashMap<String, Vec<MarkedAllocation>>,
+    desired_allocation: HashMap<String, Vec<MarkedAllocation>>,
+) -> HashMap<String, Vec<MarkedAllocation>> {
+    let (added, shared, removed) = get_diff(
+        &actual_allocation.keys().cloned().collect::<Vec<String>>(),
+        &desired_allocation.keys().cloned().collect::<Vec<String>>(),
+    );
+    // Merge actual and stored allocation.
+    let mut merged_allocation: HashMap<String, Vec<MarkedAllocation>> = HashMap::new();
+    for added_name in added.iter() {
+        if let Some(d_allocs) = desired_allocation.get(added_name) {
+            let mut da = d_allocs
+                .iter()
+                .map(|ma| match ma {
+                    MarkedAllocation::NotMarked(a) => MarkedAllocation::Allocate(*a),
+                    _ => *ma,
+                })
+                .collect::<Vec<MarkedAllocation>>();
+            match merged_allocation.get_mut(added_name) {
+                Some(v) => v.append(&mut da),
+                None => {
+                    merged_allocation.insert(added_name.to_string(), da);
+                }
+            }
+        }
+    }
+    for remvoed_name in removed.iter() {
+        if let Some(a_allocs) = actual_allocation.get(remvoed_name) {
+            let mut ra = a_allocs
+                .iter()
+                .filter_map(|ma| match ma {
+                    MarkedAllocation::Allocated(a) => Some(MarkedAllocation::Release(*a)),
+                    _ => None,
+                })
+                .collect::<Vec<MarkedAllocation>>();
+            match merged_allocation.get_mut(remvoed_name) {
+                Some(v) => v.append(&mut ra),
+                None => {
+                    merged_allocation.insert(remvoed_name.to_string(), ra);
+                }
+            }
+        }
+    }
+    for shared_name in shared.iter() {
+        // Shared
+        // block named shared_name must exist. Checked existance by getting the diff.
+        // So we can unwrap.
+        let d_allocs = desired_allocation.get(shared_name).unwrap();
+        let a_allocs = actual_allocation.get(shared_name).unwrap();
+        if d_allocs.len() == 1 && d_allocs[0].eq(&MarkedAllocation::NotMarked(None)) {
+            // allocation from a block(named d_name) is desired but not specified some addresses.
+            // In this case, we use exisiting allocation as is.
+            merged_allocation.insert(shared_name.to_string(), a_allocs.clone());
+            continue;
+        }
+        // Some specific addresses are desired.
+        let mut v: Vec<MarkedAllocation> = Vec::new();
+        // Check if a desired address already allocated.
+        // And if not, mark it as allocate.
+        for da in d_allocs.iter() {
+            if let MarkedAllocation::NotMarked(Some(addr)) = da {
+                if a_allocs.contains(&MarkedAllocation::Allocated(*addr)) {
+                    // Check if a desired address is already allocated.
+                    v.push(MarkedAllocation::Allocated(*addr));
+                } else {
+                    // If not, newly allocate the specified address.
+                    v.push(MarkedAllocation::Allocate(Some(*addr)));
+                }
+            }
+        }
+        // Check if an actual allocated address are not desired.
+        for aa in a_allocs.iter() {
+            if let MarkedAllocation::Allocated(addr) = aa {
+                if !d_allocs.contains(&MarkedAllocation::NotMarked(Some(*addr))) {
+                    v.push(MarkedAllocation::Release(*addr));
+                }
+            }
+        }
+        merged_allocation.insert(shared_name.to_string(), v);
+    }
+    merged_allocation
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -527,6 +662,7 @@ mod tests {
         net::{IpAddr, Ipv4Addr, Ipv6Addr},
     };
 
+    use ipnet::IpNet;
     use k8s_openapi::api::core::v1::{
         LoadBalancerIngress, LoadBalancerStatus, Service, ServiceStatus,
     };
@@ -715,5 +851,222 @@ mod tests {
     fn test_get_allocated_lb_addrs(svc: Service, expected: Option<Vec<IpAddr>>) {
         let res = get_allocated_lb_addrs(&svc);
         assert_eq!(res, expected);
+    }
+
+    #[rstest(
+        prev,
+        now,
+        expected,
+        case(
+            vec!["a".to_string(), "b".to_string()],
+            vec!["a".to_string(), "b".to_string()],
+            (vec![], vec!["a".to_string(), "b".to_string()], vec![]),
+        ),
+        case(
+            vec!["a".to_string()],
+            vec!["a".to_string(), "b".to_string()],
+            (vec!["b".to_string()], vec!["a".to_string()], vec![]),
+        ),
+        case(
+            vec!["a".to_string(), "b".to_string()],
+            vec!["b".to_string()],
+            (vec![], vec!["b".to_string()], vec!["a".to_string()]),
+        ),
+        case(
+            vec!["a".to_string(), "c".to_string(), "d".to_string()],
+            vec!["b".to_string(), "c".to_string()],
+            (vec!["b".to_string()], vec!["c".to_string()], vec!["a".to_string(), "d".to_string()]),
+        ),
+    )]
+    fn works_get_diff(
+        prev: Vec<String>,
+        now: Vec<String>,
+        expected: (Vec<String>, Vec<String>, Vec<String>),
+    ) {
+        let (added, shared, removed) = get_diff(&prev, &now);
+        assert_eq!(added, expected.0);
+        assert_eq!(shared, expected.1);
+        assert_eq!(removed, expected.2);
+    }
+
+    #[rstest(
+        svc,
+        allocator,
+        expected,
+        case(
+        	Service {
+        	    metadata: ObjectMeta {
+        	        ..Default::default()
+        	    },
+        	    spec: None,
+        	    status: None,
+        	},
+            test_allocator_set(),
+            HashMap::from([("test-pool".to_string(), vec![MarkedAllocation::NotMarked(None)])]),
+        ),
+        case(
+        	Service {
+        	    metadata: ObjectMeta {
+                    annotations: Some(BTreeMap::from([(LOADBALANCER_ADDRESS_ANNOTATION.to_string(), "10.0.0.2".to_string())])),
+        	        ..Default::default()
+        	    },
+        	    spec: None,
+        	    status: None,
+        	},
+            test_allocator_set(),
+            HashMap::from([("test-pool".to_string(), vec![MarkedAllocation::NotMarked(Some(IpAddr::from_str("10.0.0.2").unwrap()))])]),
+        ),
+        case(
+        	Service {
+        	    metadata: ObjectMeta {
+                    annotations: Some(BTreeMap::from([(LOADBALANCER_ADDRESS_ANNOTATION.to_string(), "10.0.0.2,10.0.0.10".to_string())])),
+        	        ..Default::default()
+        	    },
+        	    spec: None,
+        	    status: None,
+        	},
+            test_allocator_set(),
+            HashMap::from([("test-pool".to_string(), vec![MarkedAllocation::NotMarked(Some(IpAddr::from_str("10.0.0.2").unwrap())), MarkedAllocation::NotMarked(Some(IpAddr::from_str("10.0.0.10").unwrap()))])]),
+        ),
+        case(
+        	Service {
+        	    metadata: ObjectMeta {
+                    annotations: Some(BTreeMap::from([(ADDRESS_POOL_ANNOTATION.to_string(), "test-pool-another".to_string())])),
+        	        ..Default::default()
+        	    },
+        	    spec: None,
+        	    status: None,
+        	},
+            test_allocator_set(),
+            HashMap::from([("test-pool-another".to_string(), vec![MarkedAllocation::NotMarked(None)])]),
+        ),
+        case(
+        	Service {
+        	    metadata: ObjectMeta {
+                    annotations: Some(BTreeMap::from([(ADDRESS_POOL_ANNOTATION.to_string(), "test-pool-another".to_string()), (LOADBALANCER_ADDRESS_ANNOTATION.to_string(), "10.0.1.5".to_string())])),
+        	        ..Default::default()
+        	    },
+        	    spec: None,
+        	    status: None,
+        	},
+            test_allocator_set(),
+            HashMap::from([("test-pool-another".to_string(), vec![MarkedAllocation::NotMarked(Some(IpAddr::from_str("10.0.1.5").unwrap()))])]),
+        ),
+        case(
+        	Service {
+        	    metadata: ObjectMeta {
+                    annotations: Some(BTreeMap::from([(ADDRESS_POOL_ANNOTATION.to_string(), "test-pool".to_string())])),
+        	        ..Default::default()
+        	    },
+        	    spec: None,
+        	    status: None,
+        	},
+            test_allocator_set(),
+            HashMap::from([("test-pool".to_string(), vec![MarkedAllocation::NotMarked(None)])]),
+        ),
+        case(
+        	Service {
+        	    metadata: ObjectMeta {
+                    annotations: Some(BTreeMap::from([(ADDRESS_POOL_ANNOTATION.to_string(), "test-pool,test-pool-another".to_string()), (LOADBALANCER_ADDRESS_ANNOTATION.to_string(), "10.0.0.111,10.0.1.6".to_string())])),
+        	        ..Default::default()
+        	    },
+        	    spec: None,
+        	    status: None,
+        	},
+            test_allocator_set(),
+            HashMap::from([("test-pool".to_string(), vec![MarkedAllocation::NotMarked(Some(IpAddr::from_str("10.0.0.111").unwrap()))]), ("test-pool-another".to_string(), vec![MarkedAllocation::NotMarked(Some(IpAddr::from_str("10.0.1.6").unwrap()))])]),
+        ),
+        case(
+        	Service {
+        	    metadata: ObjectMeta {
+                    annotations: Some(BTreeMap::from([(ADDRESS_POOL_ANNOTATION.to_string(), "test-pool,test-pool-another".to_string()), (LOADBALANCER_ADDRESS_ANNOTATION.to_string(), "10.0.1.7".to_string())])),
+        	        ..Default::default()
+        	    },
+        	    spec: None,
+        	    status: None,
+        	},
+            test_allocator_set(),
+            HashMap::from([("test-pool".to_string(), vec![MarkedAllocation::NotMarked(None)]), ("test-pool-another".to_string(), vec![MarkedAllocation::NotMarked(Some(IpAddr::from_str("10.0.1.7").unwrap()))])]),
+        ),
+    )]
+    fn works_build_desired_allocation(
+        svc: Service,
+        allocator: Arc<AllocatorSet>,
+        expected: HashMap<String, Vec<MarkedAllocation>>,
+    ) {
+        let res = build_desired_allocation(&svc, &allocator).unwrap();
+        assert_eq!(expected, res);
+    }
+
+    #[rstest(
+        desired,
+        actual,
+        expected,
+        case(HashMap::new(), HashMap::new(), HashMap::new()),
+        case(
+            HashMap::from([("test-pool".to_string(), vec![MarkedAllocation::NotMarked(None)])]),
+            HashMap::new(),
+            HashMap::from([("test-pool".to_string(), vec![MarkedAllocation::Allocate(None)])]),
+        ),
+        case(
+            HashMap::from([("test-pool".to_string(), vec![MarkedAllocation::NotMarked(Some(IpAddr::from_str("10.0.0.100").unwrap()))])]),
+            HashMap::new(),
+            HashMap::from([("test-pool".to_string(), vec![MarkedAllocation::Allocate(Some(IpAddr::from_str("10.0.0.100").unwrap()))])]),
+        ),
+        case(
+            HashMap::from([("test-pool".to_string(), vec![MarkedAllocation::NotMarked(None)])]),
+            HashMap::from([("test-pool".to_string(), vec![MarkedAllocation::Allocated(IpAddr::from_str("10.0.0.0").unwrap())])]),
+            HashMap::from([("test-pool".to_string(), vec![MarkedAllocation::Allocated(IpAddr::from_str("10.0.0.0").unwrap())])]),
+        ),
+        case(
+            HashMap::from([("test-pool".to_string(), vec![MarkedAllocation::NotMarked(None)]), ("test-pool-another".to_string(), vec![MarkedAllocation::NotMarked(None)])]),
+            HashMap::new(),
+            HashMap::from([("test-pool".to_string(), vec![MarkedAllocation::Allocate(None)]), ("test-pool-another".to_string(), vec![MarkedAllocation::Allocate(None)])]),
+        ),
+        case(
+            HashMap::from([("test-pool".to_string(), vec![MarkedAllocation::NotMarked(None)]), ("test-pool-another".to_string(), vec![MarkedAllocation::NotMarked(None)])]),
+            HashMap::from([("test-pool".to_string(), vec![MarkedAllocation::Allocated(IpAddr::from_str("10.0.0.0").unwrap())])]),
+            HashMap::from([("test-pool".to_string(), vec![MarkedAllocation::Allocated(IpAddr::from_str("10.0.0.0").unwrap())]), ("test-pool-another".to_string(), vec![MarkedAllocation::Allocate(None)])]),
+        ),
+        case(
+            HashMap::from([("test-pool".to_string(), vec![MarkedAllocation::NotMarked(None)]), ("test-pool-another".to_string(), vec![MarkedAllocation::NotMarked(Some(IpAddr::from_str("10.0.1.7").unwrap()))])]),
+            HashMap::new(),
+            HashMap::from([("test-pool".to_string(), vec![MarkedAllocation::Allocate(None)]), ("test-pool-another".to_string(), vec![MarkedAllocation::Allocate(Some(IpAddr::from_str("10.0.1.7").unwrap()))])]),
+        ),
+        case(
+            HashMap::from([("test-pool".to_string(), vec![MarkedAllocation::NotMarked(Some(IpAddr::from_str("10.0.0.100").unwrap()))])]),
+            HashMap::from([("test-pool".to_string(), vec![MarkedAllocation::Allocated(IpAddr::from_str("10.0.0.1").unwrap())])]),
+            HashMap::from([("test-pool".to_string(), vec![MarkedAllocation::Allocate(Some(IpAddr::from_str("10.0.0.100").unwrap())), MarkedAllocation::Release(IpAddr::from_str("10.0.0.1").unwrap())])]),
+        ),
+    )]
+    fn works_merge_marked_allocation(
+        desired: HashMap<String, Vec<MarkedAllocation>>,
+        actual: HashMap<String, Vec<MarkedAllocation>>,
+        expected: HashMap<String, Vec<MarkedAllocation>>,
+    ) {
+        let res = merge_marked_allocation(actual, desired);
+        assert_eq!(expected, res);
+    }
+
+    fn test_allocator_set() -> Arc<AllocatorSet> {
+        let a = Arc::new(AllocatorSet::new());
+        {
+            let mut ai = a.inner.lock().unwrap();
+            let b1 = Block::new(
+                "test-pool".to_string(),
+                "test-pool".to_string(),
+                IpNet::from_str("10.0.0.0/24").unwrap(),
+            )
+            .unwrap();
+            let b2 = Block::new(
+                "test-pool-another".to_string(),
+                "test-pool-another".to_string(),
+                IpNet::from_str("10.0.1.0/24").unwrap(),
+            )
+            .unwrap();
+            ai.insert(b1, true).unwrap();
+            ai.insert(b2, false).unwrap();
+        }
+        a
     }
 }

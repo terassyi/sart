@@ -11,7 +11,7 @@ use tracing::instrument;
 
 use crate::{
     controller::error::Error,
-    crd::bgp_peer::{BGPPeer, BGP_PEER_NODE_LABEL},
+    crd::bgp_peer::{BGPPeer, BGP_PEER_NODE_LABEL}, util::escape_slash,
 };
 
 #[instrument(skip(req, body))]
@@ -156,7 +156,7 @@ fn mutate_bgp_peer(res: &AdmissionResponse, bp: &BGPPeer) -> Result<AdmissionRes
             }
 
             let patch = json_patch::PatchOperation::Add(json_patch::AddOperation {
-                path: format!("/metadata/labels/{}", BGP_PEER_NODE_LABEL),
+                path: format!("/metadata/labels/{}", escape_slash(BGP_PEER_NODE_LABEL)),
                 value: serde_json::Value::String(bp.spec.node_bgp_ref.to_string()),
             });
             patches.push(patch);

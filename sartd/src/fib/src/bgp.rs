@@ -159,11 +159,13 @@ impl FibApi for BgpSubscriber {
         };
         let dst: IpNet = match req.get_ref().destination.parse() {
             Ok(dst) => dst,
-            Err(e) => return Err(Status::aborted("invalid destination prefix")),
+            Err(_e) => return Err(Status::aborted("invalid destination prefix")),
         };
-        let mut route = Route::default();
-        route.destination = dst;
-        route.version = ver;
+        let route = Route {
+            destination: dst,
+            version: ver.clone(),
+            ..Default::default()
+        };
 
         match self.queue.send((RequestType::Delete, route)).await {
             Ok(_) => Ok(Response::new(())),
@@ -203,12 +205,14 @@ impl FibApi for BgpSubscriber {
         };
         let dst: IpNet = match req.get_ref().destination.parse() {
             Ok(dst) => dst,
-            Err(e) => return Err(Status::aborted("invalid destination prefix")),
+            Err(_e) => return Err(Status::aborted("invalid destination prefix")),
         };
 
-        let mut route = Route::default();
-        route.destination = dst;
-        route.version = ver;
+        let mut route = Route {
+            destination: dst,
+            version: ver.clone(),
+            ..Default::default()
+        };
         let gateways = &req.get_ref().gateways;
 
         for gw in gateways.iter() {

@@ -1,4 +1,3 @@
-use kube::core::ObjectMeta;
 use kube::Resource;
 use prometheus::Registry;
 use prometheus::{histogram_opts, opts, HistogramVec, IntCounter, IntCounterVec};

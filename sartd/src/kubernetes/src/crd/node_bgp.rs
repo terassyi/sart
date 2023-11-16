@@ -31,7 +31,7 @@ pub struct NodeBGPStatus {
     pub conditions: Option<Vec<NodeBGPCondition>>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Default, Debug, JsonSchema)]
+#[derive(Deserialize, Serialize, Clone, Default, Debug, JsonSchema, PartialEq, Eq)]
 pub struct NodeBGPCondition {
     pub status: NodeBGPConditionStatus,
     pub reason: NodeBGPConditionReason,

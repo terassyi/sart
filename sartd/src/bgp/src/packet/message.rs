@@ -76,7 +76,7 @@ impl Message {
         }
     }
 
-    pub fn to_open(self) -> Result<(u8, u32, u16, Ipv4Addr, Vec<capability::Cap>), Error> {
+    pub fn to_open(&self) -> Result<(u8, u32, u16, Ipv4Addr, Vec<capability::Cap>), Error> {
         match self {
             Self::Open {
                 version,
@@ -84,38 +84,44 @@ impl Message {
                 hold_time,
                 identifier,
                 capabilities,
-            } => Ok((version, as_num, hold_time, identifier, capabilities)),
+            } => Ok((
+                *version,
+                *as_num,
+                *hold_time,
+                *identifier,
+                capabilities.clone(),
+            )),
             _ => Err(Error::UndesiredMessage),
         }
     }
 
-    pub fn to_update(self) -> Result<(Vec<Prefix>, Vec<Attribute>, Vec<Prefix>), Error> {
+    pub fn to_update(&self) -> Result<(Vec<Prefix>, Vec<Attribute>, Vec<Prefix>), Error> {
         match self {
             Self::Update {
                 withdrawn_routes,
                 attributes,
                 nlri,
-            } => Ok((withdrawn_routes, attributes, nlri)),
+            } => Ok((withdrawn_routes.clone(), attributes.clone(), nlri.clone())),
             _ => Err(Error::UndesiredMessage),
         }
     }
 
     pub fn to_notification(
-        self,
+        &self,
     ) -> Result<(NotificationCode, Option<NotificationSubCode>, Vec<u8>), Error> {
         match self {
             Self::Notification {
                 code,
                 subcode,
                 data,
-            } => Ok((code, subcode, data)),
+            } => Ok((*code, *subcode, data.clone())),
             _ => Err(Error::UndesiredMessage),
         }
     }
 
-    pub fn to_route_refresh(self) -> Result<AddressFamily, Error> {
+    pub fn to_route_refresh(&self) -> Result<AddressFamily, Error> {
         match self {
-            Self::RouteRefresh { family } => Ok(family),
+            Self::RouteRefresh { family } => Ok(*family),
             _ => Err(Error::UndesiredMessage),
         }
     }
@@ -266,9 +272,9 @@ impl NotificationSubCode {
     }
 }
 
-impl Into<u8> for NotificationSubCode {
-    fn into(self) -> u8 {
-        match self {
+impl From<NotificationSubCode> for u8 {
+    fn from(val: NotificationSubCode) -> Self {
+        match val {
             NotificationSubCode::ConnectionNotSynchronized => 1,
             NotificationSubCode::BadMessageLength => 2,
             NotificationSubCode::BadMessageType => 3,

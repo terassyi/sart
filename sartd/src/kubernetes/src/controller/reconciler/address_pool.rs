@@ -23,7 +23,7 @@ use crate::{
 };
 
 #[tracing::instrument(skip_all, fields(trace_id))]
-async fn reconciler(ap: Arc<AddressPool>, ctx: Arc<Context>) -> Result<Action, Error> {
+pub async fn reconciler(ap: Arc<AddressPool>, ctx: Arc<Context>) -> Result<Action, Error> {
     let address_pools = Api::<AddressPool>::all(ctx.client.clone());
 
     finalizer(&address_pools, ADDRESS_POOL_FINALIZER, ap, |event| async {
@@ -125,9 +125,9 @@ async fn reconcile_service_pool(
 
 #[tracing::instrument(skip_all)]
 async fn cleanup(
-    api: &Api<AddressPool>,
-    ap: &AddressPool,
-    ctx: Arc<Context>,
+    _api: &Api<AddressPool>,
+    _ap: &AddressPool,
+    _ctx: Arc<Context>,
 ) -> Result<Action, Error> {
     Ok(Action::await_change())
 }
@@ -156,4 +156,226 @@ pub async fn run(state: State, interval: u64) {
         .filter_map(|x| async move { std::result::Result::ok(x) })
         .for_each(|_| futures::future::ready(()))
         .await;
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use http::Response;
+    use hyper::{body::to_bytes, Body};
+    use kube::{core::ObjectMeta, Api, ResourceExt};
+
+    use crate::{
+        context::Context,
+        crd::{
+            address_block::{AddressBlock, AddressBlockSpec},
+            address_pool::{AddressPool, AddressPoolSpec, AddressPoolStatus},
+        },
+        error::Error,
+        fixture::reconciler::{
+            api_server_response_not_found, api_server_response_resource, assert_resource_request,
+            timeout_after_1s, ApiServerVerifier,
+        },
+    };
+
+    use super::reconcile;
+
+    enum Scenario {
+        Creation(AddressPool),
+        UpdateNop(AddressPool),
+        UpdateAddBlock(AddressPool),
+    }
+
+    impl ApiServerVerifier {
+        fn address_pool_run(self, scenario: Scenario) -> tokio::task::JoinHandle<()> {
+            tokio::spawn(async move {
+                match scenario {
+                    Scenario::Creation(ap) => {
+                        self.create_address_pool(&ap)
+                            .await
+                            .unwrap()
+                            .update_address_pool_add_block(&ap)
+                            .await
+                    }
+                    Scenario::UpdateNop(ap) => self.update_address_pool_nop(&ap).await,
+                    Scenario::UpdateAddBlock(ap) => {
+                        self.update_address_pool_nop(&ap)
+                            .await
+                            .unwrap()
+                            .update_address_pool_add_block(&ap)
+                            .await
+                    }
+                }
+                .expect("scenario completed without error");
+            })
+        }
+
+        async fn create_address_pool(mut self, ap: &AddressPool) -> Result<Self, Error> {
+            let (request, send) = self.0.next_request().await.expect("service not called");
+            let ab_non_exist = AddressBlock {
+                metadata: ObjectMeta {
+                    name: Some(ap.name_any()),
+                    ..Default::default()
+                },
+                spec: AddressBlockSpec::default(),
+                status: None,
+            };
+            assert_resource_request(
+                &request,
+                &ab_non_exist,
+                None,
+                false,
+                None,
+                http::Method::GET,
+            );
+
+            send.send_response(
+                Response::builder()
+                    .status(http::StatusCode::NOT_FOUND)
+                    .body(Body::from(api_server_response_not_found(&ab_non_exist)))
+                    .unwrap(),
+            );
+
+            let (request, send) = self.0.next_request().await.expect("service not called");
+            assert_resource_request(
+                &request,
+                &ab_non_exist,
+                None,
+                false,
+                None,
+                http::Method::POST,
+            );
+
+            send.send_response(
+                Response::builder()
+                    .body(Body::from(api_server_response_resource(&ab_non_exist)))
+                    .unwrap(),
+            );
+
+            // same procedure with update_add_block
+
+            Ok(self)
+        }
+
+        async fn update_address_pool_nop(mut self, ap: &AddressPool) -> Result<Self, Error> {
+            let (request, send) = self.0.next_request().await.expect("service not called");
+            let ab = AddressBlock {
+                metadata: ObjectMeta {
+                    name: Some(ap.name_any()),
+                    ..Default::default()
+                },
+                spec: AddressBlockSpec::default(),
+                status: None,
+            };
+            assert_resource_request(&request, &ab, None, false, None, http::Method::GET);
+
+            send.send_response(
+                Response::builder()
+                    .body(Body::from(api_server_response_resource(&ab)))
+                    .unwrap(),
+            );
+            Ok(self)
+        }
+
+        async fn update_address_pool_add_block(mut self, ap: &AddressPool) -> Result<Self, Error> {
+            let (request, send) = self.0.next_request().await.expect("service not called");
+            let mut updated_ap = ap.clone();
+            updated_ap.status = Some(AddressPoolStatus {
+                blocks: Some(vec![ap.name_any()]),
+            });
+            assert_resource_request(
+                &request,
+                &updated_ap,
+                Some("status"),
+                false,
+                None,
+                http::Method::PUT,
+            );
+
+            let json_req = to_bytes(request.into_body()).await.unwrap().to_vec();
+            let json_expected = serde_json::to_vec(&updated_ap).unwrap();
+            assert_json_diff::assert_json_eq!(json_req, json_expected);
+            send.send_response(Response::builder().body(Body::from(json_expected)).unwrap());
+
+            Ok(self)
+        }
+    }
+
+    #[tokio::test]
+    async fn address_pool_create_accepted() {
+        let (testctx, fakeserver, _) = Context::test();
+        let ap = AddressPool {
+            metadata: ObjectMeta {
+                name: Some("test-pool".to_string()),
+                ..Default::default()
+            },
+            spec: AddressPoolSpec {
+                cidr: "10.0.0.0/16".to_string(),
+                r#type: crate::crd::address_pool::AddressType::Service,
+                alloc_type: None,
+                block_size: 16,
+                auto_assign: None,
+            },
+            status: None,
+        };
+        let mocksrv = fakeserver.address_pool_run(Scenario::Creation(ap.clone()));
+        let api = Api::<AddressPool>::all(testctx.client.clone());
+        reconcile(&api, &Arc::new(ap), testctx)
+            .await
+            .expect("reconciler");
+        timeout_after_1s(mocksrv).await;
+    }
+
+    #[tokio::test]
+    async fn address_pool_update_nop() {
+        let (testctx, fakeserver, _) = Context::test();
+        let ap = AddressPool {
+            metadata: ObjectMeta {
+                name: Some("test-pool".to_string()),
+                ..Default::default()
+            },
+            spec: AddressPoolSpec {
+                cidr: "10.0.0.0/16".to_string(),
+                r#type: crate::crd::address_pool::AddressType::Service,
+                alloc_type: None,
+                block_size: 16,
+                auto_assign: None,
+            },
+            status: Some(AddressPoolStatus {
+                blocks: Some(vec!["test-pool".to_string()]),
+            }),
+        };
+        let mocksrv = fakeserver.address_pool_run(Scenario::UpdateNop(ap.clone()));
+        let api = Api::<AddressPool>::all(testctx.client.clone());
+        reconcile(&api, &Arc::new(ap), testctx)
+            .await
+            .expect("reconciler");
+        timeout_after_1s(mocksrv).await;
+    }
+
+    #[tokio::test]
+    async fn address_pool_update_add_block() {
+        let (testctx, fakeserver, _) = Context::test();
+        let ap = AddressPool {
+            metadata: ObjectMeta {
+                name: Some("test-pool".to_string()),
+                ..Default::default()
+            },
+            spec: AddressPoolSpec {
+                cidr: "10.0.0.0/16".to_string(),
+                r#type: crate::crd::address_pool::AddressType::Service,
+                alloc_type: None,
+                block_size: 16,
+                auto_assign: None,
+            },
+            status: None,
+        };
+        let mocksrv = fakeserver.address_pool_run(Scenario::UpdateAddBlock(ap.clone()));
+        let api = Api::<AddressPool>::all(testctx.client.clone());
+        reconcile(&api, &Arc::new(ap), testctx)
+            .await
+            .expect("reconciler");
+        timeout_after_1s(mocksrv).await;
+    }
 }

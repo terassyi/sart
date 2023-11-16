@@ -28,7 +28,7 @@ pub const ENV_HOSTNAME: &str = "HOSTNAME";
 pub const DEFAULT_SPEAKER_TIMEOUT: u64 = 10;
 
 #[tracing::instrument(skip_all, fields(trace_id))]
-async fn reconciler(nb: Arc<NodeBGP>, ctx: Arc<Context>) -> Result<Action, Error> {
+pub async fn reconciler(nb: Arc<NodeBGP>, ctx: Arc<Context>) -> Result<Action, Error> {
     let node_bgps = Api::<NodeBGP>::all(ctx.client.clone());
 
     finalizer(&node_bgps, NODE_BGP_FINALIZER, nb, |event| async {

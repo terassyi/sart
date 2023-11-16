@@ -11,6 +11,7 @@ members = [
 	"sartd/fib",
 	"sartd/ipam",
 	"sartd/kubernetes",
+	"sartd/mock",
 	"sartd/proto",
 	"sartd/trace",
 	"sartd/util",
@@ -52,4 +53,7 @@ sartd-cmd = { path = "src/cmd" }
 sartd-kubernetes = { path = "src/kubernetes" }
 
 [patch.crates-io]
-netlink-packet-route = { git = "https://github.com/terassyi/netlink-packet-route", branch = "next-hop-default", features = ["rich_nlas"] }
+# netlink-packet-route = { git = "https://github.com/terassyi/netlink-packet-route", branch = "next-hop-default", features = [
+# 	"rich_nlas",
+# ] }
+netlink-packet-route = { git = "https://github.com/terassyi/netlink-packet-route", branch = "next-hop-default" }

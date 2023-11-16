@@ -45,6 +45,26 @@ webhooks:
         resources:
           - bgppeers
     sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: sart-webhook-service
+        namespace: system
+        path: /validate-sart-terassyi-net-v1alpha2-addresspool
+    failurePolicy: Fail
+    name: vbgpadvertisement.kb.io
+    rules:
+      - apiGroups:
+          - sart.terassyi.net
+        apiVersions:
+          - v1alpha2
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - addresspool
+    sideEffects: None
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
@@ -71,4 +91,24 @@ webhooks:
           - UPDATE
         resources:
           - bgppeers
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: sart-webhook-service
+        namespace: system
+        path: /mutate-v1-service
+    failurePolicy: Fail
+    name: mservice.kb.io
+    rules:
+      - apiGroups:
+          - ""
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - services
     sideEffects: None

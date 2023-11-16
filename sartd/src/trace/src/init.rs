@@ -1,6 +1,5 @@
 use std::str::FromStr;
 
-use opentelemetry::trace::{SpanBuilder, Tracer};
 use tracing_subscriber::{prelude::*, Registry};
 
 #[derive(Debug)]

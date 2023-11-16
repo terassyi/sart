@@ -47,6 +47,27 @@ spec:
           ports:
             - containerPort: 80
 ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-cluster2
+  namespace: test
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: app-cluster2
+  template:
+    metadata:
+      labels:
+        app: app-cluster2
+    spec:
+      containers:
+        - name: app
+          image: nginx:latest
+          ports:
+            - containerPort: 80
+---
 # LoadBalancer Service
 apiVersion: v1
 kind: Service
@@ -54,7 +75,6 @@ metadata:
   name: app-svc-cluster
   namespace: test
   annotations:
-    sart.terassyi.net/address-pool: default-lb-pool
 spec:
   type: LoadBalancer
   externalTrafficPolicy: Cluster
@@ -72,12 +92,31 @@ metadata:
   name: app-svc-local
   namespace: test
   annotations:
-    sart.terassyi.net/address-pool: default-lb-pool
+    sart.terassyi.net/addresspool: default-lb-pool
 spec:
   type: LoadBalancer
   externalTrafficPolicy: Local
   selector:
     app: app-local
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+---
+# LoadBalancer Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-svc-cluster2
+  namespace: test
+  annotations:
+    sart.terassyi.net/addresspool: non-default-lb-pool
+    sart.terassyi.net/loadBalancerIPs: "10.0.100.20"
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Cluster
+  selector:
+    app: app-cluster2
   ports:
     - name: http
       port: 80

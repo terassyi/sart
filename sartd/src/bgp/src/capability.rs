@@ -117,7 +117,7 @@ impl From<Cap> for Capability {
 impl From<&Capability> for Cap {
     fn from(val: &Capability) -> Self {
         match val {
-            Capability::MultiProtocol(m) => Cap::MultiProtocol(m.family.clone()),
+            Capability::MultiProtocol(m) => Cap::MultiProtocol(m.family),
             Capability::RouteRefresh => Cap::RouteRefresh,
             Capability::ExtendedNextHop(e) => Cap::ExtendedNextHop(e.values.clone()),
             Capability::BGPExtendedMessage => Cap::BGPExtendedMessage,
@@ -125,7 +125,7 @@ impl From<&Capability> for Cap {
                 Cap::GracefulRestart(g.flag, g.time, g.values.clone())
             }
             Capability::FourOctetASNumber(f) => Cap::FourOctetASNumber(f.inner),
-            Capability::AddPath(a) => Cap::AddPath(a.family.clone(), a.flag),
+            Capability::AddPath(a) => Cap::AddPath(a.family, a.flag),
             Capability::EnhancedRouteRefresh => Cap::EnhancedRouteRefresh,
         }
     }

@@ -1,17 +1,13 @@
 use std::{
     collections::{BTreeMap, HashMap},
     net::IpAddr,
-    str::FromStr,
     sync::Arc,
     time::Duration,
 };
 
 use futures::StreamExt;
 use ipnet::IpNet;
-use k8s_openapi::api::{
-    core::v1::{LoadBalancerIngress, LoadBalancerStatus, Service, ServiceStatus},
-    discovery::v1::EndpointSlice,
-};
+use k8s_openapi::api::{core::v1::Service, discovery::v1::EndpointSlice};
 use kube::{
     api::{ListParams, PostParams},
     core::ObjectMeta,
@@ -24,16 +20,14 @@ use kube::{
     Api, Client, ResourceExt,
 };
 
-use sartd_ipam::manager::AllocatorSet;
-
 use crate::{
     context::{error_policy, Context, Ctx, State},
     controller::{
         error::Error,
-        reconciler::service_watcher::{get_allocated_lb_addrs, is_loadbalacner},
+        reconciler::service_watcher::{get_allocated_lb_addrs, is_loadbalancer},
     },
     crd::{
-        address_pool::{AddressType, ADDRESS_POOL_ANNOTATION, LOADBALANCER_ADDRESS_ANNOTATION},
+        address_pool::AddressType,
         bgp_advertisement::{
             AdvertiseStatus, BGPAdvertisement, BGPAdvertisementSpec, BGPAdvertisementStatus,
             Protocol,
@@ -46,10 +40,10 @@ use crate::{
 
 use super::service_watcher::SERVICE_NAME_LABEL;
 
-const ENDPOINTSLICE_FINALIZER: &str = "endpointsliece.sart.terassyi.net/finalizer";
+pub const ENDPOINTSLICE_FINALIZER: &str = "endpointslice.sart.terassyi.net/finalizer";
 
 #[tracing::instrument(skip_all, fields(trace_id))]
-async fn reconciler(eps: Arc<EndpointSlice>, ctx: Arc<Context>) -> Result<Action, Error> {
+pub async fn reconciler(eps: Arc<EndpointSlice>, ctx: Arc<Context>) -> Result<Action, Error> {
     let ns = get_namespace::<EndpointSlice>(&eps).map_err(Error::KubeLibrary)?;
 
     let endpointslices = Api::<EndpointSlice>::namespaced(ctx.client().clone(), &ns);
@@ -94,7 +88,7 @@ async fn reconcile(eps: &EndpointSlice, ctx: Arc<Context>) -> Result<Action, Err
         }
     };
 
-    if !is_loadbalacner(&svc) {
+    if !is_loadbalancer(&svc) {
         return Ok(Action::await_change());
     }
 
@@ -120,7 +114,7 @@ async fn reconcile(eps: &EndpointSlice, ctx: Arc<Context>) -> Result<Action, Err
     let mut need_requeue = target_peers.is_empty();
     for addr in lb_addrs.iter() {
         let cidr = IpNet::new(*addr, 32).map_err(|_| Error::InvalidAddress)?;
-        let adv_name = format!("{}-{}", eps.name_any(), addr);
+        let adv_name = adv_name_from_eps_and_addr(eps, addr);
 
         match bgp_advertisements
             .get_opt(&adv_name)
@@ -232,7 +226,7 @@ async fn reconcile(eps: &EndpointSlice, ctx: Arc<Context>) -> Result<Action, Err
 }
 
 #[tracing::instrument(skip_all, fields(trace_id))]
-async fn cleanup(eps: &EndpointSlice, ctx: Arc<Context>) -> Result<Action, Error> {
+async fn cleanup(eps: &EndpointSlice, _ctx: Arc<Context>) -> Result<Action, Error> {
     let ns = get_namespace::<EndpointSlice>(eps).map_err(Error::KubeLibrary)?;
 
     tracing::info!(
@@ -240,31 +234,6 @@ async fn cleanup(eps: &EndpointSlice, ctx: Arc<Context>) -> Result<Action, Error
         namespace = ns,
         "Cleanup Endpointslice"
     );
-
-    // let svc_name = match get_svc_name_from_eps(eps) {
-    //     Some(n) => n,
-    //     None => return Ok(Action::await_change()),
-    // };
-    // let services = Api::<Service>::namespaced(ctx.client().clone(), &ns);
-    // let svc = match services.get_opt(svc_name).await.map_err(Error::Kube)? {
-    //     Some(svc) => svc,
-    //     None => {
-    //         tracing::warn!(
-    //             name = svc_name,
-    //             "The Service resource associated with EndpointSlice is not found"
-    //         );
-    //         return Ok(Action::await_change());
-    //     }
-    // };
-
-    // if !is_loadbalacner(&svc) {
-    //     return Ok(Action::await_change());
-    // }
-
-    // {
-    //     let component = ctx.component.clone();
-    //     release_lb_addr(&component, &svc)?;
-    // }
 
     Ok(Action::await_change())
 }
@@ -288,172 +257,6 @@ pub async fn run(state: State, interval: u64) {
         .filter_map(|x| async move { std::result::Result::ok(x) })
         .for_each(|_| futures::future::ready(()))
         .await;
-}
-
-#[tracing::instrument(skip_all)]
-fn allocate_lb_addr(allocator: &Arc<AllocatorSet>, svc: &Service) -> Result<IpAddr, Error> {
-    let mut alloc_set = allocator.inner.lock().map_err(|_| Error::FailedToGetLock)?;
-
-    // Get address pool names from specified annoation.
-    // If valid annotations are not specified, get pools that is set auto-assign as true from AllocatorSet from given context.
-    let pools = svc
-        .annotations()
-        .get(ADDRESS_POOL_ANNOTATION)
-        .map(|p| vec![p.clone()])
-        .unwrap_or(alloc_set.auto_assigns.clone());
-
-    // TODO: handle multiple addresses
-    let lb_ip = match svc.annotations().get(LOADBALANCER_ADDRESS_ANNOTATION) {
-        Some(addr) => match IpAddr::from_str(addr) {
-            Ok(ip) => Some(ip),
-            Err(e) => {
-                tracing::warn!("failed to parse given loadBalancerIPs");
-                None
-            }
-        },
-        None => None,
-    };
-
-    for pool_name in pools.iter() {
-        let block = match alloc_set.blocks.get_mut(pool_name) {
-            Some(b) => b,
-            None => continue,
-        };
-
-        if let Some(lb_ip) = lb_ip {
-            if !block.allocator.cidr().contains(&lb_ip) {
-                continue;
-            }
-            // try to allocate the specified address
-            return block.allocator.allocate(&lb_ip).map_err(Error::Ipam);
-        } else {
-            match block.allocator.allocate_next() {
-                Ok(addr) => return Ok(addr),
-                Err(e) => match e {
-                    sartd_ipam::error::Error::Full => {
-                        tracing::warn!(name = block.name, "address block is full");
-                        continue;
-                    }
-                    _ => return Err(Error::Ipam(e)),
-                },
-            }
-        }
-    }
-
-    // if reach here, address is not allocated.
-    Err(Error::NoAllocatableAddress)
-}
-
-#[tracing::instrument(skip_all)]
-fn release_lb_addr(allocator: &Arc<AllocatorSet>, svc: &Service) -> Result<Option<IpAddr>, Error> {
-    let ns = get_namespace::<Service>(svc).map_err(Error::KubeLibrary)?;
-
-    let mut alloc_set = allocator.inner.lock().map_err(|_| Error::FailedToGetLock)?;
-
-    // Get address pool names from specified annoation.
-    // If valid annotations are not specified, get pools that is set auto-assign as true from AllocatorSet from given context.
-    let pools = svc
-        .annotations()
-        .get(ADDRESS_POOL_ANNOTATION)
-        .map(|p| vec![p.clone()])
-        .unwrap_or(alloc_set.auto_assigns.clone());
-
-    // TODO: handle multiple addresses
-    let lb_addrs = match svc.status.clone().and_then(|lb| {
-        lb.load_balancer.and_then(|lb_status| {
-            lb_status.ingress.map(|ingresses| {
-                ingresses
-                    .iter()
-                    .filter_map(|ingress| ingress.ip.clone())
-                    .filter_map(|ip| IpAddr::from_str(&ip).ok())
-                    .collect::<Vec<IpAddr>>()
-            })
-        })
-    }) {
-        Some(a) => a,
-        None => {
-            tracing::warn!(
-                name = svc.name_any(),
-                namespace = ns,
-                "Lb address is not allocated for the service to clean up"
-            );
-            return Ok(None);
-        }
-    };
-
-    tracing::info!(
-        name = svc.name_any(),
-        namespace = ns,
-        "Release lb addresses"
-    );
-    let mut is_error = false;
-    for pool_name in pools.iter() {
-        let block = match alloc_set.blocks.get_mut(pool_name) {
-            Some(b) => b,
-            None => continue,
-        };
-
-        // lb_addrs should be length 1
-        for addr in lb_addrs.iter() {
-            if !block.allocator.cidr().contains(addr) {
-                continue;
-            }
-            if let Err(e) = block.allocator.release(addr).map_err(Error::Ipam) {
-                tracing::error!(error=?e,name=svc.name_any(),namespace=ns,address=addr.to_string(),block=block.name,"Failed to release lb address");
-                is_error = true;
-            }
-        }
-    }
-
-    if is_error {
-        Err(Error::ReleaseAddress)
-    } else {
-        Ok(if lb_addrs.is_empty() {
-            None
-        } else {
-            Some(lb_addrs[0])
-        })
-    }
-}
-
-fn update_svc_lb_addresses(svc: &Service, addrs: &[IpAddr]) -> Service {
-    let ingress: Vec<LoadBalancerIngress> = addrs
-        .iter()
-        .map(|a| LoadBalancerIngress {
-            hostname: None,
-            ip: Some(a.to_string()),
-            ports: None,
-        })
-        .collect();
-    let mut new_svc = svc.clone();
-    match new_svc.status.as_mut() {
-        Some(status) => match status.load_balancer.as_mut() {
-            Some(lb_status) => {
-                // TODO: consider weather we can override lb status
-                *lb_status = LoadBalancerStatus {
-                    ingress: Some(ingress),
-                };
-            }
-            None => {
-                *status = ServiceStatus {
-                    conditions: status.conditions.clone(),
-                    load_balancer: Some(LoadBalancerStatus {
-                        ingress: Some(ingress),
-                    }),
-                };
-            }
-        },
-        None => {
-            new_svc.status = Some(ServiceStatus {
-                conditions: None, // TODO: fill conditions
-                load_balancer: Some(LoadBalancerStatus {
-                    ingress: Some(ingress),
-                }),
-            })
-        }
-    };
-
-    new_svc
 }
 
 #[tracing::instrument(skip_all)]
@@ -558,7 +361,12 @@ fn sync_target_peers(peers: &mut BTreeMap<String, AdvertiseStatus>, targets: &[S
     for target in targets.iter() {
         target_map.insert(target, ());
         match peers.get(target) {
-            Some(_) => {}
+            Some(p) => {
+                if p.eq(&AdvertiseStatus::Withdraw) {
+                    peers.insert(target.clone(), AdvertiseStatus::NotAdvertised);
+                    updated = true;
+                }
+            }
             None => {
                 peers.insert(target.clone(), AdvertiseStatus::NotAdvertised);
                 updated = true;
@@ -574,9 +382,24 @@ fn sync_target_peers(peers: &mut BTreeMap<String, AdvertiseStatus>, targets: &[S
     updated
 }
 
+fn adv_name_from_eps_and_addr(eps: &EndpointSlice, addr: &IpAddr) -> String {
+    format!("{}-{}", eps.name_any(), addr)
+}
+
 #[cfg(test)]
 mod tests {
+
+    use crate::fixture::reconciler::{
+        api_server_response_not_found, api_server_response_resource, assert_resource_request,
+        test_eps, test_node_bgp_list, test_svc, timeout_after_1s, ApiServerVerifier,
+        TestBgpSelector,
+    };
+
     use super::*;
+
+    use http::Response;
+    use hyper::{body::to_bytes, Body};
+    use k8s_openapi::api::core::v1::ServiceStatus;
     use rstest::rstest;
 
     #[rstest(
@@ -604,4 +427,280 @@ mod tests {
             assert_eq!(peers, expected);
         }
     }
+
+    enum Scenario {
+        CreateNoLB(EndpointSlice),
+        CreateNoAllocatedAddress(EndpointSlice),
+        CreateETPCluster(EndpointSlice),
+        CreateETPLocal(EndpointSlice),
+        UpdateETPClusterToLocal(EndpointSlice),
+    }
+
+    impl ApiServerVerifier {
+        fn endpointslice_run(self, scenario: Scenario) -> tokio::task::JoinHandle<()> {
+            tokio::spawn(async move {
+                match scenario {
+                    Scenario::CreateNoLB(eps) => self.endpointslice_create_not_lb(&eps).await,
+                    Scenario::CreateNoAllocatedAddress(eps) => {
+                        self.endpointslice_create_no_alloced(&eps).await
+                    }
+                    Scenario::CreateETPCluster(eps) => {
+                        self.endpointslice_create_etp_cluster(&eps).await
+                    }
+                    Scenario::CreateETPLocal(eps) => {
+                        self.endpointslice_create_etp_local(&eps).await
+                    }
+                    Scenario::UpdateETPClusterToLocal(eps) => {
+                        self.endpointslice_update_etp_cluster_to_local(&eps).await
+                    }
+                }
+                .expect("reconcile completed without error");
+            })
+        }
+
+        async fn endpointslice_create_not_lb(
+            mut self,
+            _eps: &EndpointSlice,
+        ) -> Result<Self, Error> {
+            let (request, send) = self.0.next_request().await.expect("service not called");
+            let mut svc = test_svc();
+            svc.spec.as_mut().unwrap().type_ = Some("ClusterIP".to_string());
+
+            assert_resource_request(&request, &svc, None, false, None, http::Method::GET);
+            send.send_response(
+                Response::builder()
+                    .body(Body::from(serde_json::to_vec(&svc).unwrap()))
+                    .unwrap(),
+            );
+            Ok(self)
+        }
+
+        async fn endpointslice_create_no_alloced(
+            mut self,
+            _eps: &EndpointSlice,
+        ) -> Result<Self, Error> {
+            let (request, send) = self.0.next_request().await.expect("service not called");
+            let mut svc = test_svc();
+            *svc.status.as_mut().unwrap() = ServiceStatus::default();
+
+            assert_resource_request(&request, &svc, None, false, None, http::Method::GET);
+            send.send_response(
+                Response::builder()
+                    .body(Body::from(serde_json::to_vec(&svc).unwrap()))
+                    .unwrap(),
+            );
+            Ok(self)
+        }
+
+        async fn endpointslice_create_etp_cluster(
+            mut self,
+            eps: &EndpointSlice,
+        ) -> Result<Self, Error> {
+            let (request, send) = self.0.next_request().await.expect("service not called");
+            let svc = test_svc();
+
+            assert_resource_request(&request, &svc, None, false, None, http::Method::GET);
+            send.send_response(
+                Response::builder()
+                    .body(Body::from(serde_json::to_vec(&svc).unwrap()))
+                    .unwrap(),
+            );
+
+            let (request, send) = self.0.next_request().await.expect("service not called");
+            let nb_list = test_node_bgp_list(TestBgpSelector::All);
+            assert_resource_request(
+                &request,
+                &nb_list.items[0],
+                None,
+                true,
+                None,
+                http::Method::GET,
+            );
+            send.send_response(
+                Response::builder()
+                    .body(Body::from(serde_json::to_vec(&nb_list).unwrap()))
+                    .unwrap(),
+            );
+
+            let lb_addrs = get_allocated_lb_addrs(&svc).unwrap();
+
+            for addr in lb_addrs.iter() {
+                let ba = BGPAdvertisement {
+                    metadata: ObjectMeta {
+                        name: Some(adv_name_from_eps_and_addr(eps, addr)),
+                        namespace: eps.namespace().clone(),
+                        ..Default::default()
+                    },
+                    spec: BGPAdvertisementSpec {
+                        cidr: format!("{}/32", addr),
+                        ..Default::default()
+                    },
+                    status: Some(BGPAdvertisementStatus {
+                        peers: Some(BTreeMap::from([
+                            ("test1-peer1".to_string(), AdvertiseStatus::NotAdvertised),
+                            ("test1-peer2".to_string(), AdvertiseStatus::NotAdvertised),
+                            ("test2-peer1".to_string(), AdvertiseStatus::NotAdvertised),
+                            ("test1-peer1".to_string(), AdvertiseStatus::NotAdvertised),
+                        ])),
+                    }),
+                };
+                let (request, send) = self.0.next_request().await.expect("service not called");
+                assert_resource_request(&request, &ba, None, false, None, http::Method::GET);
+                send.send_response(
+                    Response::builder()
+                        .status(http::StatusCode::NOT_FOUND)
+                        .body(Body::from(api_server_response_not_found(&ba)))
+                        .unwrap(),
+                );
+                let (request, send) = self.0.next_request().await.expect("service not called");
+                assert_resource_request(&request, &ba, None, false, None, http::Method::POST);
+                send.send_response(
+                    Response::builder()
+                        .body(Body::from(api_server_response_resource(&ba)))
+                        .unwrap(),
+                );
+            }
+
+            Ok(self)
+        }
+
+        async fn endpointslice_create_etp_local(
+            mut self,
+            eps: &EndpointSlice,
+        ) -> Result<Self, Error> {
+            let (request, send) = self.0.next_request().await.expect("service not called");
+            let mut svc = test_svc();
+            svc.spec.as_mut().unwrap().external_traffic_policy = Some("Local".to_string());
+
+            assert_resource_request(&request, &svc, None, false, None, http::Method::GET);
+            send.send_response(
+                Response::builder()
+                    .body(Body::from(serde_json::to_vec(&svc).unwrap()))
+                    .unwrap(),
+            );
+
+            let nb_list = test_node_bgp_list(TestBgpSelector::All);
+
+            for ep in eps.endpoints.iter() {
+                if ep.conditions.as_ref().unwrap().terminating.unwrap() {
+                    continue;
+                }
+                let (request, send) = self.0.next_request().await.expect("service not called");
+                let nb = nb_list
+                    .items
+                    .iter()
+                    .find(|&n| n.name_any().eq(&ep.node_name.clone().unwrap()))
+                    .unwrap();
+                assert_resource_request(&request, nb, None, false, None, http::Method::GET);
+                send.send_response(
+                    Response::builder()
+                        .body(Body::from(api_server_response_resource(nb)))
+                        .unwrap(),
+                );
+            }
+
+            let lb_addrs = get_allocated_lb_addrs(&svc).unwrap();
+
+            for addr in lb_addrs.iter() {
+                let ba = BGPAdvertisement {
+                    metadata: ObjectMeta {
+                        name: Some(adv_name_from_eps_and_addr(eps, addr)),
+                        namespace: eps.namespace().clone(),
+                        ..Default::default()
+                    },
+                    spec: BGPAdvertisementSpec {
+                        cidr: format!("{}/32", addr),
+                        ..Default::default()
+                    },
+                    status: Some(BGPAdvertisementStatus {
+                        peers: Some(BTreeMap::from([
+                            ("test1-peer1".to_string(), AdvertiseStatus::NotAdvertised),
+                            ("test1-peer2".to_string(), AdvertiseStatus::NotAdvertised),
+                            ("test2-peer1".to_string(), AdvertiseStatus::NotAdvertised),
+                        ])),
+                    }),
+                };
+                let (request, send) = self.0.next_request().await.expect("service not called");
+                assert_resource_request(&request, &ba, None, false, None, http::Method::GET);
+                send.send_response(
+                    Response::builder()
+                        .status(http::StatusCode::NOT_FOUND)
+                        .body(Body::from(api_server_response_not_found(&ba)))
+                        .unwrap(),
+                );
+                let (request, send) = self.0.next_request().await.expect("service not called");
+                assert_resource_request(&request, &ba, None, false, None, http::Method::POST);
+                send.send_response(
+                    Response::builder()
+                        .body(Body::from(api_server_response_resource(&ba)))
+                        .unwrap(),
+                );
+                let json_req = to_bytes(request.into_body()).await.unwrap().to_vec();
+                // let json_req = to_bytes(request.into_body()).await.unwrap().to_vec();
+                let req_ba: BGPAdvertisement = serde_json::from_slice(&json_req).unwrap();
+                assert_json_diff::assert_json_eq!(
+                    serde_json::to_vec(&ba.status.unwrap()).unwrap(),
+                    serde_json::to_vec(&req_ba.status.unwrap()).unwrap()
+                );
+            }
+            Ok(self)
+        }
+
+        async fn endpointslice_update_etp_cluster_to_local(
+            mut self,
+            eps: &EndpointSlice,
+        ) -> Result<Self, Error> {
+            Ok(self)
+        }
+    }
+
+    #[tokio::test]
+    async fn endpointslice_create_not_lb() {
+        let (testctx, fakeserver, _) = Context::test();
+        let eps = test_eps();
+
+        let mocksvr = fakeserver.endpointslice_run(Scenario::CreateNoLB(eps.clone()));
+        reconcile(&eps, testctx).await.expect("reconciler");
+        timeout_after_1s(mocksvr).await;
+    }
+
+    #[tokio::test]
+    async fn endpointslice_create_no_alloced() {
+        let (testctx, fakeserver, _) = Context::test();
+        let eps = test_eps();
+
+        let mocksvr = fakeserver.endpointslice_run(Scenario::CreateNoAllocatedAddress(eps.clone()));
+        reconcile(&eps, testctx).await.expect("reconciler");
+        timeout_after_1s(mocksvr).await;
+    }
+
+    #[tokio::test]
+    async fn endpointslice_create_etp_cluster() {
+        let (testctx, fakeserver, _) = Context::test();
+        let eps = test_eps();
+
+        let mocksvr = fakeserver.endpointslice_run(Scenario::CreateETPCluster(eps.clone()));
+        reconcile(&eps, testctx).await.expect("reconciler");
+        timeout_after_1s(mocksvr).await;
+    }
+
+    #[tokio::test]
+    async fn endpointslice_create_etp_local() {
+        let (testctx, fakeserver, _) = Context::test();
+        let eps = test_eps();
+
+        let mocksvr = fakeserver.endpointslice_run(Scenario::CreateETPLocal(eps.clone()));
+        reconcile(&eps, testctx).await.expect("reconciler");
+        timeout_after_1s(mocksvr).await;
+    }
+
+    // #[tokio::test]
+    // async fn endpointslice_update_etp_cluster_to_local() {
+    //     let (testctx, fakeserver, _) = Context::test();
+    //     let eps = test_eps();
+
+    //     let mocksvr = fakeserver.endpointslice_run(Scenario::UpdateETPClusterToLocal(eps.clone()));
+    //     reconcile(&eps, testctx).await.expect("reconciler");
+    //     timeout_after_1s(mocksvr).await;
+    // }
 }

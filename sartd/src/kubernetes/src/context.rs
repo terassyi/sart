@@ -43,7 +43,7 @@ impl Ctx for Context {
 }
 
 pub struct ContextWith<T: Clone> {
-    inner: Context,
+    pub(crate) inner: Context,
     pub component: T,
 }
 

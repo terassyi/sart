@@ -1,8 +1,7 @@
+use super::address_pool::AddressType;
 pub use kube::CustomResource;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use kube::ResourceExt;
-use super::address_pool::AddressType;
 
 pub const ADDRESS_BLOCK_FINALIZER: &str = "addressblock.sart.terassyi.net/finalizer";
 

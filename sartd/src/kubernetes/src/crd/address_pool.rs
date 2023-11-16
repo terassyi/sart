@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub const ADDRESS_POOL_FINALIZER: &str = "addresspool.sart.terassyi.net/finalizer";
 pub const ADDRESS_POOL_ANNOTATION: &str = "sart.terassyi.net/addresspool";
 pub const LOADBALANCER_ADDRESS_ANNOTATION: &str = "sart.terassyi.net/loadBalancerIPs";
+pub const MAX_BLOCK_SIZE: u32 = 32;
 
 #[derive(CustomResource, Debug, Serialize, Deserialize, Default, Clone, JsonSchema)]
 #[kube(

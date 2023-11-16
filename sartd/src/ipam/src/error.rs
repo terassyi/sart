@@ -22,4 +22,10 @@ pub enum Error {
 
     #[error("Full")]
     Full,
+
+    #[error("AddressBlock not found")]
+    BlockNotFound,
+
+    #[error("Auto assignable block already exists")]
+    AutoAssignableBlockAlreadyExists,
 }

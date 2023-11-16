@@ -22,19 +22,6 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn default() -> Self {
-        Config {
-            asn: 0,
-            fib_endpoint: None,
-            fib_table: Some(Bgp::ROUTE_TABLE_MAIN),
-            exporter: None,
-            router_id: Ipv4Addr::new(0, 0, 0, 0),
-            neighbors: Vec::new(),
-            multi_path: Some(false),
-            paths: None,
-        }
-    }
-
     pub fn load(file: &str) -> Result<Self, Error> {
         let contents = fs::read_to_string(file).map_err(Error::StdIoErr)?;
         serde_yaml::from_str(&contents).map_err(|_| Error::Config(ConfigError::FailedToLoad))
@@ -52,13 +39,28 @@ impl Config {
     }
 }
 
-impl Into<Vec<ControlEvent>> for &Config {
-    fn into(self) -> Vec<ControlEvent> {
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            asn: 0,
+            fib_endpoint: None,
+            fib_table: Some(Bgp::ROUTE_TABLE_MAIN),
+            exporter: None,
+            router_id: Ipv4Addr::new(0, 0, 0, 0),
+            neighbors: Vec::new(),
+            multi_path: Some(false),
+            paths: None,
+        }
+    }
+}
+
+impl From<&Config> for Vec<ControlEvent> {
+    fn from(val: &Config) -> Self {
         let mut events = Vec::new();
-        for neighbor in self.neighbors.iter() {
+        for neighbor in val.neighbors.iter() {
             events.push(ControlEvent::AddPeer(neighbor.clone()));
         }
-        if let Some(paths) = &self.paths {
+        if let Some(paths) = &val.paths {
             for path in paths.iter() {
                 let prefixes = path.prefixes.iter().map(|p| p.parse().unwrap()).collect();
                 let attributes = match &path.attributes {

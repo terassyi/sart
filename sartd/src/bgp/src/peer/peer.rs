@@ -29,7 +29,7 @@ use crate::event::{
 };
 use crate::family::{AddressFamily, Afi};
 use crate::packet::attribute::Attribute;
-use crate::packet::capability::{self as packet_cap, Cap};
+use crate::packet::capability::Cap;
 use crate::packet::codec::Codec;
 use crate::packet::message::{
     Message, MessageBuilder, MessageType, NotificationCode, NotificationSubCode,

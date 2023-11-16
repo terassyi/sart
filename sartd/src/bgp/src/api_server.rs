@@ -261,7 +261,7 @@ impl BgpApi for ApiServer {
 
     async fn clear_bgp_info(
         &self,
-        req: Request<ClearBgpInfoRequest>,
+        _req: Request<ClearBgpInfoRequest>,
     ) -> Result<Response<()>, Status> {
         match self.tx.send(ControlEvent::ClearBgpInfo).await {
             Ok(_) => Ok(Response::new(())),

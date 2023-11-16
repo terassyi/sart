@@ -27,9 +27,9 @@ impl Allocator {
         }
     }
 
-    pub fn allocate(&mut self, addr: &IpAddr) -> Result<IpAddr, Error> {
+    pub fn allocate(&mut self, addr: &IpAddr, force: bool) -> Result<IpAddr, Error> {
         match self {
-            Allocator::Bit(a) => a.allocate(addr),
+            Allocator::Bit(a) => a.allocate(addr, force),
         }
     }
 
@@ -48,6 +48,12 @@ impl Allocator {
     pub fn is_allocated(&self, addr: &IpAddr) -> bool {
         match self {
             Allocator::Bit(a) => a.is_allocated(addr),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Allocator::Bit(a) => a.is_empty()
         }
     }
 
@@ -82,10 +88,13 @@ impl BitAllocator {
         self.allocator.size()
     }
 
-    fn allocate(&mut self, addr: &IpAddr) -> Result<IpAddr, Error> {
+    fn allocate(&mut self, addr: &IpAddr, force: bool) -> Result<IpAddr, Error> {
         let idx = addr_to_index(addr, &self.cidr)? as u128;
 
-        self.allocator.set_true(idx).map_err(Error::BitSet)?;
+        match force {
+            true => self.allocator.set(idx, true).map_err(Error::BitSet)?,
+            false => self.allocator.set_true(idx).map_err(Error::BitSet)?,
+        };
         self.allocated += 1;
         Ok(*addr)
     }
@@ -109,6 +118,10 @@ impl BitAllocator {
         };
 
         self.allocator.is_set(idx)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.allocator.is_empty()
     }
 
     fn release(&mut self, addr: &IpAddr) -> Result<IpAddr, Error> {
@@ -189,7 +202,7 @@ fn index_to_addr(index: u128, cidr: &IpNet) -> IpAddr {
             for i in 0..16 {
                 a_bits += (a_octs[15 - i] as u128) << (i * 8);
             }
-            let new_bits = a_bits + index as u128;
+            let new_bits = a_bits + index;
             IpAddr::V6(Ipv6Addr::from(new_bits.to_be_bytes()))
         }
     }
@@ -277,7 +290,7 @@ mod tests {
     )]
     fn works_bit_allocator_allocate(cidr: IpNet, addr: IpAddr, index: u128) {
         let mut alloc = BitAllocator::new(cidr);
-        alloc.allocate(&addr).unwrap();
+        alloc.allocate(&addr, false).unwrap();
         assert!(alloc.allocator.is_set(index));
     }
 }
