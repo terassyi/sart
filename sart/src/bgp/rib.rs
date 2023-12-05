@@ -3,7 +3,8 @@ use prost_types::Any;
 use tabled::{Table, Tabled};
 
 use crate::{
-    cmd::Format,
+    cmd::Output,
+    data::bgp::{Path, Paths},
     error::Error,
     proto::{
         self,
@@ -38,7 +39,6 @@ pub(crate) struct RibCmd {
     )]
     pub safi: Safi,
 }
-
 
 #[derive(Debug, Clone, Subcommand)]
 pub(crate) enum Action {
@@ -95,7 +95,7 @@ impl TryFrom<&str> for Attribute {
     }
 }
 
-pub(crate) async fn get(endpoint: &str, format: Format, afi: Afi, safi: Safi) -> Result<(), Error> {
+pub(crate) async fn get(endpoint: &str, format: Output, afi: Afi, safi: Safi) -> Result<(), Error> {
     let mut client = connect_bgp(endpoint).await;
 
     let res = client
@@ -108,8 +108,14 @@ pub(crate) async fn get(endpoint: &str, format: Format, afi: Afi, safi: Safi) ->
         .await
         .map_err(Error::FailedToGetResponse)?;
     match format {
-        Format::Json => {}
-        Format::Plain => {
+        Output::Json => {
+            let data = Paths {
+                paths: res.get_ref().paths.iter().map(Path::from).collect(),
+            };
+            let json_data = serde_json::to_string_pretty(&data).map_err(Error::Serialize)?;
+            println!("{json_data}");
+        }
+        Output::Plain => {
             let display: Vec<DisplayedPath> = res
                 .get_ref()
                 .paths

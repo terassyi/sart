@@ -7,14 +7,14 @@ use crate::{bgp::cmd::BgpCmd, fib::cmd::FibCmd};
 pub(crate) struct Cmd {
     #[arg(
         value_enum,
-        short = 'd',
+        short = 'o',
         long,
         global = true,
         required = false,
         default_value = "plain",
-        help = "Display format"
+        help = "Output format"
     )]
-    pub format: Format,
+    pub output: Output,
     #[clap(subcommand)]
     pub sub: SubCmd,
 }
@@ -26,7 +26,7 @@ pub(crate) enum SubCmd {
 }
 
 #[derive(Debug, Clone, Parser, ValueEnum)]
-pub(crate) enum Format {
+pub(crate) enum Output {
     Plain,
     Json,
 }

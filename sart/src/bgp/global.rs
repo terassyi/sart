@@ -1,8 +1,9 @@
 use clap::{Parser, Subcommand};
 
+use crate::data::bgp::BgpInfo;
 use crate::error::Error;
-use crate::proto::sart::{SetAsRequest, SetRouterIdRequest, HealthRequest};
-use crate::{cmd::Format, proto::sart::GetBgpInfoRequest, rpc::connect_bgp};
+use crate::proto::sart::{HealthRequest, SetAsRequest, SetRouterIdRequest};
+use crate::{cmd::Output, proto::sart::GetBgpInfoRequest, rpc::connect_bgp};
 
 use super::rib::RibCmd;
 
@@ -27,7 +28,7 @@ pub(crate) enum Action {
     Health,
 }
 
-pub(crate) async fn get(endpoint: &str, format: Format) -> Result<(), Error> {
+pub(crate) async fn get(endpoint: &str, format: Output) -> Result<(), Error> {
     let mut client = connect_bgp(endpoint).await;
     let res = client
         .get_bgp_info(GetBgpInfoRequest {})
@@ -35,10 +36,17 @@ pub(crate) async fn get(endpoint: &str, format: Format) -> Result<(), Error> {
         .map_err(Error::FailedToGetResponse)?;
 
     match format {
-        Format::Json => {
+        Output::Json => {
             // TODO: fix me: I can't serialize prost_types::Any to Json
+            let info = match &res.get_ref().info {
+                Some(info) => info,
+                None => return Err(Error::InvalidRPCResponse),
+            };
+            let info_data = BgpInfo::from(info);
+            let json_data = serde_json::to_string_pretty(&info_data).map_err(Error::Serialize)?;
+            println!("{json_data}");
         }
-        Format::Plain => {
+        Output::Plain => {
             let info = match &res.get_ref().info {
                 Some(info) => info,
                 None => return Err(Error::InvalidRPCResponse),
@@ -78,6 +86,9 @@ pub(crate) async fn set(
 
 pub(crate) async fn health(endpoint: &str) -> Result<(), Error> {
     let mut client = connect_bgp(endpoint).await;
-    client.health(HealthRequest{}).await.map_err(Error::FailedToGetResponse)?;
+    client
+        .health(HealthRequest {})
+        .await
+        .map_err(Error::FailedToGetResponse)?;
     Ok(())
 }

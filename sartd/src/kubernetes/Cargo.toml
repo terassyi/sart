@@ -32,7 +32,7 @@ sartd-mock = { path = "../mock" }
 futures = "0.3.29"
 rtnetlink = "0.13.1"
 actix-web = { version = "4.4.0", features = ["rustls-0_21"] }
-rustls = "0.21.8"
+rustls = "0.21.9"
 json-patch = "1.2.0"
 
 # [dev-dependencies]
