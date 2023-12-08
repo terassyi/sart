@@ -589,7 +589,7 @@ impl RibManager {
     }
 
     fn set_multipath(&mut self, enable: bool) -> Result<(), Error> {
-        self.set_multipath(enable)
+        self.loc_rib.set_multipath(enable)
     }
 
     #[tracing::instrument(skip(self, neighbor), fields(peer.asn=neighbor.asn,peer.addr=neighbor.addr.to_string()))]

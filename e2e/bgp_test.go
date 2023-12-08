@@ -12,9 +12,10 @@ import (
 // struct for binding json output
 // ref: sart/sart/src/data/bgp.rs
 type sartBgpInfo struct {
-	ASN      uint32 `json:"asn"`
-	Port     uint32 `json:"port"`
-	RouterId string `json:"routerId"`
+	ASN       uint32 `json:"asn"`
+	Port      uint32 `json:"port"`
+	RouterId  string `json:"routerId"`
+	MultiPath bool   `json:"multiPath"`
 }
 
 type sartPeerInfo struct {
@@ -93,7 +94,7 @@ func testEstablishPeerWithFrr() {
 
 	It("should establish a peer between frr and sart", func() {
 		By("configuring and checking the sartd BGP speaker global settings")
-		configureAndCheckSartdBGPGlobalSettings(65001, "169.254.0.2")
+		configureAndCheckSartdBGPGlobalSettings(65001, "169.254.0.2", false)
 
 		By("adding a peer")
 		_, err := execInContainer("clab-sart-sart", nil, "sart", "bgp", "neighbor", "add", "169.254.0.1", "65000")
@@ -116,7 +117,7 @@ func testEstablishPeerWithGoBGP() {
 
 	It("should establish a peer between gobgp and sart", func() {
 		By("configuring and checking the sartd BGP speaker global settings")
-		configureAndCheckSartdBGPGlobalSettings(65001, "169.254.0.2")
+		configureAndCheckSartdBGPGlobalSettings(65001, "169.254.0.2", false)
 
 		By("adding a peer")
 		_, err := execInContainer("clab-sart-sart", nil, "sart", "bgp", "neighbor", "add", "169.254.0.1", "65000")
@@ -139,7 +140,7 @@ func testEstablishPeerWithIBGP() {
 
 	It("should establish a peer between frr and sart", func() {
 		By("configuring and checking the sartd BGP speaker global settings")
-		configureAndCheckSartdBGPGlobalSettings(65000, "169.254.0.2")
+		configureAndCheckSartdBGPGlobalSettings(65000, "169.254.0.2", false)
 
 		By("adding a peer")
 		_, err := execInContainer("clab-sart-sart", nil, "sart", "bgp", "neighbor", "add", "169.254.0.1", "65000")
@@ -161,7 +162,7 @@ func testInCircleTopology() {
 	})
 	It("should receive and advertise paths correctly", func() {
 		By("configuring and checking the sartd BGP speaker global settings")
-		configureAndCheckSartdBGPGlobalSettings(65001, "169.254.0.2")
+		configureAndCheckSartdBGPGlobalSettings(65001, "169.254.0.2", false)
 
 		By("adding a peer 169.254.0.1")
 		_, err := execInContainer("clab-sart-sart", nil, "sart", "bgp", "neighbor", "add", "169.254.0.1", "65000")
@@ -262,53 +263,7 @@ func testInCircleTopology() {
 			}
 			return nil
 		}).Should(Succeed())
-
 	})
-}
-
-func configureAndCheckSartdBGPGlobalSettings(asn uint32, routerId string) {
-	Eventually(func() error {
-		out, err := execInContainer("clab-sart-sart", nil, "sart", "bgp", "global", "get", "-ojson")
-		if err != nil {
-			return err
-		}
-		info := sartBgpInfo{}
-		if err := json.Unmarshal(out, &info); err != nil {
-			return err
-		}
-		if info.ASN != 0 {
-			return fmt.Errorf("ASN must not be set")
-		}
-		return nil
-	}).Should(Succeed())
-
-	_, err := execInContainer("clab-sart-sart", nil, "sart", "bgp", "global", "set", "--asn", strconv.Itoa(int(asn)), "--router-id", routerId)
-	Expect(err).NotTo(HaveOccurred())
-
-	out, err := execInContainer("clab-sart-sart", nil, "sart", "bgp", "global", "get", "-ojson")
-	Expect(err).NotTo(HaveOccurred())
-	info := sartBgpInfo{}
-	err = json.Unmarshal(out, &info)
-	Expect(err).NotTo(HaveOccurred())
-	Expect(info.ASN).To(Equal(asn))
-	Expect(info.RouterId).To(Equal(routerId))
-}
-
-func confirmSartdBGPIsEstablished(containerName, peerAddr string) {
-	Eventually(func() error {
-		out, err := execInContainer(containerName, nil, "sart", "bgp", "neighbor", "get", peerAddr, "-ojson")
-		if err != nil {
-			return err
-		}
-		info := sartPeerInfo{}
-		if err := json.Unmarshal(out, &info); err != nil {
-			return err
-		}
-		if info.State != "Established" {
-			return fmt.Errorf("expected state is Established, but actual is %s", info.State)
-		}
-		return nil
-	}).Should(Succeed())
 }
 
 func testInCircleTopologyWithIBGP() {
@@ -317,12 +272,12 @@ func testInCircleTopologyWithIBGP() {
 		Expect(err).NotTo(HaveOccurred())
 	})
 	AfterEach(func() {
-		// err := destroyContainerlab("circle-ibgp.yaml")
-		// Expect(err).NotTo(HaveOccurred())
+		err := destroyContainerlab("circle-ibgp.yaml")
+		Expect(err).NotTo(HaveOccurred())
 	})
 	It("should receive and advertise paths correctly in IBGP topology", func() {
 		By("configuring and checking the sartd BGP speaker global settings")
-		configureAndCheckSartdBGPGlobalSettings(65000, "169.254.0.2")
+		configureAndCheckSartdBGPGlobalSettings(65000, "169.254.0.2", false)
 
 		By("adding a peer 169.254.0.1")
 		_, err := execInContainer("clab-sart-sart", nil, "sart", "bgp", "neighbor", "add", "169.254.0.1", "65000")
@@ -425,6 +380,200 @@ func testInCircleTopologyWithIBGP() {
 		}).Should(Succeed())
 
 	})
+}
+
+func testInCircleTopologyWithMultiPath() {
+	BeforeEach(func() {
+		err := deployContainerlab("circle-ibgp.yaml")
+		Expect(err).NotTo(HaveOccurred())
+	})
+	AfterEach(func() {
+		err := destroyContainerlab("circle-ibgp.yaml")
+		Expect(err).NotTo(HaveOccurred())
+	})
+	It("should receive and advertise multiple paths correctly", func() {
+		By("configuring and checking the sartd BGP speaker global settings")
+		configureAndCheckSartdBGPGlobalSettings(65000, "169.254.0.2", false)
+
+		By("enabling multi-path")
+		_, err := execInContainer("clab-sart-sart", nil, "sart", "bgp", "global", "set", "--multi-path", "true")
+		Expect(err).NotTo(HaveOccurred())
+
+		By("checking that multi-path enabled")
+		checkingSartdBGPGlobalSettings(65000, "169.254.0.2", true)
+
+		By("adding a peer 169.254.0.1")
+		_, err = execInContainer("clab-sart-sart", nil, "sart", "bgp", "neighbor", "add", "169.254.0.1", "65000")
+		Expect(err).NotTo(HaveOccurred())
+
+		By("checking a peer is established")
+		confirmSartdBGPIsEstablished("clab-sart-sart", "169.254.0.1")
+
+		By("adding a peer 169.254.2.2")
+		_, err = execInContainer("clab-sart-sart", nil, "sart", "bgp", "neighbor", "add", "169.254.2.2", "65000")
+		Expect(err).NotTo(HaveOccurred())
+
+		By("checking a peer is established")
+		confirmSartdBGPIsEstablished("clab-sart-sart", "169.254.2.2")
+
+		By("installing the path from gobgp0")
+		err = installPathToGoBGP("clab-sart-gobgp0", "10.0.10.0/24")
+		Expect(err).NotTo(HaveOccurred())
+
+		By("confirming sart received the path")
+		var path_10_0_10_0_24 []sartPathInfo
+		Eventually(func() error {
+			expected := make([]sartPathInfo, 0)
+			paths, err := getSartBGPPath("clab-sart-sart")
+			if err != nil {
+				return err
+			}
+			for _, p := range paths {
+				if p.Nlri == "10.0.10.0/24" {
+					expected = append(expected, p)
+				}
+			}
+			if len(expected) != 1 {
+				return fmt.Errorf("10.0.10.0/24 is expected to receive from only one peers")
+			}
+			if expected[0].PeerAddr != "169.254.0.1" {
+				return fmt.Errorf("this path is expected to be advertised from 169.254.0.1")
+			}
+			path_10_0_10_0_24 = expected
+			return nil
+		}).Should(Succeed())
+
+		By("checking the best path is selected correctly")
+		for _, p := range path_10_0_10_0_24 {
+			if p.Best {
+				Expect(p.NextHops).To(Equal([]string{"169.254.0.1"}))
+			}
+		}
+
+		By("installing the path from gobgp1")
+		err = installPathToGoBGP("clab-sart-gobgp1", "10.0.10.0/24")
+		Expect(err).NotTo(HaveOccurred())
+
+		By("confirming sart received the path")
+		Eventually(func() error {
+			expected := make([]sartPathInfo, 0)
+			paths, err := getSartBGPPath("clab-sart-sart")
+			if err != nil {
+				return err
+			}
+			for _, p := range paths {
+				if p.Nlri == "10.0.10.0/24" {
+					expected = append(expected, p)
+				}
+			}
+			if len(expected) != 2 {
+				return fmt.Errorf("10.0.10.0/24 is expected to receive from both peers")
+			}
+			path_10_0_10_0_24 = expected
+			return nil
+		}).Should(Succeed())
+
+		By("checking both paths are marked as best")
+		for _, p := range path_10_0_10_0_24 {
+			Expect(p.Best).To(BeTrue())
+		}
+
+		By("deleting the path from gobgp0")
+		err = deletePathFromGoBGP("clab-sart-gobgp0", "10.0.10.0/24")
+		Expect(err).NotTo(HaveOccurred())
+
+		By("confirming deleted the path from sart")
+		Eventually(func() error {
+			expected := make([]sartPathInfo, 0)
+			paths, err := getSartBGPPath("clab-sart-sart")
+			if err != nil {
+				return err
+			}
+			for _, p := range paths {
+				if p.Nlri == "10.0.10.0/24" {
+					expected = append(expected, p)
+				}
+			}
+			if len(expected) != 1 {
+				return fmt.Errorf("10.0.10.0/24 is expected to receive from only one peer")
+			}
+			if expected[0].PeerAddr != "169.254.2.2" {
+				return fmt.Errorf("the path is expected from 169.254.2.2")
+			}
+			return nil
+		}).Should(Succeed())
+	})
+}
+
+func checkingSartdBGPGlobalSettings(asn uint32, routerId string, multiPath bool) {
+	Eventually(func() error {
+		out, err := execInContainer("clab-sart-sart", nil, "sart", "bgp", "global", "get", "-ojson")
+		if err != nil {
+			return err
+		}
+		info := sartBgpInfo{}
+		if err := json.Unmarshal(out, &info); err != nil {
+			return err
+		}
+		if info.ASN != asn {
+			return fmt.Errorf("ASN must be set")
+		}
+		if info.RouterId != routerId {
+			return fmt.Errorf("router id must be set")
+		}
+		if info.MultiPath != multiPath {
+			return fmt.Errorf("Multi Path don't match")
+		}
+		return nil
+	}).Should(Succeed())
+}
+
+func configureAndCheckSartdBGPGlobalSettings(asn uint32, routerId string, multiPath bool) {
+	Eventually(func() error {
+		out, err := execInContainer("clab-sart-sart", nil, "sart", "bgp", "global", "get", "-ojson")
+		if err != nil {
+			return err
+		}
+		info := sartBgpInfo{}
+		if err := json.Unmarshal(out, &info); err != nil {
+			return err
+		}
+		if info.ASN != 0 {
+			return fmt.Errorf("ASN must not be set")
+		}
+		if info.MultiPath != multiPath {
+			return fmt.Errorf("Multi Path don't match")
+		}
+		return nil
+	}).Should(Succeed())
+
+	_, err := execInContainer("clab-sart-sart", nil, "sart", "bgp", "global", "set", "--asn", strconv.Itoa(int(asn)), "--router-id", routerId)
+	Expect(err).NotTo(HaveOccurred())
+
+	out, err := execInContainer("clab-sart-sart", nil, "sart", "bgp", "global", "get", "-ojson")
+	Expect(err).NotTo(HaveOccurred())
+	info := sartBgpInfo{}
+	err = json.Unmarshal(out, &info)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(info.ASN).To(Equal(asn))
+	Expect(info.RouterId).To(Equal(routerId))
+}
+
+func confirmSartdBGPIsEstablished(containerName, peerAddr string) {
+	Eventually(func() error {
+		out, err := execInContainer(containerName, nil, "sart", "bgp", "neighbor", "get", peerAddr, "-ojson")
+		if err != nil {
+			return err
+		}
+		info := sartPeerInfo{}
+		if err := json.Unmarshal(out, &info); err != nil {
+			return err
+		}
+		if info.State != "Established" {
+			return fmt.Errorf("expected state is Established, but actual is %s", info.State)
+		}
+		return nil
+	}).Should(Succeed())
 }
 
 func getSartBGPPath(containerName string) ([]sartPathInfo, error) {

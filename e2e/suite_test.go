@@ -49,6 +49,7 @@ func testBgp() {
 	Context("ibgp", testEstablishPeerWithIBGP)
 	Context("cicle", testInCircleTopology)
 	Context("cicle-ibgp", testInCircleTopologyWithIBGP)
+	Context("multipath", testInCircleTopologyWithMultiPath)
 }
 
 func testKubernetes() {}

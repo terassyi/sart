@@ -400,6 +400,8 @@ impl Bgp {
 
     async fn set_multipath(&mut self, enable: bool) -> Result<(), Error> {
         tracing::info!("set multipath to {enable}");
+        let mut config = self.config.lock().unwrap();
+        config.multi_path = Some(enable);
         self.rib_event_tx
             .send(RibEvent::SetMultiPath(enable))
             .await
