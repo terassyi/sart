@@ -321,6 +321,7 @@ pub enum ControlEvent {
     DeletePeer(IpAddr),
     AddPath(Vec<IpNet>, Vec<Attribute>),
     DeletePath(AddressFamily, Vec<IpNet>),
+    ConfigureMultiPath(bool),
     Health,
 }
 
@@ -340,6 +341,7 @@ impl std::fmt::Display for ControlEvent {
             ControlEvent::DeletePeer(_) => write!(f, "Control::DeletePeer"),
             ControlEvent::AddPath(_, _) => write!(f, "Control::AddPath"),
             ControlEvent::DeletePath(_, _) => write!(f, "Control::DeletePath"),
+            ControlEvent::ConfigureMultiPath(_) => write!(f, "Control::ConfigureMultiPath"),
             ControlEvent::Health => write!(f, "Control::Health"),
         }
     }
@@ -349,6 +351,7 @@ impl std::fmt::Display for ControlEvent {
 pub enum RibEvent {
     SetAsn(u32),
     SetRouterId(Ipv4Addr),
+    SetMultiPath(bool),
     AddPeer(NeighborPair, Sender<RibEvent>),
     DeletePeer(NeighborPair),
     Init(AddressFamily, NeighborPair),
@@ -368,6 +371,7 @@ impl std::fmt::Display for RibEvent {
         match self {
             RibEvent::SetAsn(_) => write!(f, "Rib::SetAsn"),
             RibEvent::SetRouterId(_) => write!(f, "Rib::SetRouterId"),
+            RibEvent::SetMultiPath(_) => write!(f, "Rib::SetMultiPath"),
             RibEvent::AddPeer(_, _) => write!(f, "Rib::AddPeer"),
             RibEvent::DeletePeer(_) => write!(f, "Rib::DeletePeer"),
             RibEvent::Init(_, _) => write!(f, "Rib::Init"),

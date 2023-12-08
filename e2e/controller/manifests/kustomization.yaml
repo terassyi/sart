@@ -1,8 +1,0 @@
-resources:
-  - addresspool.yaml
-  - another_addresspool.yaml
-  - cluster_bgp.yaml
-  - peer.yaml
-  - lb_cluster.yaml
-  - lb_local.yaml
-  - lb_local_another_pool.yaml

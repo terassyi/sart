@@ -11,7 +11,7 @@ use sartd_proto::sart::{
     GetBgpInfoResponse, GetNeighborPathRequest, GetNeighborPathResponse, GetNeighborRequest,
     GetNeighborResponse, GetPathByPrefixRequest, GetPathByPrefixResponse, GetPathRequest,
     GetPathResponse, HealthRequest, ListNeighborRequest, ListNeighborResponse, Path, Peer,
-    SetAsRequest, SetRouterIdRequest,
+    SetAsRequest, SetRouterIdRequest, ConfigureMultiPathRequest,
 };
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{Mutex, Notify};
@@ -254,6 +254,14 @@ impl BgpApi for ApiServer {
             Err(_) => return Err(Status::aborted("failed to parse router_id as Ipv4Addr")),
         };
         match self.tx.send(ControlEvent::SetRouterId(router_id)).await {
+            Ok(_) => Ok(Response::new(())),
+            Err(_) => Err(Status::aborted("failed to send rib event")),
+        }
+    }
+
+    async fn configure_multi_path(&self, req: Request<ConfigureMultiPathRequest>) -> Result<Response<()>, Status> {
+        let enable = req.get_ref().enable;
+        match self.tx.send(ControlEvent::ConfigureMultiPath(enable)).await {
             Ok(_) => Ok(Response::new(())),
             Err(_) => Err(Status::aborted("failed to send rib event")),
         }

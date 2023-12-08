@@ -1,7 +1,5 @@
 RUSTUP := rustup
 CARGO := cargo
-GOBGP_VERSION := 3.10.0
-GRPCURL_VERSION := 1.8.7
 IMAGE_VERSION := dev
 PROJECT := github.com/terassyi/sart
 
@@ -45,10 +43,8 @@ ifndef RELEASE_VERSION
 	exit 1
 endif
 
-
-
 .PHONY: setup
-setup: setup-rust-tools setup-grpc
+setup: setup-rust-tools setup-grpc setup-dev
 
 .PHONY: setup-rust-tools
 setup-rust-tools:
@@ -59,18 +55,10 @@ setup-rust-tools:
 .PHONY: setup-grpc
 setup-grpc:
 	sudo apt install -y protobuf-compiler libprotobuf-dev
-	go install github.com/bufbuild/buf/cmd/buf@latest
-	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-	go install github.com/bufbuild/connect-go/cmd/protoc-gen-connect-go@latest
-	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 
 .PHONY: setup-dev
 setup-dev:
 	sudo apt install -y frr jq iproute2
-	sudo wget -P /tmp https://github.com/osrg/gobgp/releases/download/v${GOBGP_VERSION}/gobgp_${GOBGP_VERSION}_linux_amd64.tar.gz
-	sudo tar -zxvf /tmp/gobgp_${GOBGP_VERSION}_linux_amd64.tar.gz -C /usr/bin/
-	sudo wget -P /tmp https://github.com/fullstorydev/grpcurl/releases/download/v${GRPCURL_VERSION}/grpcurl_${GRPCURL_VERSION}_linux_x86_64.tar.gz
-	sudo tar -zxvf /tmp/grpcurl_${GRPCURL_VERSION}_linux_x86_64.tar.gz -C /usr/bin/
 
 .PHONY: release-build
 release-build:
@@ -88,13 +76,6 @@ build-daemon: crd certs
 .PHONY: build-cli
 build-cli:
 	cd sart; $(CARGO) build --verbose
-
-.PHONY: build-proto
-build-proto:
-	protoc -Iproto --go_out=./controller/pkg/proto bgp.proto
-	protoc -Iproto --go-grpc_out=./controller/pkg/proto bgp.proto
-	protoc -Iproto --go_out=./controller/pkg/proto fib.proto
-	protoc -Iproto --go-grpc_out=./controller/pkg/proto fib.proto
 
 .PHONY: clean
 clean: clean-crd clean-certs
@@ -158,29 +139,6 @@ integration-test:
 .PHONY: e2e-test
 e2e-test: sart-e2e-test controller-e2e-test
 
-.PHONY: sart-e2e-test
-sart-e2e-test:
-	cd e2e; go test -v ./sartd
-
-.PHONY: controller-e2e-test
-controller-e2e-test:
-	cd e2e/controller; make start
-	cd e2e/controller; make install
-	cd e2e/controller; make test
-	cd e2e/controller; make stop
-
-.PHONY: controller-test
-controller-test:
-	cd controller; make test
-
-.PHONY: dev-container
-dev-container:
-	docker run -it --privileged --rm --name sart-dev -p 8080:8080 -w /work/sart -v `pwd`:/work/sart ghcr.io/terassyi/terakoya:0.1.2 bash
-
-.PHONY: in-container
-in-container:
-	docker exec -it sart-dev bash
-
 NO_BUILD:=
 
 .PHONY: build-image
@@ -192,66 +150,6 @@ build-dev-image:
 ifndef NO_BUILD
 	docker build -t sart:${IMAGE_VERSION} -f Dockerfile.dev .
 endif
-
-
-CERT_MANAGER_VERSION := 1.11.2
-BUILD ?= false
-REGISTORY_URL ?= localhost:5005
-DEVENV_BGP_ASN ?= 65000
-NODE0_ASN ?= 65000
-NODE1_ASN ?= 65000
-NODE2_ASN ?= 65000
-NODE3_ASN ?= 65000
-DEVENV_BGP_ADDR ?= ""
-NODE0_ADDR ?= ""
-NODE1_ADDR ?= ""
-NODE2_ADDR ?= ""
-NODE3_ADDR ?= ""
-CLIENT_ADDR ?= ""
-LB_CIDR ?= 10.69.0.0/24
-ESCAPED_LB_CIDR ?= "10.69.0.0\/24"
-
-BIN_DIR := bin/
-KIND := $(BIN_DIR)/kind
-KUBECTL := $(BIN_DIR)/kubectl
-KUSTOMZIE := $(BIN_DIR)/kustomize
-
-.PHONY: kind-load
-kind-load: build-dev-image
-	$(KIND) load docker-image sart:dev -n sart
-	$(KUBECTL) -n kube-system rollout restart ds/sartd-agent
-	$(KUBECTL) -n kube-system rollout restart deploy/sart-controller
-
-
-.PHONY: devenv
-devenv: crd certs build-dev-image
-	$(MAKE) -C devenv cluster
-
-	$(KUBECTL) label nodes --overwrite sart-worker sart.terassyi.net/asn=65000
-	$(KUBECTL) label nodes --overwrite sart-worker2 sart.terassyi.net/asn=65000
-	$(KUBECTL) label nodes --overwrite sart-worker3 sart.terassyi.net/asn=65000
-	$(KUBECTL) label nodes --overwrite sart-control-plane sart.terassyi.net/asn=65000
-
-	$(KIND) load docker-image sart:dev -n sart
-
-	$(KUSTOMZIE) build manifests | $(KUBECTL) apply -f -
-
-.PHONY: sample
-sample:
-	$(KUSTOMZIE) build manifests/sample | $(KUBECTL) apply -f -
-
-.PHONY: devenv-down
-devenv-down: clean-certs clean-crd
-	$(MAKE) -C devenv down
-
-.PHONY: push-image
-push-image:
-	docker image tag sart:${IMAGE_VERSION} ${REGISTORY_URL}/sart:${IMAGE_VERSION}
-	docker image tag sart-controller:${IMAGE_VERSION} ${REGISTORY_URL}/sart-controller:${IMAGE_VERSION}
-	docker image tag test-app:${IMAGE_VERSION} ${REGISTORY_URL}/test-app:${IMAGE_VERSION}
-	docker push ${REGISTORY_URL}/sart:${IMAGE_VERSION}
-	docker push ${REGISTORY_URL}/sart-controller:${IMAGE_VERSION}
-	docker push ${REGISTORY_URL}/test-app:${IMAGE_VERSION}
 
 CARGO_BUMP ?= cargo-bump
 

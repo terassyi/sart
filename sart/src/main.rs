@@ -23,11 +23,11 @@ async fn main() {
         SubCmd::Bgp(sub) => match sub.scope {
             Scope::Global(g) => match g.action {
                 bgp::global::Action::Get => bgp::global::get(&sub.endpoint, output).await.unwrap(),
-                bgp::global::Action::Set { asn, router_id } => {
+                bgp::global::Action::Set { asn, router_id, multi_path } => {
                     if let Some(router_id) = router_id.as_ref() {
                         let _: Ipv4Addr = router_id.parse().unwrap();
                     }
-                    bgp::global::set(&sub.endpoint, asn, router_id)
+                    bgp::global::set(&sub.endpoint, asn, router_id, multi_path)
                         .await
                         .unwrap();
                 }

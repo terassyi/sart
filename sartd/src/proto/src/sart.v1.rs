@@ -168,6 +168,12 @@ pub struct DeletePathRequest {
 pub struct DeletePathResponse {}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ConfigureMultiPathRequest {
+    #[prost(bool, tag = "1")]
+    pub enable: bool,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BgpInfo {
     #[prost(uint32, tag = "1")]
     pub asn: u32,
@@ -175,6 +181,8 @@ pub struct BgpInfo {
     pub router_id: ::prost::alloc::string::String,
     #[prost(uint32, tag = "3")]
     pub port: u32,
+    #[prost(bool, tag = "4")]
+    pub multi_path: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1003,6 +1011,28 @@ pub mod bgp_api_client {
             req.extensions_mut().insert(GrpcMethod::new("sart.v1.BgpApi", "DeletePath"));
             self.inner.unary(req, path, codec).await
         }
+        pub async fn configure_multi_path(
+            &mut self,
+            request: impl tonic::IntoRequest<super::ConfigureMultiPathRequest>,
+        ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/sart.v1.BgpApi/ConfigureMultiPath",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("sart.v1.BgpApi", "ConfigureMultiPath"));
+            self.inner.unary(req, path, codec).await
+        }
     }
 }
 /// Generated client implementations.
@@ -1217,6 +1247,10 @@ pub mod bgp_api_server {
             tonic::Response<super::DeletePathResponse>,
             tonic::Status,
         >;
+        async fn configure_multi_path(
+            &self,
+            request: tonic::Request<super::ConfigureMultiPathRequest>,
+        ) -> std::result::Result<tonic::Response<()>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct BgpApiServer<T: BgpApi> {
@@ -1910,6 +1944,52 @@ pub mod bgp_api_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = DeletePathSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/sart.v1.BgpApi/ConfigureMultiPath" => {
+                    #[allow(non_camel_case_types)]
+                    struct ConfigureMultiPathSvc<T: BgpApi>(pub Arc<T>);
+                    impl<
+                        T: BgpApi,
+                    > tonic::server::UnaryService<super::ConfigureMultiPathRequest>
+                    for ConfigureMultiPathSvc<T> {
+                        type Response = ();
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::ConfigureMultiPathRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as BgpApi>::configure_multi_path(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = ConfigureMultiPathSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

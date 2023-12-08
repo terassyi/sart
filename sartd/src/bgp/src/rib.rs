@@ -187,6 +187,11 @@ impl LocRib {
         loc_rib
     }
 
+    fn set_multipath(&mut self, enable: bool) -> Result<(), Error> {
+        self.multi_path = enable;
+        Ok(())
+    }
+
     fn set_protocol(&mut self, protocol: Afi) -> Result<(), Error> {
         match self.table.get(&protocol) {
             Some(_) => Err(Error::Rib(RibError::ProtocolIsAlreadyRegistered)),
@@ -540,6 +545,9 @@ impl RibManager {
                 self.router_id = id;
                 Ok(())
             }
+            RibEvent::SetMultiPath(enable) => {
+                self.set_multipath(enable)
+            }
             RibEvent::AddPeer(neighbor, rib_event_tx) => self.add_peer(neighbor, rib_event_tx),
             RibEvent::DeletePeer(neighbor) => self.delete_peer(neighbor),
             RibEvent::Init(family, neighbor) => self.init(family, neighbor).await,
@@ -578,6 +586,10 @@ impl RibManager {
             Some(_neighbor) => Ok(()),
             None => Err(Error::Rib(RibError::PeerNotFound)),
         }
+    }
+
+    fn set_multipath(&mut self, enable: bool) -> Result<(), Error> {
+        self.set_multipath(enable)
     }
 
     #[tracing::instrument(skip(self, neighbor), fields(peer.asn=neighbor.asn,peer.addr=neighbor.addr.to_string()))]

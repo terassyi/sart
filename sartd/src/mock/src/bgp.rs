@@ -12,7 +12,7 @@ use sartd_proto::sart::{
     GetBgpInfoResponse, GetNeighborPathRequest, GetNeighborPathResponse, GetNeighborRequest,
     GetNeighborResponse, GetPathByPrefixRequest, GetPathByPrefixResponse, GetPathRequest,
     GetPathResponse, HealthRequest, ListNeighborRequest, ListNeighborResponse, Path, Peer,
-    SetAsRequest, SetRouterIdRequest,
+    SetAsRequest, SetRouterIdRequest, ConfigureMultiPathRequest,
 };
 use tonic::{transport::Server, Request, Response, Status};
 
@@ -27,6 +27,7 @@ pub struct MockBgpApiServerInner {
     pub router_id: Option<Ipv4Addr>,
     pub peers: HashMap<Ipv4Addr, Peer>,
     pub paths: Vec<Path>,
+    pub multi_path: bool,
 }
 
 impl MockBgpApiServer {
@@ -42,6 +43,7 @@ impl MockBgpApiServerInner {
             router_id: Some(Ipv4Addr::from_str(router_id).unwrap()),
             peers: HashMap::new(),
             paths: Vec::new(),
+            multi_path: false,
         }
     }
 }
@@ -76,7 +78,7 @@ impl BgpApi for MockBgpApiServer {
         &self,
         _req: Request<GetBgpInfoRequest>,
     ) -> Result<Response<GetBgpInfoResponse>, Status> {
-        let (asn, router_id) = {
+        let (asn, router_id, multi_path) = {
             let inner = self.inner.lock().unwrap();
             (
                 inner.asn.unwrap_or(0),
@@ -84,6 +86,7 @@ impl BgpApi for MockBgpApiServer {
                     .router_id
                     .map(|r| r.to_string())
                     .unwrap_or("".to_string()),
+                inner.multi_path,
             )
         };
         Ok(Response::new(GetBgpInfoResponse {
@@ -91,6 +94,7 @@ impl BgpApi for MockBgpApiServer {
                 asn,
                 router_id,
                 port: 179,
+                multi_path,
             }),
         }))
     }
@@ -181,6 +185,16 @@ impl BgpApi for MockBgpApiServer {
             let mut inner = self.inner.lock().unwrap();
             inner.router_id = Some(router_id);
         }
+        Ok(Response::new(()))
+    }
+
+    async fn configure_multi_path(&self, req: Request<ConfigureMultiPathRequest>) -> Result<Response<()>, Status> {
+        let enable = req.get_ref().enable;
+        {
+            let mut inner = self.inner.lock().unwrap();
+            inner.multi_path = enable;
+        }
+
         Ok(Response::new(()))
     }
 

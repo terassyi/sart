@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand};
 
 use crate::data::bgp::BgpInfo;
 use crate::error::Error;
-use crate::proto::sart::{HealthRequest, SetAsRequest, SetRouterIdRequest};
+use crate::proto::sart::{HealthRequest, SetAsRequest, SetRouterIdRequest, ConfigureMultiPathRequest};
 use crate::{cmd::Output, proto::sart::GetBgpInfoRequest, rpc::connect_bgp};
 
 use super::rib::RibCmd;
@@ -22,6 +22,9 @@ pub(crate) enum Action {
 
         #[arg(long, help = "Local Router Id")]
         router_id: Option<String>,
+
+        #[arg(long, help = "Multi path")]
+        multi_path: Option<bool>
     },
     Rib(RibCmd),
     Policy,
@@ -53,6 +56,7 @@ pub(crate) async fn get(endpoint: &str, format: Output) -> Result<(), Error> {
             };
             println!("Sartd BGP server is running at {}.", info.port,);
             println!("  ASN: {}, Router Id: {}", info.asn, info.router_id);
+            println!("  Multi Path enabled: {}", info.multi_path);
         }
     }
     Ok(())
@@ -62,11 +66,12 @@ pub(crate) async fn set(
     endpoint: &str,
     asn: Option<u32>,
     router_id: Option<String>,
+    multi_path: Option<bool>,
 ) -> Result<(), Error> {
     let mut client = connect_bgp(endpoint).await;
-    if asn.is_none() && router_id.is_none() {
+    if asn.is_none() && router_id.is_none() && multi_path.is_none() {
         return Err(Error::MissingArgument {
-            msg: "--asn or --router-id".to_string(),
+            msg: "--asn or --router-id or --multi-path".to_string(),
         });
     }
     if let Some(asn) = asn {
@@ -78,6 +83,12 @@ pub(crate) async fn set(
     if let Some(router_id) = router_id {
         let _res = client
             .set_router_id(SetRouterIdRequest { router_id })
+            .await
+            .map_err(Error::FailedToGetResponse)?;
+    }
+    if let Some(multi_path) = multi_path {
+        let _res = client
+            .configure_multi_path(ConfigureMultiPathRequest{ enable: multi_path })
             .await
             .map_err(Error::FailedToGetResponse)?;
     }

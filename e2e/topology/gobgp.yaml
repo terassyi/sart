@@ -1,0 +1,36 @@
+name: sart
+topology:
+  kinds:
+    linux:
+      cmd: bash
+  nodes:
+    frr:
+      kind: linux
+      image: ghcr.io/terassyi/terakoya:0.1.2
+      exec:
+        - ip addr add 169.254.0.1/24 dev net0
+        - touch /etc/frr/vtysh.conf
+        - /usr/lib/frr/frrinit.sh start
+    frr-debug:
+      kind: linux
+      image: nicolaka/netshoot:latest
+      network-mode: container:clab-sart-frr
+    gobgp:
+      kind: linux
+      image: ghcr.io/terassyi/terakoya:0.1.2
+      network-mode: container:clab-sart-frr
+      binds:
+        - configs/gobgp-basic.toml:/etc/gobgp.conf
+      cmd: gobgpd -f /etc/gobgp.conf
+    sart:
+      kind: linux
+      image: sart:dev
+      exec:
+        - ip addr add 169.254.0.2/24 dev net0
+      cmd: sartd bgp
+    sart-debug:
+      kind: linux
+      image: nicolaka/netshoot:latest
+      network-mode: container:clab-sart-sart
+  links:
+    - endpoints: ["frr:net0", "sart:net0"]

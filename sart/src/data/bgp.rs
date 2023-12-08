@@ -11,6 +11,7 @@ pub struct BgpInfo {
     pub asn: u32,
     pub router_id: String,
     pub port: u32,
+    pub multi_path: bool
 }
 
 impl From<&proto::sart::BgpInfo> for BgpInfo {
@@ -19,6 +20,7 @@ impl From<&proto::sart::BgpInfo> for BgpInfo {
             asn: value.asn,
             router_id: value.router_id.clone(),
             port: value.port,
+            multi_path: value.multi_path,
         }
     }
 }

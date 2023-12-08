@@ -27,6 +27,8 @@ service BgpApi {
 
 	rpc AddPath(AddPathRequest) returns (AddPathResponse);
 	rpc DeletePath(DeletePathRequest) returns (DeletePathResponse);
+
+	rpc ConfigureMultiPath(ConfigureMultiPathRequest) returns (google.protobuf.Empty);
 }
 
 message HealthRequest {}
@@ -115,10 +117,15 @@ message DeletePathRequest {
 
 message DeletePathResponse {}
 
+message ConfigureMultiPathRequest {
+	bool enable = 1;
+}
+
 message BgpInfo {
 	uint32 asn = 1;
 	string router_id = 2;
 	uint32 port = 3;
+	bool multi_path = 4;
 }
 
 message AddressFamily {

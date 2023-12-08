@@ -1,0 +1,69 @@
+{
+	"10.0.0.0/24": [
+		{
+			"nlri": {
+				"prefix": "10.0.0.0/24"
+			},
+			"age": 1701993507,
+			"best": true,
+			"attrs": [
+				{
+					"type": 1,
+					"value": 0
+				},
+				{
+					"type": 2,
+					"as_paths": [
+						{
+							"segment_type": 2,
+							"num": 1,
+							"asns": [
+								65001
+							]
+						}
+					]
+				},
+				{
+					"type": 3,
+					"nexthop": "169.254.0.2"
+				}
+			],
+			"stale": false,
+			"source-id": "169.254.0.2",
+			"neighbor-ip": "169.254.0.2"
+		},
+		{
+			"nlri": {
+				"prefix": "10.0.0.0/24"
+			},
+			"age": 1701993512,
+			"best": false,
+			"attrs": [
+				{
+					"type": 1,
+					"value": 0
+				},
+				{
+					"type": 2,
+					"as_paths": [
+						{
+							"segment_type": 2,
+							"num": 2,
+							"asns": [
+								65002,
+								65001
+							]
+						}
+					]
+				},
+				{
+					"type": 3,
+					"nexthop": "169.254.1.2"
+				}
+			],
+			"stale": false,
+			"source-id": "169.254.1.2",
+			"neighbor-ip": "169.254.1.2"
+		}
+	]
+}

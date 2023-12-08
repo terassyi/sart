@@ -15,7 +15,9 @@ logs*
 **/target
 
 devenv/.lab.yaml.bak
+e2e/topology/.*.yaml.bak
 devenv/clab-sart
+e2e/clab-sart
 e2e/controller/manifests/addresspool.yaml
 e2e/controller/manifests/another_addresspool.yaml
 e2e/controller/manifests/peer.yaml

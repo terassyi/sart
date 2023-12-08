@@ -1,0 +1,60 @@
+{
+
+	"ipv4Unicast":{
+	 "vrfId": 0,
+	 "vrfName": "default",
+	 "tableVersion": 1,
+	 "routerId": "169.254.0.1",
+	 "defaultLocPrf": 100,
+	 "localAS": 65000,
+	 "routes": { "10.0.0.0/24": [
+	  {
+	    "pathFrom":"external",
+	    "prefix":"10.0.0.0",
+	    "prefixLen":24,
+	    "network":"10.0.0.0/24",
+	    "version":0,
+	    "metric":0,
+	    "weight":32768,
+	    "peerId":"(unspec)",
+	    "path":"",
+	    "origin":"IGP",
+	    "nexthops":[
+	      {
+	        "ip":"0.0.0.0",
+	        "hostname":"frr0",
+	        "afi":"ipv4",
+	        "used":true
+	      }
+	    ]
+	  }
+
+]
+,"10.0.10.0/24": [
+
+	{
+	  "valid":true,
+	  "bestpath":true,
+	  "selectionReason":"First path received",
+	  "pathFrom":"external",
+	  "prefix":"10.0.10.0",
+	  "prefixLen":24,
+	  "network":"10.0.10.0/24",
+	  "version":1,
+	  "weight":0,
+	  "peerId":"169.254.0.2",
+	  "path":"65001",
+	  "origin":"IGP",
+	  "nexthops":[
+	    {
+	      "ip":"169.254.0.2",
+	      "afi":"ipv4",
+	      "used":true
+	    }
+	  ]
+	}
+
+]
+
+	 } }
+	}

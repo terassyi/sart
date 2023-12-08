@@ -251,6 +251,9 @@ impl Bgp {
             }
             ControlEvent::DeletePath(family, prefixes) => {
                 self.delete_path(family, prefixes).await?;
+            },
+            ControlEvent::ConfigureMultiPath(enable) => {
+                self.set_multipath(enable).await?;
             }
         }
         self.event_signal.notify_one();
@@ -265,6 +268,7 @@ impl Bgp {
                 asn: config.asn,
                 router_id: config.router_id.to_string(),
                 port: Bgp::BGP_PORT as u32,
+                multi_path: config.multi_path.unwrap_or(false),
             }))
             .await
             .map_err(|_| Error::Control(ControlError::FailedToSendRecvChannel))
@@ -387,6 +391,17 @@ impl Bgp {
         tracing::info!("set local router_id");
         self.rib_event_tx
             .send(RibEvent::SetRouterId(router_id))
+            .await
+            .map_err(|e| {
+                tracing::error!(error=?e);
+                Error::Rib(RibError::ManagerDown)
+            })
+    }
+
+    async fn set_multipath(&mut self, enable: bool) -> Result<(), Error> {
+        tracing::info!("set multipath to {enable}");
+        self.rib_event_tx
+            .send(RibEvent::SetMultiPath(enable))
             .await
             .map_err(|e| {
                 tracing::error!(error=?e);
