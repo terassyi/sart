@@ -4,15 +4,14 @@ on: [push, pull_request]
 env:
   CARGO_TERM_COLOR: always
   TAGS: dev
+  go-version: "1.21"
 
 jobs:
   unit-test:
-    runs-on: ubuntu-latest
+    name: Unit Test
+    runs-on: ubuntu-22.04
     steps:
-      - uses: actions/setup-go@v4
-        with:
-          go-version: "1.20.1"
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: actions/cache@v3
         with:
           path: |
@@ -23,68 +22,83 @@ jobs:
             ~/sart/.cargo/git
             sart/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - name: Setup dev
-        run: make setup-dev
-      - name: Setup grpc
+      - name: Setup Build Dependencies 
         run: make setup-grpc
       - name: Fmt
         run: make fmt
-      - name: Build
-        run: make build
-      - name: Run unit tests
+      - name: Run Unit Test
         run: make unit-test
-      - name: Run controller envtest
-        run: make controller-test
-
-  e2e:
-    runs-on: ubuntu-latest
+  integration-test:
+    name: Integration Test
+    runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-go@v4
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v3
         with:
-          go-version: "1.20.1"
-      - name: Cache Docker layers
-        uses: actions/cache@v3
+          path: |
+            ~/sartd/.cargo/registry
+            ~/sartd/.cargo/git
+            sartd/target
+            ~/sart/.cargo/registry
+            ~/sart/.cargo/git
+            sart/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Setup Build Dependencies 
+        run: make setup-grpc
+      - name: Install Kubernetes Dependencies
+        run: |-
+          make -C e2e setup
+      - name: Run Integration Test
+        run: make integration-test
+  bgp-e2e-test:
+    name: BGP End-to-End Test
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
-          path: /tmp/.buildx-cache
-          key: ${{ github.ref }}-${{ github.sha }}
-          restore-keys: |
-            ${{ github.ref }}-${{ github.sha }}
-            ${{ github.ref }}
-            refs/head/main
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-      - name: Build sartd and load
-        uses: docker/build-push-action@v2
+          go-version: ${{ env.go-version }}
+      - name: Build Image
+        run: make build-dev-image
+      - name: Setup Tools
+        working-directory: e2e
+        run: make setup
+      - name: Run E2E Test
+        working-directory: e2e
+        run: make bgp-e2e
+  kubernetes-e2e-test:
+    name: Kubernetes End-to-End Test
+    strategy:
+      matrix:
+        # kindest node version
+        kubernetes-version: ["1.26.4", "1.27.1", "1.28.0"]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
-          context: .
-          file: ./Dockerfile.dev
-          builder: ${{ steps.buildx.outputs.name }}
-          load: true
-          tags: sart:${{ env.TAGS }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      - name: Build sart-controller and load
-        uses: docker/build-push-action@v2
-        with:
-          context: ./controller
-          file: ./controller/Dockerfile
-          builder: ${{ steps.buildx.outputs.name }}
-          load: true
-          tags: sart-controller:${{ env.TAGS }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      - name: Build test-app and load
-        uses: docker/build-push-action@v2
-        with:
-          context: ./controller/test/testapp
-          file: ./controller/test/testapp/Dockerfile
-          builder: ${{ steps.buildx.outputs.name }}
-          load: true
-          tags: test-app:${{ env.TAGS }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      - name: Run sart e2e test
-        run: make sart-e2e-test
-      - name: Run sart-controller e2e test
-        run: make controller-e2e-test
+          go-version: ${{ env.go-version }}
+      - name: Build Image
+        run: make build-image
+      - name: Setup Tools
+        working-directory: e2e
+        run: |-
+          make setup
+          make -C ../ setup-grpc
+      - name: Start Kind Cluster
+        working-directory: e2e
+        run: make kubernetes KUBERNETES_VERSION=${{ matrix.kubernetes-version }}
+      - name: Generate Certificates
+        run: make certs
+      - name: Generate CRD
+        run: make crd
+      - name: Install sart
+        working-directory: e2e
+        run: make install-sart
+      - name: Run E2E Test
+        working-directory: e2e
+        run: make kubernetes-e2e
+      - name: Clean up Kind Cluster
+        working-directory: e2e
+        run: make kubernetes-down
+        if: always()

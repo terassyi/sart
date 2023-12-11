@@ -70,7 +70,7 @@ release-build:
 build: build-daemon build-cli
 
 .PHONY: build-daemon
-build-daemon: crd certs
+build-daemon:
 	cd sartd; $(CARGO) build --verbose
 
 .PHONY: build-cli
@@ -135,9 +135,6 @@ unit-test:
 .PHONY: integration-test
 integration-test:
 	cd sartd; $(CARGO) test -p sartd-kubernetes -- --ignored
-
-.PHONY: e2e-test
-e2e-test: sart-e2e-test controller-e2e-test
 
 NO_BUILD:=
 

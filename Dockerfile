@@ -1,4 +1,4 @@
-ARG RUST_VERSION=1.68.0
+ARG RUST_VERSION=1.74.1
 
 # BUILDPLATFORM = linux/amd64
 
@@ -10,7 +10,7 @@ COPY ./sart /home/sart
 COPY ./proto /home/proto
 
 RUN apt update -y && \
-	apt install -y protobuf-compiler libprotobuf-dev mold
+	apt install -y protobuf-compiler libprotobuf-dev clang llvm mold
 
 ENV CC_aarch64_unknown_linux_musl=clang
 ENV AR_aarch64_unknown_linux_musl=llvm-ar

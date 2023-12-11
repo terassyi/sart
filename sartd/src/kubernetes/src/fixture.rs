@@ -177,7 +177,7 @@ pub mod reconciler {
                     "{}/namespaces/{}/{}?",
                     base_uri::<T>(),
                     ns,
-                    api_resource.kind,
+                    api_resource.plural,
                 )
             }
             None => {

@@ -24,12 +24,17 @@ WORKER3_ASN ?= 65000
 CP_ASN ?= 65000
 
 FEATURE =
-.PHONY: test
-test:
+.PHONY: bgp-e2e
+bgp-e2e:
 	go test -c ./...
-	./e2e.test -test.v
+	$(SUDO) TARGET=bgp ./e2e.test -test.v
 	rm -f ./e2e.test
 
+.PHONY: kubernetes-e2e
+kubernetes-e2e:
+	go test -c ./...
+	TARGET=kubernetes ./e2e.test -test.v
+	rm -f ./e2e.test
 
 .PHONY: topology
 topology:
