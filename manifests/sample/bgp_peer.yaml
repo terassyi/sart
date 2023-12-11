@@ -9,7 +9,7 @@ spec:
   addr: 9.9.9.9
   asn: 65000
   groups:
-    - to-route0
+    - to-router0
   nodeBGPRef: sart-control-plane
   speaker:
     path: 127.0.0.1:5000

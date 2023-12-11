@@ -14,6 +14,7 @@ gobgp.conf
 logs*
 **/target
 
+**/e2e.test
 devenv/.lab.yaml.bak
 e2e/topology/.*.yaml.bak
 devenv/clab-sart

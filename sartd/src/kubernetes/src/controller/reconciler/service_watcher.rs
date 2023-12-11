@@ -29,6 +29,7 @@ pub(super) const SERVICE_NAME_LABEL: &str = "kubernetes.io/service-name";
 // This annoation should be annotated to Endpointslices to handle externalTrafficPolicy
 // This annotation is used only for triggering the Endpoinslice's reconciliation loop
 pub const SERVICE_ETP_ANNOTATION: &str = "service.sart.terassyi.net/etp";
+pub const SERVICE_ALLOCATION_ANNOTATION: &str = "service.sart.terassyi.net/allocation";
 pub const RELEASE_ANNOTATION: &str = "service.sart.terassyi.net/release";
 
 #[tracing::instrument(skip_all, fields(trace_id))]
@@ -87,12 +88,12 @@ async fn reconcile(
     // In case of Service is LoadBalancer type
 
     // Ensure that some blocks are available.
-    let block_avaialble = {
+    let block_available = {
         let c = ctx.component.clone();
         let alloc_set = c.inner.lock().map_err(|_| Error::FailedToGetLock)?;
         !alloc_set.blocks.is_empty()
     };
-    if !block_avaialble {
+    if !block_available {
         tracing::warn!(
             name = svc.name_any(),
             namespace = ns,
@@ -101,7 +102,13 @@ async fn reconcile(
         return Err(Error::NoAllocatableBlock);
     }
 
-    // Sync the externalTrafficPolicy value
+    // Get already allocated addresses
+    let actual_addrs = get_allocated_lb_addrs(svc).unwrap_or_default();
+
+    let allocated_addrs = actual_addrs.iter().map(|a| a.to_string()).collect::<Vec<String>>().join(",");
+    let allocated_addr_str = allocated_addrs.as_str();
+
+    // Sync the externalTrafficPolicy value and allocation
     let etp = get_etp(svc).ok_or(Error::InvalidExternalTrafficPolicy)?;
 
     let endpointslice_api = Api::<EndpointSlice>::namespaced(ctx.client().clone(), &ns);
@@ -109,7 +116,10 @@ async fn reconcile(
     let epss = endpointslice_api.list(&lp).await.map_err(Error::Kube)?;
 
     for eps in epss.items.iter() {
-        let new_etp = match eps.annotations().get(SERVICE_ETP_ANNOTATION) {
+        let mut need_update = false;
+        // sync externalTrafficPolicy
+        let mut new_eps = eps.clone();
+        let new_etp = match new_eps.annotations().get(SERVICE_ETP_ANNOTATION) {
             Some(e) => {
                 if e.eq(&etp) {
                     None
@@ -120,11 +130,26 @@ async fn reconcile(
             None => Some(&etp),
         };
         if let Some(e) = new_etp {
-            let mut new_eps = eps.clone();
             new_eps
                 .annotations_mut()
                 .insert(SERVICE_ETP_ANNOTATION.to_string(), e.to_string());
+            need_update = true;
 
+        }
+        // sync allocation
+        match new_eps.annotations_mut().get_mut(SERVICE_ALLOCATION_ANNOTATION) {
+            Some(val) => {
+                if allocated_addr_str.ne(val.as_str()) {
+                    *val = allocated_addr_str.to_string();
+                    need_update = true;
+                }
+            },
+            None => {
+                new_eps.annotations_mut().insert(SERVICE_ALLOCATION_ANNOTATION.to_string(), allocated_addr_str.to_string());
+                need_update = true;
+            }
+        }
+        if need_update {
             endpointslice_api
                 .replace(&eps.name_any(), &PostParams::default(), &new_eps)
                 .await
@@ -132,7 +157,6 @@ async fn reconcile(
         }
     }
 
-    let actual_addrs = get_allocated_lb_addrs(svc).unwrap_or_default();
     // Get from given service's stauts field.
     // This should be the single source of truth for current state.
     // Collected addresses must be marked as allocated.
@@ -157,7 +181,7 @@ async fn reconcile(
             .collect()
     };
 
-    // Allocation information stored in allocaters(in memory) may be flushed
+    // Allocation information stored in allocators(in memory) may be flushed
     // because of restarting the controller.
     // Soe actual allocation that is from given Service resources is more reliable.
 
@@ -203,6 +227,30 @@ async fn reconcile(
         lb_addrs=?remained,
         "Update service status by the allocation lb address"
     );
+
+    let new_allocated_addrs = get_allocated_lb_addrs(&new_svc).map(|v| v.iter().map(|a| a.to_string()).collect::<Vec<String>>()).map(|v| v.join(","));
+    match new_allocated_addrs {
+        Some(addrs) => {
+            for eps in epss.iter() {
+                let mut new_eps = eps.clone();
+                new_eps.annotations_mut().insert(SERVICE_ALLOCATION_ANNOTATION.to_string(), addrs.clone());
+                endpointslice_api
+                    .replace(&eps.name_any(), &PostParams::default(), &new_eps)
+                    .await
+                    .map_err(Error::Kube)?;
+            }
+        },
+        None => {
+            for eps in epss.iter() {
+                let mut new_eps = eps.clone();
+                new_eps.annotations_mut().remove(SERVICE_ALLOCATION_ANNOTATION);
+                endpointslice_api
+                    .replace(&eps.name_any(), &PostParams::default(), &new_eps)
+                    .await
+                    .map_err(Error::Kube)?;
+            }
+        }
+    }
 
     Ok(Action::await_change())
 }

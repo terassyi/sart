@@ -162,13 +162,16 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
                     addr = bp.spec.addr,
                     "Update BGPPeer status"
                 );
-                api.replace_status(
+                if let Err(e) = api.replace_status(
                     &bp.name_any(),
                     &PostParams::default(),
                     serde_json::to_vec(&new_bp).map_err(Error::Serialization)?,
                 )
                 .await
-                .map_err(Error::Kube)?;
+                .map_err(Error::Kube) {
+                    tracing::warn!(error=?e, "failed to update peer status");
+                    return Ok(Action::requeue(Duration::from_secs(10)));
+                };
             }
         }
         Err(status) => {

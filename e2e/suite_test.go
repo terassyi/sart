@@ -19,7 +19,7 @@ var _ = BeforeSuite(func() {
 	fmt.Println("Preparing...")
 
 	SetDefaultEventuallyPollingInterval(time.Second)
-	SetDefaultEventuallyTimeout(1 * time.Minute)
+	SetDefaultEventuallyTimeout(3 * time.Minute)
 })
 
 var _ = Describe("End to End test for Sart", func() {
@@ -38,8 +38,8 @@ var _ = Describe("End to End test for Sart", func() {
 	case "kubernetes":
 		testKubernetes()
 	default:
-		testBgp()
-		testKubernetes()
+		fmt.Println("target not set")
+		os.Exit(1)
 	}
 })
 
@@ -52,4 +52,6 @@ func testBgp() {
 	Context("multipath", testInCircleTopologyWithMultiPath)
 }
 
-func testKubernetes() {}
+func testKubernetes() {
+	Context("controller", testController)
+}

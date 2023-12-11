@@ -6,4 +6,4 @@ spec:
   asn: 65000
   addr: 9.9.9.9
   groups:
-    - to-route0
+    - to-router0

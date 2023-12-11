@@ -9,7 +9,7 @@ use futures::StreamExt;
 use ipnet::IpNet;
 use k8s_openapi::api::{core::v1::Service, discovery::v1::EndpointSlice};
 use kube::{
-    api::{ListParams, PostParams},
+    api::{ListParams, PostParams, DeleteParams},
     core::ObjectMeta,
     runtime::{
         controller::Action,
@@ -108,18 +108,22 @@ async fn reconcile(eps: &EndpointSlice, ctx: Arc<Context>) -> Result<Action, Err
     let target_peers = get_target_peers(eps, &svc, &node_bgps).await?;
 
     let bgp_advertisements = Api::<BGPAdvertisement>::namespaced(ctx.client().clone(), ns.as_str());
+    
+    let label = format!("{}={}", SERVICE_NAME_LABEL, svc_name);
+    let adv_list = bgp_advertisements.list(&ListParams::default().labels(&label)).await.map_err(Error::Kube)?;
+    let mut existing_adv_map: HashMap<String, BGPAdvertisement> = adv_list.into_iter().map(|a| (a.spec.cidr.clone(), a)).collect();
 
     // If Endpointslice has no endpoint, requeue and wait for creating endpoints
     // In case of creating new BGPAdvertisement, there are the case that endpointslice has no valid endpoint
     let mut need_requeue = target_peers.is_empty();
     for addr in lb_addrs.iter() {
         let cidr = IpNet::new(*addr, 32).map_err(|_| Error::InvalidAddress)?;
+        let cidr_str = cidr.to_string();
         let adv_name = adv_name_from_eps_and_addr(eps, addr);
 
-        match bgp_advertisements
-            .get_opt(&adv_name)
-            .await
-            .map_err(Error::Kube)?
+        // get from existing advertisement list
+        // and remove from its map
+        match existing_adv_map.remove(&cidr_str)
         {
             Some(adv) => {
                 let mut new_adv = adv.clone();
@@ -190,6 +194,7 @@ async fn reconcile(eps: &EndpointSlice, ctx: Arc<Context>) -> Result<Action, Err
                     metadata: ObjectMeta {
                         name: Some(adv_name),
                         namespace: eps.namespace(),
+                        labels: Some(BTreeMap::from([(SERVICE_NAME_LABEL.to_string(), svc_name.to_string())])),
                         owner_references: Some(vec![create_owner_reference(eps)]),
                         ..Default::default()
                     },
@@ -218,6 +223,11 @@ async fn reconcile(eps: &EndpointSlice, ctx: Arc<Context>) -> Result<Action, Err
             }
         }
     }
+    // After handling advertisements related to actually allocated addresses,
+    for (_, removable) in existing_adv_map.iter() {
+        bgp_advertisements.delete(&removable.name_any(), &DeleteParams::default()).await.map_err(Error::Kube)?;
+    }
+
     if need_requeue {
         Ok(Action::requeue(Duration::from_secs(10)))
     } else {

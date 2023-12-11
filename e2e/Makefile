@@ -27,7 +27,7 @@ FEATURE =
 .PHONY: test
 test:
 	go test -c ./...
-	$(SUDO) ./e2e.test -test.v
+	./e2e.test -test.v
 	rm -f ./e2e.test
 
 
