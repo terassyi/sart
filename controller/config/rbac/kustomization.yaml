@@ -1,6 +1,0 @@
-resources:
-  - clusterbgp_editor_role.yaml
-  - clusterbgp_viewer_role.yaml
-  - role.yaml
-  - serviceaccount.yaml
-  - role_binding.yaml
