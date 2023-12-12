@@ -4,26 +4,16 @@
 *.pcaping
 .vscode
 *.bin
-*/bin
-/bin
+**/bin
 */*.pem
 */*.cert
 */*.key
-staticd.conf
-gobgp.conf
 logs*
 **/target
 
 **/e2e.test
-devenv/.lab.yaml.bak
 e2e/topology/.*.yaml.bak
-devenv/clab-sart
 e2e/clab-sart
-e2e/controller/manifests/addresspool.yaml
-e2e/controller/manifests/another_addresspool.yaml
-e2e/controller/manifests/peer.yaml
-controller/config/samples/_v1alpha1_bgppeer.yaml
-controller/config/samples/_v1alpha1_addresspool.yaml
 
 manifests/certs/*
 manifests/webhook/admission_webhook_patch.yaml

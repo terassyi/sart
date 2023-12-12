@@ -1,5 +1,0 @@
-resources:
-  - serviceaccount.yaml
-  - role.yaml
-  - role_binding.yaml
-namespace: kube-system
