@@ -4,3 +4,4 @@ imports_granularity = "Crate"
 imports_layout = "HorizontalVertical"
 unstable_features = true
 use_field_init_shorthand = true
+enum_discrim_align_threshold = 20

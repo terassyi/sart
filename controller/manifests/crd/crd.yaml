@@ -1,0 +1,415 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: clusterbgps.sart.terassyi.net
+spec:
+  group: sart.terassyi.net
+  names:
+    categories: []
+    kind: ClusterBgp
+    plural: clusterbgps
+    shortNames: []
+    singular: clusterbgp
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns: []
+    name: v1alpha2
+    schema:
+      openAPIV3Schema:
+        description: Auto-generated derived type for ClusterBgpSpec via `CustomResource`
+        properties:
+          spec:
+            properties:
+              peers:
+                items:
+                  properties:
+                    holdTime:
+                      format: uint64
+                      minimum: 0.0
+                      nullable: true
+                      type: integer
+                    keepaliveTime:
+                      format: uint64
+                      minimum: 0.0
+                      nullable: true
+                      type: integer
+                    localAddr:
+                      nullable: true
+                      type: string
+                    localAsn:
+                      format: uint32
+                      minimum: 0.0
+                      type: integer
+                    localName:
+                      nullable: true
+                      type: string
+                    name:
+                      nullable: true
+                      type: string
+                    neighbor:
+                      properties:
+                        addr:
+                          type: string
+                        asn:
+                          format: uint32
+                          minimum: 0.0
+                          type: integer
+                        name:
+                          nullable: true
+                          type: string
+                      required:
+                      - addr
+                      - asn
+                      type: object
+                    protocol:
+                      enum:
+                      - unknown
+                      - ipv4
+                      - ipv6
+                      type: string
+                    state:
+                      enum:
+                      - NotEstablished
+                      - Idle
+                      - Active
+                      - Connect
+                      - OpenSent
+                      - OpenConfirm
+                      - Established
+                      nullable: true
+                      type: string
+                  required:
+                  - localAsn
+                  - neighbor
+                  - protocol
+                  type: object
+                nullable: true
+                type: array
+              policy:
+                properties:
+                  asnSelector:
+                    nullable: true
+                    properties:
+                      asn:
+                        format: uint32
+                        minimum: 0.0
+                        nullable: true
+                        type: integer
+                      from:
+                        enum:
+                        - label
+                        type: string
+                    required:
+                    - from
+                    type: object
+                  idSelector:
+                    nullable: true
+                    properties:
+                      from:
+                        enum:
+                        - label
+                        type: string
+                      interface:
+                        nullable: true
+                        type: string
+                    required:
+                    - from
+                    type: object
+                  nodeSelector:
+                    description: A label selector is a label query over a set of resources. The result of matchLabels and matchExpressions are ANDed. An empty label selector matches all objects. A null label selector matches no objects.
+                    nullable: true
+                    properties:
+                      matchExpressions:
+                        description: matchExpressions is a list of label selector requirements. The requirements are ANDed.
+                        items:
+                          description: A label selector requirement is a selector that contains values, a key, and an operator that relates the key and values.
+                          properties:
+                            key:
+                              description: key is the label key that the selector applies to.
+                              type: string
+                            operator:
+                              description: operator represents a key's relationship to a set of values. Valid operators are In, NotIn, Exists and DoesNotExist.
+                              type: string
+                            values:
+                              description: values is an array of string values. If the operator is In or NotIn, the values array must be non-empty. If the operator is Exists or DoesNotExist, the values array must be empty. This array is replaced during a strategic merge patch.
+                              items:
+                                type: string
+                              type: array
+                          required:
+                          - key
+                          - operator
+                          type: object
+                        type: array
+                      matchLabels:
+                        additionalProperties:
+                          type: string
+                        description: matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels map is equivalent to an element of matchExpressions, whose key field is "key", the operator is "In", and the values array contains only "value". The requirements are ANDed.
+                        type: object
+                    type: object
+                type: object
+            required:
+            - policy
+            type: object
+          status:
+            nullable: true
+            type: object
+        required:
+        - spec
+        title: ClusterBgp
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: bgppeers.sart.terassyi.net
+spec:
+  group: sart.terassyi.net
+  names:
+    categories: []
+    kind: BgpPeer
+    plural: bgppeers
+    shortNames:
+    - bgpp
+    singular: bgppeer
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns: []
+    name: v1alpha2
+    schema:
+      openAPIV3Schema:
+        description: Auto-generated derived type for BgpPeerSpec via `CustomResource`
+        properties:
+          spec:
+            properties:
+              advertisements:
+                items:
+                  type: string
+                nullable: true
+                type: array
+              endpoint:
+                properties:
+                  timeout:
+                    format: uint64
+                    minimum: 0.0
+                    type: integer
+                  url:
+                    type: string
+                required:
+                - timeout
+                - url
+                type: object
+              peer:
+                properties:
+                  holdTime:
+                    format: uint64
+                    minimum: 0.0
+                    nullable: true
+                    type: integer
+                  keepaliveTime:
+                    format: uint64
+                    minimum: 0.0
+                    nullable: true
+                    type: integer
+                  localAddr:
+                    nullable: true
+                    type: string
+                  localAsn:
+                    format: uint32
+                    minimum: 0.0
+                    type: integer
+                  localName:
+                    nullable: true
+                    type: string
+                  name:
+                    nullable: true
+                    type: string
+                  neighbor:
+                    properties:
+                      addr:
+                        type: string
+                      asn:
+                        format: uint32
+                        minimum: 0.0
+                        type: integer
+                      name:
+                        nullable: true
+                        type: string
+                    required:
+                    - addr
+                    - asn
+                    type: object
+                  protocol:
+                    enum:
+                    - unknown
+                    - ipv4
+                    - ipv6
+                    type: string
+                  state:
+                    enum:
+                    - NotEstablished
+                    - Idle
+                    - Active
+                    - Connect
+                    - OpenSent
+                    - OpenConfirm
+                    - Established
+                    nullable: true
+                    type: string
+                required:
+                - localAsn
+                - neighbor
+                - protocol
+                type: object
+              type:
+                enum:
+                - sart
+                type: string
+            required:
+            - endpoint
+            - peer
+            - type
+            type: object
+          status:
+            nullable: true
+            properties:
+              status:
+                enum:
+                - NotEstablished
+                - Idle
+                - Active
+                - Connect
+                - OpenSent
+                - OpenConfirm
+                - Established
+                type: string
+            required:
+            - status
+            type: object
+        required:
+        - spec
+        title: BgpPeer
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: bgpadvertisements.sart.terassyi.net
+spec:
+  group: sart.terassyi.net
+  names:
+    categories: []
+    kind: BgpAdvertisement
+    plural: bgpadvertisements
+    shortNames: []
+    singular: bgpadvertisement
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns: []
+    name: v1alpha2
+    schema:
+      openAPIV3Schema:
+        description: Auto-generated derived type for BgpAdvertisementSpec via `CustomResource`
+        properties:
+          spec:
+            properties:
+              localPref:
+                format: uint32
+                minimum: 0.0
+                nullable: true
+                type: integer
+              network:
+                type: string
+              origin:
+                nullable: true
+                type: string
+              peers:
+                items:
+                  type: string
+                type: array
+              protocol:
+                enum:
+                - unknown
+                - ipv4
+                - ipv6
+                type: string
+              type:
+                enum:
+                - Pod
+                - LoadBalancer
+                type: string
+            required:
+            - network
+            - peers
+            - protocol
+            - type
+            type: object
+          status:
+            nullable: true
+            properties:
+              status:
+                enum:
+                - NotAdvertised
+                - Advertised
+                - Updating
+                type: string
+            required:
+            - status
+            type: object
+        required:
+        - spec
+        title: BgpAdvertisement
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: addresspools.sart.terassyi.net
+spec:
+  group: sart.terassyi.net
+  names:
+    categories: []
+    kind: AddressPool
+    plural: addresspools
+    shortNames: []
+    singular: addresspool
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns: []
+    name: v1alpha2
+    schema:
+      openAPIV3Schema:
+        description: Auto-generated derived type for AddressPoolSpec via `CustomResource`
+        properties:
+          spec:
+            properties:
+              cidr:
+                type: string
+              type:
+                type: string
+            required:
+            - cidr
+            - type
+            type: object
+          status:
+            nullable: true
+            type: object
+        required:
+        - spec
+        title: AddressPool
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

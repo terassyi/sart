@@ -1,0 +1,44 @@
+name: sart
+topology:
+  kinds:
+    linux:
+      cmd: bash
+  nodes:
+    frr:
+      kind: linux
+      image: frrouting/frr:v8.4.0
+      exec:
+        - ip addr add 169.254.0.1/24 dev net0
+        - touch /etc/frr/vtysh.conf
+        - sed -i -e 's/bgpd=no/bgpd=yes/g' /etc/frr/daemons
+        - /usr/lib/frr/frrinit.sh start
+        # FRR configuration
+        - >-
+          vtysh -c 'conf t'
+          -c 'router bgp 65000'
+          -c '  bgp router-id 169.254.0.1'
+          -c '  bgp bestpath as-path multipath-relax'
+          -c '  neighbor 169.254.0.2 remote-as 65001'
+          -c '  neighbor 169.254.0.2 route-map ACCEPT_ALL in'
+          -c '  address-family ipv4 unicast'
+          -c '    network 10.0.0.0/24'
+          -c '  exit-address-family'
+          -c 'route-map ACCEPT_ALL permit 10'
+          -c '  match ip address prefix-list ALL_ROUTES'
+          -c 'ip prefix-list ALL_ROUTES seq 5 permit 0.0.0.0/0 le 32'
+    frr-debug:
+      kind: linux
+      image: nicolaka/netshoot:latest
+      network-mode: container:clab-sart-frr
+    sart:
+      kind: linux
+      image: sart:dev
+      exec:
+        - ip addr add 169.254.0.2/24 dev net0
+      cmd: sartd bgp
+    sart-debug:
+      kind: linux
+      image: nicolaka/netshoot:latest
+      network-mode: container:clab-sart-sart
+  links:
+    - endpoints: ["frr:net0", "sart:net0"]

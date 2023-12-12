@@ -1,0 +1,15 @@
+apiVersion: sart.terassyi.net/v1alpha2
+kind: BGPPeer
+metadata:
+  labels:
+    bgp: b
+    bgppeer.sart.terassyi.net/node: sart-control-plane
+  name: bgppeer-sample-sart-cp
+spec:
+  addr: 9.9.9.9
+  asn: 65000
+  groups:
+    - to-router0
+  nodeBGPRef: sart-control-plane
+  speaker:
+    path: 127.0.0.1:5000

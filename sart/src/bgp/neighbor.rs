@@ -5,7 +5,8 @@ use tabled::Table;
 
 use crate::{
     bgp::rib::DisplayedPath,
-    cmd::Format,
+    cmd::Output,
+    data::bgp::{Path, Paths, Peers},
     error::Error,
     proto::sart::{
         AddPeerRequest, AddressFamily, DeletePeerRequest, GetNeighborPathRequest,
@@ -34,6 +35,8 @@ pub(crate) enum Action {
         r#as: u32,
         #[arg(long, help = "Set passive open flag")]
         passive: bool,
+        #[arg(long, help = "Name of BGP peer")]
+        name: Option<String>,
     },
     Del {
         addr: String,
@@ -71,7 +74,7 @@ pub(crate) enum Action {
     Policy,
 }
 
-pub(crate) async fn get(endpoint: &str, format: Format, addr: &str) -> Result<(), Error> {
+pub(crate) async fn get(endpoint: &str, format: Output, addr: &str) -> Result<(), Error> {
     let mut client = connect_bgp(endpoint).await;
 
     let _: IpAddr = addr.parse().unwrap();
@@ -83,8 +86,16 @@ pub(crate) async fn get(endpoint: &str, format: Format, addr: &str) -> Result<()
         .map_err(Error::FailedToGetResponse)?;
 
     match format {
-        Format::Json => {}
-        Format::Plain => {
+        Output::Json => {
+            let peer = match &res.get_ref().peer {
+                Some(peer) => peer,
+                None => return Err(Error::InvalidRPCResponse),
+            };
+            let data = crate::data::bgp::Peer::try_from(peer)?;
+            let json_data = serde_json::to_string_pretty(&data).map_err(Error::Serialize)?;
+            println!("{json_data}");
+        }
+        Output::Plain => {
             let peer = match &res.get_ref().peer {
                 Some(peer) => peer,
                 None => return Err(Error::InvalidRPCResponse),
@@ -94,6 +105,7 @@ pub(crate) async fn get(endpoint: &str, format: Format, addr: &str) -> Result<()
                 None => return Err(Error::InvalidRPCResponse),
             };
             println!("BGP Neighbor {}, ", peer.address);
+            println!("  Name {}", peer.name);
             println!("  Remote AS {}", peer.asn);
             println!("  Version: 4");
             println!("  Router Id: {}", peer.router_id);
@@ -149,7 +161,7 @@ pub(crate) async fn get(endpoint: &str, format: Format, addr: &str) -> Result<()
     Ok(())
 }
 
-pub(crate) async fn list(endpoint: &str, format: Format) -> Result<(), Error> {
+pub(crate) async fn list(endpoint: &str, format: Output) -> Result<(), Error> {
     let mut client = connect_bgp(endpoint).await;
     let res = client
         .list_neighbor(ListNeighborRequest {})
@@ -157,11 +169,28 @@ pub(crate) async fn list(endpoint: &str, format: Format) -> Result<(), Error> {
         .map_err(Error::FailedToGetResponse)?;
 
     match format {
-        Format::Json => {}
-        Format::Plain => {
+        Output::Json => {
+            let mut peers = Vec::new();
+            for p in res
+                .get_ref()
+                .peers
+                .iter()
+                .map(crate::data::bgp::Peer::try_from)
+            {
+                match p {
+                    Ok(p) => peers.push(p),
+                    Err(e) => return Err(e),
+                }
+            }
+            let data = Peers { peers };
+            let json_data = serde_json::to_string_pretty(&data).map_err(Error::Serialize)?;
+            println!("{json_data}");
+        }
+        Output::Plain => {
             println!("BGP Neighbor List\n");
             for peer in res.get_ref().peers.iter() {
                 println!("  BGP Neighbor {}, ", peer.address);
+                println!("    Name {}", peer.name);
                 println!("    Remote AS {}", peer.asn);
                 println!("    Version: 4");
                 println!("    Router Id: {}", peer.router_id);
@@ -175,14 +204,26 @@ pub(crate) async fn list(endpoint: &str, format: Format) -> Result<(), Error> {
     Ok(())
 }
 
-pub(crate) async fn add(endpoint: &str, addr: &str, asn: u32, passive: bool) -> Result<(), Error> {
+pub(crate) async fn add(
+    endpoint: &str,
+    name: Option<String>,
+    addr: &str,
+    asn: u32,
+    passive: bool,
+) -> Result<(), Error> {
     let mut client = connect_bgp(endpoint).await;
 
     let address: IpAddr = addr.parse().unwrap();
 
+    let name = match name {
+        Some(n) => n,
+        None => format!("{}/{}", asn, addr),
+    };
+
     let _res = client
         .add_peer(AddPeerRequest {
             peer: Some(Peer {
+                name,
                 asn,
                 address: address.to_string(),
                 router_id: "0.0.0.0".to_string(),
@@ -217,7 +258,7 @@ pub(crate) async fn delete(endpoint: &str, addr: &str) -> Result<(), Error> {
 
 pub(crate) async fn rib(
     endpoint: &str,
-    format: Format,
+    format: Output,
     addr: String,
     kind: Kind,
     afi: Afi,
@@ -238,8 +279,14 @@ pub(crate) async fn rib(
         .map_err(Error::FailedToGetResponse)?;
 
     match format {
-        Format::Json => {}
-        Format::Plain => {
+        Output::Json => {
+            let data = Paths {
+                paths: res.get_ref().paths.iter().map(Path::from).collect(),
+            };
+            let json_data = serde_json::to_string_pretty(&data).map_err(Error::Serialize)?;
+            println!("{json_data}");
+        }
+        Output::Plain => {
             let display: Vec<DisplayedPath> = res
                 .get_ref()
                 .paths

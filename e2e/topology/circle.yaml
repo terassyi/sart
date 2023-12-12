@@ -1,0 +1,47 @@
+name: sart
+topology:
+  kinds:
+    linux:
+      cmd: bash
+  nodes:
+    gobgp0:
+      kind: linux
+      image: ghcr.io/terassyi/terakoya:0.1.2
+      binds:
+        - configs/circle/gobgp0.toml:/etc/gobgp.conf
+      cmd: gobgpd -f /etc/gobgp.conf
+      network-mode: container:clab-sart-gobgp0-init
+    gobgp0-init:
+      kind: linux
+      image: nicolaka/netshoot:latest
+      exec:
+        - ip addr add 169.254.0.1/24 dev net0
+        - ip addr add 169.254.1.1/24 dev net1
+    gobgp1:
+      kind: linux
+      image: ghcr.io/terassyi/terakoya:0.1.2
+      binds:
+        - configs/circle/gobgp1.toml:/etc/gobgp.conf
+      cmd: gobgpd -f /etc/gobgp.conf
+      network-mode: container:clab-sart-gobgp1-init
+    gobgp1-init:
+      kind: linux
+      image: nicolaka/netshoot:latest
+      exec:
+        - ip addr add 169.254.1.2/24 dev net0
+        - ip addr add 169.254.2.2/24 dev net1
+    sart:
+      kind: linux
+      image: sart:dev
+      exec:
+        - ip addr add 169.254.0.2/24 dev net0
+        - ip addr add 169.254.2.1/24 dev net1
+      cmd: sartd bgp
+    sart-debug:
+      kind: linux
+      image: nicolaka/netshoot:latest
+      network-mode: container:clab-sart-sart
+  links:
+    - endpoints: ["gobgp0:net0", "sart:net0"]
+    - endpoints: ["gobgp0:net1", "gobgp1:net0"]
+    - endpoints: ["sart:net1", "gobgp1:net1"]

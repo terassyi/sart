@@ -1,4 +1,4 @@
-ARG RUST_VERSION=1.68.0
+ARG RUST_VERSION=1.74.1
 
 FROM rust:${RUST_VERSION} as builder
 
@@ -6,7 +6,7 @@ WORKDIR /home
 COPY . /home/
 
 RUN apt update -y && \
-	apt install -y tcpdump iproute2 iputils-ping net-tools protobuf-compiler libprotobuf-dev
+	apt install -y tcpdump iproute2 iputils-ping net-tools protobuf-compiler libprotobuf-dev mold
 RUN make build
 
 FROM debian:stable

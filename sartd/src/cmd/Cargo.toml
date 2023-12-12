@@ -1,0 +1,11 @@
+[package]
+name = "sartd-cmd"
+version = "0.0.5"
+edition = "2021"
+
+[dependencies]
+clap = { version = "4.1.6", features = ["derive"] }
+sartd-bgp = { path = "../bgp" }
+sartd-fib = { path = "../fib" }
+sartd-kubernetes = { path = "../kubernetes" }
+sartd-trace = { path = "../trace" }

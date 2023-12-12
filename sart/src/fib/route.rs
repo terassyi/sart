@@ -1,7 +1,7 @@
 use clap::Parser;
 use tabled::{Table, Tabled};
 
-use crate::{cmd::Format, error::Error, proto::sart::GetRoutesRequest, rpc::connect_fib};
+use crate::{cmd::Output, error::Error, proto::sart::GetRoutesRequest, rpc::connect_fib};
 
 use crate::proto::sart::Route;
 
@@ -10,7 +10,7 @@ pub(crate) struct RouteCmd {
     pub name: String,
 }
 
-pub(crate) async fn get(endpoint: &str, format: Format, name: String) -> Result<(), Error> {
+pub(crate) async fn get(endpoint: &str, format: Output, name: String) -> Result<(), Error> {
     let mut client = connect_fib(endpoint).await;
 
     let res = client
@@ -19,8 +19,8 @@ pub(crate) async fn get(endpoint: &str, format: Format, name: String) -> Result<
         .map_err(Error::FailedToGetResponse)?;
 
     match format {
-        Format::Json => {}
-        Format::Plain => {
+        Output::Json => {}
+        Output::Plain => {
             let display: Vec<DisplayedRoute> = res
                 .get_ref()
                 .routes
