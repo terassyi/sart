@@ -1,38 +1,71 @@
 ![GitHub release](https://img.shields.io/github/release/terassyi/sart.svg?maxAge=60)
 ![CI](https://github.com/terassyi/sart/workflows/ci/badge.svg)
-![Go Report Card](https://goreportcard.com/badge/github.com/terassyi/sart/controller)
 
 
 # Sart
 
-Sart contains BGP speaker implemented in Rust and Kubernetes network load balancer.
+Sart is the Kubernetes network load-balancer using BGP in Rust.
 
-> **Warning**
-> This project is experimental.
+This project is inspired by [Metallb](https://github.com/metallb/metallb).
 
-### sartd
+> [!WARNING]
+> This project is under experimental.
 
-Sartd is a simple BGP daemon and Fib manager implementation written in Rust.
-Sartd-BGP is based on [RFC 4271](https://datatracker.ietf.org/doc/html/rfc4271).
+## Features
 
+### Allocating LoadBalancer addresses
 
-### sart-controller
+Sart can create multiple AddressPools to define the range of IP addresses usable for Kubernetes service type LoadBalancer.
 
-Sart-controller is a Kubernetes load balancer like [metallb](https://github.com/metallb/metallb).
+Sart assigns addresses picked from created AddressPools to LoadBaldncer automatically.
+And we can specify the pool to allocate with the annotation `sart.terassyi.net/addresspool`.
 
-## Documentation
+We can also control which addresses we allocate to the LoadBalancer with the annotation `sart.terassyi.net/loadBalancerIPs`.
+Moreover, we can assign multiple addresses(even if these belong to different pools) to one LoadBalancer.
 
-- Concept
-- Sart
-  - [Design](docs/sartd/design.md)
-  - [Installation](docs/sartd/install.md)
-  - [How to Use](docs/sartd/how_to_use.md)
-  - [Quick Start](docs/sartd/quick_start.md)
-- Sart Controller
-  - [Design](docs/controller/design.md)
-  - [Installation](docs/controller/install.md)
-  - [How to Use](docs/controller/how_to_use.md)
-  - [Quick Start](docs/controller/quick_start.md)
+### Exporting LoadBalancer addresses using BGP
+
+To work on this, we need BGP speakers on each node.
+Sart implements the BGP speaker feature and provides its abstraction layer as Kubernetes Custom Resources.
+
+Please see detail manifests in [manifests/sample](manifests/sample/).
+
+## Quick Start
+
+Sart can run on the container based environment using [kind](https://kind.sigs.k8s.io/) and [containerlab](https://containerlab.dev/).
+
+And we also need to [install Rust and Cargo](https://doc.rust-lang.org/cargo/getting-started/installation.html).
+
+First, we have to create the test environment. 
+```console
+sart$ make build-image
+sart$ make certs
+sart$ make crd
+sart$ cd e2e
+sart$ make setup
+sart/e2e$ make kubernetes
+sart/e2e$ make install-sart
+sart/e2e$ make sample # create sample workloads
+```
+
+After that, we can confirm `EXTENAL-IPs` are assigned and the connectivity.
+
+```console
+sart/e2e$ kubectl -n test get svc
+NAME               TYPE           CLUSTER-IP       EXTERNAL-IP   PORT(S)        AGE
+app-svc-cluster    LoadBalancer   10.101.96.120    10.0.1.0      80:30870/TCP   2m48s
+app-svc-cluster2   LoadBalancer   10.101.153.185   10.0.100.20   80:32601/TCP   2m48s
+app-svc-local      LoadBalancer   10.101.140.238   10.0.1.1      80:31642/TCP   2m48s
+```
+
+```console
+sart/e2e$ docker exec -it clab-sart-client0 curl http://10.0.1.0
+<!DOCTYPE html>
+<html>
+<head>
+<title>Welcome to nginx!</title>
+...
+```
 
 ## License
 
