@@ -1,6 +1,6 @@
-# Design of sart-controller
+# Design of sart kubernetes custom controller 
 
-Sart-controller is a self made Kubernetes network load balancer for announcing [externalIP of Service](https://kubernetes.io/docs/concepts/services-networking/service/#loadbalancer).
+Sart-controller is a self made Kubernetes network load balancer for announcing [addresses Service type LoadBalancer](https://kubernetes.io/docs/concepts/services-networking/service/#loadbalancer).
 
 [metallb](https://github.com/metallb/metallb) has a similar feature.
 
@@ -8,10 +8,9 @@ To announce load balancer IP addresses to the external system, sart-controller u
 So we need BGP speakers outside the Kubernetes cluster and also BGP speaker inside the cluster.
 Local(inside) BGP speakers are on the each nodes as DaemonSet.
 And sart-controller controls these speakers via API.
-Now, we can only use sartd-bgp as local speakers.
 
 > **Note**
-> Sart-controller is an alpha system.
+> Sart is an alpha system.
 
 ## CRD based architecture
 

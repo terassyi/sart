@@ -4,12 +4,13 @@
 
 # Sart
 
-Sart is the Kubernetes network load-balancer using BGP in Rust.
+Sart is the Kubernetes network load-balancer and CNI plugin for Kubernetes using BGP in Rust.
 
-This project is inspired by [Metallb](https://github.com/metallb/metallb).
+This project is inspired by [Metallb](https://github.com/metallb/metallb) and [Coil](https://github.com/cybozu-go/coil).
 
 > [!WARNING]
 > This project is under experimental.
+> CNI feature is not implemented yet.
 
 ## Features
 
@@ -36,7 +37,7 @@ Sart can run on the container based environment using [kind](https://kind.sigs.k
 
 And we also need to [install Rust and Cargo](https://doc.rust-lang.org/cargo/getting-started/installation.html).
 
-First, we have to create the test environment. 
+First, we have to create the test environment.
 ```console
 sart$ make build-image
 sart$ make certs
