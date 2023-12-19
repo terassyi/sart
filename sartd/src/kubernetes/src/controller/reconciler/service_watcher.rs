@@ -105,7 +105,11 @@ async fn reconcile(
     // Get already allocated addresses
     let actual_addrs = get_allocated_lb_addrs(svc).unwrap_or_default();
 
-    let allocated_addrs = actual_addrs.iter().map(|a| a.to_string()).collect::<Vec<String>>().join(",");
+    let allocated_addrs = actual_addrs
+        .iter()
+        .map(|a| a.to_string())
+        .collect::<Vec<String>>()
+        .join(",");
     let allocated_addr_str = allocated_addrs.as_str();
 
     // Sync the externalTrafficPolicy value and allocation
@@ -134,18 +138,23 @@ async fn reconcile(
                 .annotations_mut()
                 .insert(SERVICE_ETP_ANNOTATION.to_string(), e.to_string());
             need_update = true;
-
         }
         // sync allocation
-        match new_eps.annotations_mut().get_mut(SERVICE_ALLOCATION_ANNOTATION) {
+        match new_eps
+            .annotations_mut()
+            .get_mut(SERVICE_ALLOCATION_ANNOTATION)
+        {
             Some(val) => {
                 if allocated_addr_str.ne(val.as_str()) {
                     *val = allocated_addr_str.to_string();
                     need_update = true;
                 }
-            },
+            }
             None => {
-                new_eps.annotations_mut().insert(SERVICE_ALLOCATION_ANNOTATION.to_string(), allocated_addr_str.to_string());
+                new_eps.annotations_mut().insert(
+                    SERVICE_ALLOCATION_ANNOTATION.to_string(),
+                    allocated_addr_str.to_string(),
+                );
                 need_update = true;
             }
         }
@@ -228,22 +237,28 @@ async fn reconcile(
         "Update service status by the allocation lb address"
     );
 
-    let new_allocated_addrs = get_allocated_lb_addrs(&new_svc).map(|v| v.iter().map(|a| a.to_string()).collect::<Vec<String>>()).map(|v| v.join(","));
+    let new_allocated_addrs = get_allocated_lb_addrs(&new_svc)
+        .map(|v| v.iter().map(|a| a.to_string()).collect::<Vec<String>>())
+        .map(|v| v.join(","));
     match new_allocated_addrs {
         Some(addrs) => {
             for eps in epss.iter() {
                 let mut new_eps = eps.clone();
-                new_eps.annotations_mut().insert(SERVICE_ALLOCATION_ANNOTATION.to_string(), addrs.clone());
+                new_eps
+                    .annotations_mut()
+                    .insert(SERVICE_ALLOCATION_ANNOTATION.to_string(), addrs.clone());
                 endpointslice_api
                     .replace(&eps.name_any(), &PostParams::default(), &new_eps)
                     .await
                     .map_err(Error::Kube)?;
             }
-        },
+        }
         None => {
             for eps in epss.iter() {
                 let mut new_eps = eps.clone();
-                new_eps.annotations_mut().remove(SERVICE_ALLOCATION_ANNOTATION);
+                new_eps
+                    .annotations_mut()
+                    .remove(SERVICE_ALLOCATION_ANNOTATION);
                 endpointslice_api
                     .replace(&eps.name_any(), &PostParams::default(), &new_eps)
                     .await
@@ -439,7 +454,7 @@ fn update_allocations(
             MarkedAllocation::Allocate(addr_opt) => match addr_opt {
                 Some(addr) => {
                     // Allocate the specified address.
-                    let addr = block.allocator.allocate(addr, true).map_err(Error::Ipam)?;
+                    let addr = block.allocator.allocate(addr, false).map_err(Error::Ipam)?;
                     remained.push(addr);
                 }
                 None => {
