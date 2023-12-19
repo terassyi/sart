@@ -39,20 +39,20 @@ And we also need to [install Rust and Cargo](https://doc.rust-lang.org/cargo/get
 
 First, we have to create the test environment.
 ```console
-sart$ make build-image
-sart$ make certs
-sart$ make crd
-sart$ cd e2e
-sart$ make setup
-sart/e2e$ make kubernetes
-sart/e2e$ make install-sart
-sart/e2e$ make sample # create sample workloads
+$ make build-image
+$ make certs
+$ make crd
+$ cd e2e
+$ make setup
+$ make kubernetes
+$ make install-sart
+$ make sample # create sample workloads
 ```
 
 After that, we can confirm `EXTENAL-IPs` are assigned and the connectivity.
 
 ```console
-sart/e2e$ kubectl -n test get svc
+$ kubectl -n test get svc
 NAME               TYPE           CLUSTER-IP       EXTERNAL-IP   PORT(S)        AGE
 app-svc-cluster    LoadBalancer   10.101.96.120    10.0.1.0      80:30870/TCP   2m48s
 app-svc-cluster2   LoadBalancer   10.101.153.185   10.0.100.20   80:32601/TCP   2m48s
@@ -60,7 +60,7 @@ app-svc-local      LoadBalancer   10.101.140.238   10.0.1.1      80:31642/TCP   
 ```
 
 ```console
-sart/e2e$ docker exec -it clab-sart-client0 curl http://10.0.1.0
+$ docker exec -it clab-sart-client0 curl http://10.0.1.0
 <!DOCTYPE html>
 <html>
 <head>
