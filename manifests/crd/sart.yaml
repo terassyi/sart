@@ -583,6 +583,10 @@ spec:
       jsonPath: .spec.blockSize
       name: BLOCKSIZE
       type: integer
+    - description: auto assign
+      jsonPath: .spec.autoAssign
+      name: AUTO
+      type: boolean
     - description: Date from created
       jsonPath: .metadata.creationTimestamp
       name: AGE

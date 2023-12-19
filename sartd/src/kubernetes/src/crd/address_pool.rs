@@ -18,6 +18,7 @@ pub const MAX_BLOCK_SIZE: u32 = 32;
     printcolumn = r#"{"name":"CIDR", "type":"string", "description":"CIDR of Address pool", "jsonPath":".spec.cidr"}"#,
     printcolumn = r#"{"name":"TYPE", "type":"string", "description":"Type of Address pool", "jsonPath":".spec.type"}"#,
     printcolumn = r#"{"name":"BLOCKSIZE", "type":"integer", "description":"block size of CIDR", "jsonPath":".spec.blockSize"}"#,
+    printcolumn = r#"{"name":"AUTO", "type":"boolean", "description":"auto assign", "jsonPath":".spec.autoAssign"}"#,
     printcolumn = r#"{"name":"AGE", "type":"date", "description":"Date from created", "jsonPath":".metadata.creationTimestamp"}"#
 )]
 #[serde(rename_all = "camelCase")]
