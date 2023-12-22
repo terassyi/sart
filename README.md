@@ -37,7 +37,10 @@ Sart can run on the container based environment using [kind](https://kind.sigs.k
 
 And we also need to [install Rust and Cargo](https://doc.rust-lang.org/cargo/getting-started/installation.html).
 
-First, we have to create the test environment.
+First, we have to create the test environment and run e2e tests.
+
+For more information about e2e tests, please see [e2e/README.md](./e2e/README.md)
+
 ```console
 $ make build-image
 $ make certs
@@ -46,17 +49,19 @@ $ cd e2e
 $ make setup
 $ make kubernetes
 $ make install-sart
-$ make sample # create sample workloads
+$ make kubernetes-e2e 
 ```
 
 After that, we can confirm `EXTENAL-IPs` are assigned and the connectivity.
 
 ```console
 $ kubectl -n test get svc
-NAME               TYPE           CLUSTER-IP       EXTERNAL-IP   PORT(S)        AGE
-app-svc-cluster    LoadBalancer   10.101.96.120    10.0.1.0      80:30870/TCP   2m48s
-app-svc-cluster2   LoadBalancer   10.101.153.185   10.0.100.20   80:32601/TCP   2m48s
-app-svc-local      LoadBalancer   10.101.140.238   10.0.1.1      80:31642/TCP   2m48s
+NAME               TYPE           CLUSTER-IP       EXTERNAL-IP           PORT(S)        AGE
+app-svc-cluster    LoadBalancer   10.101.239.94    10.0.1.0,10.0.100.0   80:31840/TCP   39m
+app-svc-cluster2   LoadBalancer   10.101.200.19    10.0.100.20           80:31421/TCP   39m
+app-svc-cluster3   LoadBalancer   10.101.93.36     10.0.1.2              80:32415/TCP   36m
+app-svc-local      LoadBalancer   10.101.201.125   10.0.1.1              80:30250/TCP   39m
+app-svc-local2     LoadBalancer   10.101.21.50     10.0.100.1            80:32374/TCP   36m
 ```
 
 ```console
