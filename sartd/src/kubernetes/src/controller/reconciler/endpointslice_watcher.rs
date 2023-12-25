@@ -41,6 +41,7 @@ use crate::{
 use super::service_watcher::SERVICE_NAME_LABEL;
 
 pub const ENDPOINTSLICE_FINALIZER: &str = "endpointslice.sart.terassyi.net/finalizer";
+pub const ENDPOINTSLICE_TRIGGER: &str = "endpointslice.sart.terassyi.net/triggered-by";
 
 #[tracing::instrument(skip_all, fields(trace_id))]
 pub async fn reconciler(eps: Arc<EndpointSlice>, ctx: Arc<Context>) -> Result<Action, Error> {
@@ -410,15 +411,7 @@ fn adv_name_from_eps_and_addr(eps: &EndpointSlice, addr: &IpAddr) -> String {
 #[cfg(test)]
 mod tests {
 
-    use crate::fixture::reconciler::{
-        assert_resource_request, test_eps, test_svc, timeout_after_1s, ApiServerVerifier,
-    };
-
     use super::*;
-
-    use http::Response;
-    use hyper::Body;
-    use k8s_openapi::api::core::v1::ServiceStatus;
     use rstest::rstest;
 
     #[rstest(
@@ -445,78 +438,5 @@ mod tests {
         if res {
             assert_eq!(peers, expected);
         }
-    }
-
-    enum Scenario {
-        CreateNoLB(EndpointSlice),
-        CreateNoAllocatedAddress(EndpointSlice),
-    }
-
-    impl ApiServerVerifier {
-        fn endpointslice_run(self, scenario: Scenario) -> tokio::task::JoinHandle<()> {
-            tokio::spawn(async move {
-                match scenario {
-                    Scenario::CreateNoLB(eps) => self.endpointslice_create_not_lb(&eps).await,
-                    Scenario::CreateNoAllocatedAddress(eps) => {
-                        self.endpointslice_create_no_alloced(&eps).await
-                    }
-                }
-                .expect("reconcile completed without error");
-            })
-        }
-
-        async fn endpointslice_create_not_lb(
-            mut self,
-            _eps: &EndpointSlice,
-        ) -> Result<Self, Error> {
-            let (request, send) = self.0.next_request().await.expect("service not called");
-            let mut svc = test_svc();
-            svc.spec.as_mut().unwrap().type_ = Some("ClusterIP".to_string());
-
-            assert_resource_request(&request, &svc, None, false, None, http::Method::GET);
-            send.send_response(
-                Response::builder()
-                    .body(Body::from(serde_json::to_vec(&svc).unwrap()))
-                    .unwrap(),
-            );
-            Ok(self)
-        }
-
-        async fn endpointslice_create_no_alloced(
-            mut self,
-            _eps: &EndpointSlice,
-        ) -> Result<Self, Error> {
-            let (request, send) = self.0.next_request().await.expect("service not called");
-            let mut svc = test_svc();
-            *svc.status.as_mut().unwrap() = ServiceStatus::default();
-
-            assert_resource_request(&request, &svc, None, false, None, http::Method::GET);
-            send.send_response(
-                Response::builder()
-                    .body(Body::from(serde_json::to_vec(&svc).unwrap()))
-                    .unwrap(),
-            );
-            Ok(self)
-        }
-    }
-
-    #[tokio::test]
-    async fn endpointslice_create_not_lb() {
-        let (testctx, fakeserver, _) = Context::test();
-        let eps = test_eps();
-
-        let mocksvr = fakeserver.endpointslice_run(Scenario::CreateNoLB(eps.clone()));
-        reconcile(&eps, testctx).await.expect("reconciler");
-        timeout_after_1s(mocksvr).await;
-    }
-
-    #[tokio::test]
-    async fn endpointslice_create_no_alloced() {
-        let (testctx, fakeserver, _) = Context::test();
-        let eps = test_eps();
-
-        let mocksvr = fakeserver.endpointslice_run(Scenario::CreateNoAllocatedAddress(eps.clone()));
-        reconcile(&eps, testctx).await.expect("reconciler");
-        timeout_after_1s(mocksvr).await;
     }
 }

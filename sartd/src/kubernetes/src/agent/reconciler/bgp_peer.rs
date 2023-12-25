@@ -1,8 +1,9 @@
 use std::{sync::Arc, time::Duration};
 
 use futures::StreamExt;
+use k8s_openapi::api::discovery::v1::EndpointSlice;
 use kube::{
-    api::{ListParams, PostParams},
+    api::{ListParams, Patch, PatchParams, PostParams},
     runtime::{
         controller::Action,
         finalizer::{finalizer, Event},
@@ -15,13 +16,16 @@ use kube::{
 use crate::{
     agent::{bgp::speaker, error::Error},
     context::{error_policy, Context, State},
+    controller::reconciler::endpointslice_watcher::ENDPOINTSLICE_TRIGGER,
     crd::{
+        bgp_advertisement::{AdvertiseStatus, BGPAdvertisement},
         bgp_peer::{
             BGPPeer, BGPPeerCondition, BGPPeerConditionStatus, BGPPeerSlim, BGPPeerStatus,
             BGP_PEER_FINALIZER, BGP_PEER_NODE_LABEL,
         },
         node_bgp::NodeBGP,
     },
+    util::get_namespace,
 };
 
 use super::node_bgp::{DEFAULT_SPEAKER_TIMEOUT, ENV_HOSTNAME};
@@ -68,6 +72,9 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
     // add peer
     let mut new_bp = bp.clone();
 
+    let mut established = false;
+    let mut reset = false;
+
     // create or update peer and its status
     match speaker_client
         .get_neighbor(sartd_proto::sart::GetNeighborRequest {
@@ -89,7 +96,8 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
                         Some(status) => match status.conditions.as_mut() {
                             Some(conditions) => {
                                 if let Some(cond) = conditions.last() {
-                                    if cond.status as i32 != peer.state {
+                                    let status = cond.status;
+                                    if status as i32 != peer.state {
                                         let new_state =
                                             BGPPeerConditionStatus::try_from(peer.state)
                                                 .map_err(Error::CRD)?;
@@ -102,11 +110,27 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
                                             "Peer state is changed"
                                         );
                                         conditions.push(BGPPeerCondition {
-                                            status: BGPPeerConditionStatus::try_from(peer.state)
+                                            status: BGPPeerConditionStatus::try_from(status as i32)
                                                 .map_err(Error::CRD)?,
-                                            reason: "".to_string(),
+                                            reason: "Synchronized by BGPPeer reconciler"
+                                                .to_string(),
                                         });
                                         need_status_update = true;
+                                        if peer
+                                            .state
+                                            .eq(&(sartd_proto::sart::peer::State::Established
+                                                as i32))
+                                        {
+                                            established = true;
+                                        }
+                                        if status.eq(&BGPPeerConditionStatus::Established)
+                                            && peer
+                                                .state
+                                                .ne(&(sartd_proto::sart::peer::State::Established
+                                                    as i32))
+                                        {
+                                            reset = true;
+                                        }
                                     }
                                 }
                                 // when BGPPeer's status and actual peer state got from the speaker is same, do nothing
@@ -123,7 +147,7 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
                                 );
                                 status.conditions = Some(vec![BGPPeerCondition {
                                     status: state,
-                                    reason: "".to_string(),
+                                    reason: "Synchronized by BGPPeer reconciler".to_string(),
                                 }]);
                                 need_status_update = true;
                             }
@@ -139,9 +163,10 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
                                 "Peer state is initialized"
                             );
                             new_bp.status = Some(BGPPeerStatus {
+                                backoff: 0,
                                 conditions: Some(vec![BGPPeerCondition {
                                     status: state,
-                                    reason: "".to_string(),
+                                    reason: "Synchronized by BGPPeer reconciler".to_string(),
                                 }]),
                             });
                             need_status_update = true;
@@ -162,13 +187,15 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
                     addr = bp.spec.addr,
                     "Update BGPPeer status"
                 );
-                if let Err(e) = api.replace_status(
-                    &bp.name_any(),
-                    &PostParams::default(),
-                    serde_json::to_vec(&new_bp).map_err(Error::Serialization)?,
-                )
-                .await
-                .map_err(Error::Kube) {
+                if let Err(e) = api
+                    .replace_status(
+                        &bp.name_any(),
+                        &PostParams::default(),
+                        serde_json::to_vec(&new_bp).map_err(Error::Serialization)?,
+                    )
+                    .await
+                    .map_err(Error::Kube)
+                {
                     tracing::warn!(error=?e, "failed to update peer status");
                     return Ok(Action::requeue(Duration::from_secs(10)));
                 };
@@ -236,11 +263,77 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
         }
     }
 
+    if established {
+        // for newly established peer
+        tracing::info!(
+            name = bp.name_any(),
+            asn = bp.spec.asn,
+            addr = bp.spec.addr,
+            "Reflect the newly established peer to existing BGPAdvertisements"
+        );
+        let eps_api = Api::<EndpointSlice>::all(ctx.client.clone());
+        let mut eps_list = eps_api
+            .list(&ListParams::default())
+            .await
+            .map_err(Error::Kube)?;
+        for eps in eps_list.iter_mut() {
+            eps.labels_mut()
+                .insert(ENDPOINTSLICE_TRIGGER.to_string(), bp.name_any());
+            let ns_eps_api = Api::<EndpointSlice>::namespaced(
+                ctx.client.clone(),
+                &get_namespace::<EndpointSlice>(eps).map_err(Error::KubeLibrary)?,
+            );
+            ns_eps_api
+                .replace(&eps.name_any(), &PostParams::default(), eps)
+                .await
+                .map_err(Error::Kube)?;
+        }
+    }
+
+    if reset {
+        // A peer is no longer established.
+        tracing::info!(
+            name = bp.name_any(),
+            asn = bp.spec.asn,
+            addr = bp.spec.addr,
+            "Reset BGPAdvertisements"
+        );
+        let ba_api = Api::<BGPAdvertisement>::all(ctx.client.clone());
+        let mut ba_list = ba_api
+            .list(&ListParams::default())
+            .await
+            .map_err(Error::Kube)?;
+        for ba in ba_list.iter_mut() {
+            if let Some(status) = ba.status.as_mut() {
+                if let Some(peers) = status.peers.as_mut() {
+                    if let Some(adv_status) = peers.get_mut(&bp.name_any()) {
+                        if AdvertiseStatus::Advertised.eq(adv_status) {
+                            *adv_status = AdvertiseStatus::NotAdvertised;
+                            let ns_ba_api = Api::<BGPAdvertisement>::namespaced(
+                                ctx.client.clone(),
+                                &get_namespace::<BGPAdvertisement>(ba)
+                                    .map_err(Error::KubeLibrary)?,
+                            );
+                            ns_ba_api
+                                .replace_status(
+                                    &ba.name_any(),
+                                    &PostParams::default(),
+                                    serde_json::to_vec(&ba).map_err(Error::Serialization)?,
+                                )
+                                .await
+                                .map_err(Error::Kube)?;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     Ok(Action::await_change())
 }
 
 #[tracing::instrument(skip_all, fields(trace_id))]
-async fn cleanup(_api: &Api<BGPPeer>, bp: &BGPPeer, _ctx: Arc<Context>) -> Result<Action, Error> {
+async fn cleanup(_api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Result<Action, Error> {
     tracing::info!(name = bp.name_any(), "Cleanup BGPPeer");
 
     let timeout = match bp.spec.speaker.timeout {
@@ -273,6 +366,54 @@ async fn cleanup(_api: &Api<BGPPeer>, bp: &BGPPeer, _ctx: Arc<Context>) -> Resul
         }
     }
 
+    // sync NodeBGP
+    let node_bgp_api = Api::<NodeBGP>::all(ctx.client.clone());
+    let mut nb = node_bgp_api
+        .get(&bp.spec.node_bgp_ref)
+        .await
+        .map_err(Error::Kube)?;
+    if let Some(peers) = nb.spec.peers.as_mut() {
+        peers.retain(|p| p.name.ne(bp.name_any().as_str()));
+
+        node_bgp_api
+            .replace(&nb.name_any(), &PostParams::default(), &nb)
+            .await
+            .map_err(Error::Kube)?;
+    }
+
+    // sync BGPAdvertisement
+    tracing::info!(
+        name = bp.name_any(),
+        asn = bp.spec.asn,
+        addr = bp.spec.addr,
+        "Clean up the peer from BGPAdvertisements"
+    );
+    let ba_api = Api::<BGPAdvertisement>::all(ctx.client.clone());
+    let mut ba_list = ba_api
+        .list(&ListParams::default())
+        .await
+        .map_err(Error::Kube)?;
+    tracing::warn!(name = bp.name_any(), "Reach here");
+    for ba in ba_list.iter_mut() {
+        if let Some(status) = ba.status.as_mut() {
+            if let Some(peers) = status.peers.as_mut() {
+                if peers.remove(&bp.name_any()).is_some() {
+                    let ns_ba_api = Api::<BGPAdvertisement>::namespaced(
+                        ctx.client.clone(),
+                        &get_namespace::<BGPAdvertisement>(ba).map_err(Error::KubeLibrary)?,
+                    );
+                    ns_ba_api
+                        .replace_status(
+                            &ba.name_any(),
+                            &PostParams::default(),
+                            serde_json::to_vec(&ba).map_err(Error::Serialization)?,
+                        )
+                        .await
+                        .map_err(Error::Kube)?;
+                }
+            }
+        }
+    }
     Ok(Action::await_change())
 }
 

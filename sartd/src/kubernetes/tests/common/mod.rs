@@ -9,12 +9,8 @@ use sartd_kubernetes::crd::{
     },
     bgp_peer::{BGPPeer, BGPPeerSlim, BGPPeerSpec, BGP_PEER_FINALIZER},
     cluster_bgp::{SpeakerConfig, ASN_LABEL},
-    node_bgp::{NodeBGP, NodeBGPSpec, NODE_BGP_FINALIZER},
+    node_bgp::{NodeBGP, NodeBGPSpec, NodeBGPStatus, NODE_BGP_FINALIZER},
 };
-
-pub fn hoge() {
-    println!("hoge")
-}
 
 // Make sure kind binary is in here
 const KIND_BIN: &str = "../../../bin/kind";
@@ -84,6 +80,13 @@ fn install_crd() {
     output_result(out);
 }
 
+pub fn kubectl_label(resource: &str, name: &str, label: &str) {
+    let out = std::process::Command::new(KUBECTL_BIN)
+        .args(["label", resource, "--overwrite", name, label])
+        .output()
+        .expect("failed to add label");
+}
+
 fn output_result(out: std::process::Output) {
     if out.status.success() {
         println!("STDOUT");
@@ -113,7 +116,10 @@ pub fn test_node_bgp() -> NodeBGP {
                 spec: BGPPeerSpec::default(),
             }]),
         },
-        status: None,
+        status: Some(NodeBGPStatus {
+            backoff: 0,
+            ..Default::default()
+        }),
     }
 }
 

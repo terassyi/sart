@@ -32,3 +32,22 @@ pub fn get_namespaced_name<T: Resource<DynamicType = ()>>(resource: &T) -> Strin
 pub fn escape_slash(s: &str) -> String {
     s.replace('/', "~1")
 }
+
+pub fn get_diff(prev: &[String], now: &[String]) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let removed = prev
+        .iter()
+        .filter(|p| !now.contains(p))
+        .cloned()
+        .collect::<Vec<String>>();
+    let added = now
+        .iter()
+        .filter(|n| !prev.contains(n) && !removed.contains(n))
+        .cloned()
+        .collect::<Vec<String>>();
+    let shared = prev
+        .iter()
+        .filter(|p| now.contains(p))
+        .cloned()
+        .collect::<Vec<String>>();
+    (added, shared, removed)
+}

@@ -27,13 +27,13 @@ FEATURE =
 .PHONY: bgp-e2e
 bgp-e2e:
 	go test -c ./...
-	$(SUDO) TARGET=bgp ./e2e.test -test.v
+	$(SUDO) TARGET=bgp ./e2e.test --ginkgo.v -test.v
 	rm -f ./e2e.test
 
 .PHONY: kubernetes-e2e
 kubernetes-e2e:
 	go test -c ./...
-	TARGET=kubernetes ./e2e.test -test.v
+	TARGET=kubernetes ./e2e.test --ginkgo.v -test.v
 	rm -f ./e2e.test
 
 .PHONY: topology

@@ -20,7 +20,7 @@ use crate::{
     context::{error_policy, ContextWith, Ctx, State},
     controller::error::Error,
     crd::address_pool::{ADDRESS_POOL_ANNOTATION, LOADBALANCER_ADDRESS_ANNOTATION},
-    util::get_namespace,
+    util::{get_diff, get_namespace},
 };
 use sartd_ipam::manager::{AllocatorSet, Block};
 
@@ -615,24 +615,24 @@ fn clear_svc_lb_addrs(svc: &Service, released: &[IpAddr]) -> Service {
     new_svc
 }
 
-fn get_diff(prev: &[String], now: &[String]) -> (Vec<String>, Vec<String>, Vec<String>) {
-    let removed = prev
-        .iter()
-        .filter(|p| !now.contains(p))
-        .cloned()
-        .collect::<Vec<String>>();
-    let added = now
-        .iter()
-        .filter(|n| !prev.contains(n) && !removed.contains(n))
-        .cloned()
-        .collect::<Vec<String>>();
-    let shared = prev
-        .iter()
-        .filter(|p| now.contains(p))
-        .cloned()
-        .collect::<Vec<String>>();
-    (added, shared, removed)
-}
+// fn get_diff(prev: &[String], now: &[String]) -> (Vec<String>, Vec<String>, Vec<String>) {
+//     let removed = prev
+//         .iter()
+//         .filter(|p| !now.contains(p))
+//         .cloned()
+//         .collect::<Vec<String>>();
+//     let added = now
+//         .iter()
+//         .filter(|n| !prev.contains(n) && !removed.contains(n))
+//         .cloned()
+//         .collect::<Vec<String>>();
+//     let shared = prev
+//         .iter()
+//         .filter(|p| now.contains(p))
+//         .cloned()
+//         .collect::<Vec<String>>();
+//     (added, shared, removed)
+// }
 
 fn merge_marked_allocation(
     actual_allocation: HashMap<String, Vec<MarkedAllocation>>,

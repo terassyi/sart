@@ -1,17 +1,19 @@
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use kube::{
+    api::ListParams,
     core::{
         admission::{AdmissionRequest, AdmissionResponse, AdmissionReview},
         response::StatusSummary,
         Status,
     },
-    ResourceExt,
+    Api, Client, ResourceExt,
 };
 use tracing::instrument;
 
 use crate::{
     controller::error::Error,
-    crd::bgp_peer::{BGPPeer, BGP_PEER_NODE_LABEL}, util::escape_slash,
+    crd::bgp_peer::{BGPPeer, BGP_PEER_NODE_LABEL},
+    util::escape_slash,
 };
 
 #[instrument(skip(req, body))]
@@ -41,6 +43,21 @@ pub async fn handle_validation(
     let mut resp = AdmissionResponse::from(&admission_req);
 
     if admission_req.old_object.is_none() {
+        if let Some(bp) = admission_req.object {
+            if let Err(e) = validate_same_peer(&bp).await {
+                tracing::error!(error=?e,name=admission_req.name, "Forbidden creating the peer");
+                resp.allowed = false;
+                resp.result = Status {
+                    status: Some(StatusSummary::Failure),
+                    message: e.to_string(),
+                    code: 403,
+                    reason: e.to_string(),
+                    details: None,
+                };
+
+                return HttpResponse::Forbidden().json(resp);
+            }
+        }
         tracing::info!(name = admission_req.name, "new object");
         resp.allowed = true;
         resp.result = Status {
@@ -55,7 +72,7 @@ pub async fn handle_validation(
 
     tracing::info!(
         name = admission_req.name,
-        "incomming request try to updates existing object"
+        "incoming request try to updates existing object"
     );
 
     let old = admission_req.old_object.unwrap();
@@ -66,7 +83,7 @@ pub async fn handle_validation(
             || new.spec.node_bgp_ref != old.spec.node_bgp_ref
         {
             let msg =
-                "bgp session infomation(asn, address, local bgp information) must not be changed";
+                "bgp session information(asn, address, local bgp information) must not be changed";
             tracing::error!(name = admission_req.name, msg);
 
             return HttpResponse::Forbidden().json(msg);
@@ -76,14 +93,37 @@ pub async fn handle_validation(
     resp.allowed = true;
     resp.result = Status {
         status: Some(StatusSummary::Success),
-        message: "bgp session infomation is not modified".to_string(),
+        message: "bgp session information is not modified".to_string(),
         code: 200,
-        reason: "bgp session infomation is not modified".to_string(),
+        reason: "bgp session information is not modified".to_string(),
         details: None,
     };
     HttpResponse::Ok().json(resp.into_review())
 }
 
+async fn validate_same_peer(bp: &BGPPeer) -> Result<(), Error> {
+    let client = Client::try_default()
+        .await
+        .expect("Failed to create kube client");
+
+    let bgp_peer_api = Api::<BGPPeer>::all(client);
+    let bp_list = bgp_peer_api
+        .list(&ListParams::default())
+        .await
+        .map_err(Error::Kube)?;
+
+    for peer in bp_list.iter() {
+        if bp.spec.asn == peer.spec.asn
+            && bp.spec.addr.eq(&peer.spec.addr)
+            && bp.spec.node_bgp_ref.eq(&peer.spec.node_bgp_ref)
+        {
+            return Err(Error::PeerAlreadyExists);
+        }
+    }
+    Ok(())
+}
+
+#[tracing::instrument(skip_all)]
 pub async fn handle_mutation(
     req: HttpRequest,
     body: web::Json<AdmissionReview<BGPPeer>>,

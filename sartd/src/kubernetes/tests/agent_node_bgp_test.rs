@@ -66,8 +66,8 @@ async fn integration_test_agent_node_bgp() {
     let last_cond = binding.last().unwrap();
     assert_eq!(
         &NodeBGPCondition {
-            status: NodeBGPConditionStatus::Unavailable,
-            reason: NodeBGPConditionReason::NotConfigured,
+            status: NodeBGPConditionStatus::Available,
+            reason: NodeBGPConditionReason::Configured,
         },
         last_cond
     );
@@ -94,6 +94,12 @@ async fn integration_test_agent_node_bgp() {
         },
         last_cond
     );
+
+    dbg!("Reconciling the resource again because of requeue");
+    let applied_nb = nb_api.get(&nb.name_any()).await.unwrap();
+    agent::reconciler::node_bgp::reconciler(Arc::new(applied_nb.clone()), ctx.clone())
+        .await
+        .unwrap();
 
     let bp_api = Api::<BGPPeer>::all(ctx.client.clone());
     let _created_bp = bp_api

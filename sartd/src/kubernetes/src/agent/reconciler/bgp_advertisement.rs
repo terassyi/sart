@@ -181,7 +181,8 @@ async fn reconcile(
                 name = ba.name_any(),
                 namespace = ba.namespace(),
                 "Update BGPAdvertisement"
-            )
+            );
+            return Ok(Action::requeue(Duration::from_secs(60)));
         }
     }
     Ok(Action::await_change())

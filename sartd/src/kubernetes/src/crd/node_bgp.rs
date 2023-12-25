@@ -6,7 +6,7 @@ use super::bgp_peer::BGPPeerSlim;
 
 use super::cluster_bgp::SpeakerConfig;
 
-pub const NODE_BGP_FINALIZER: &str = "clusterbgp.sart.terassyi.net/finalizer";
+pub const NODE_BGP_FINALIZER: &str = "nodebgp.sart.terassyi.net/finalizer";
 
 #[derive(CustomResource, Debug, Serialize, Deserialize, Default, Clone, JsonSchema)]
 // #[cfg_attr(test, derive(Default))]
@@ -15,8 +15,9 @@ pub const NODE_BGP_FINALIZER: &str = "clusterbgp.sart.terassyi.net/finalizer";
 #[kube(
     printcolumn = r#"{"name":"ASN", "type":"integer", "description":"ASN of the local BGP speaker", "jsonPath":".spec.asn"}"#,
     printcolumn = r#"{"name":"ROUTERID", "type":"string", "description":"Router ID of the local BGP speaker", "jsonPath":".spec.routerId"}"#,
-    printcolumn = r#"{"name":"AGE", "type":"date", "description":"Date from created", "jsonPath":".metadata.creationTimestamp"}"#,
-    printcolumn = r#"{"name":"STATUS", "type":"string", "description":"Status of a local speaker", "jsonPath":".status.conditions[-1:].status"}"#
+    printcolumn = r#"{"name":"BACKOFF", "type":"integer", "description":"Back off counter", "jsonPath":".status.backoff"}"#,
+    printcolumn = r#"{"name":"STATUS", "type":"string", "description":"Status of a local speaker", "jsonPath":".status.conditions[-1:].status"}"#,
+    printcolumn = r#"{"name":"AGE", "type":"date", "description":"Date from created", "jsonPath":".metadata.creationTimestamp"}"#
 )]
 #[serde(rename_all = "camelCase")]
 pub struct NodeBGPSpec {
@@ -27,7 +28,10 @@ pub struct NodeBGPSpec {
 }
 
 #[derive(Deserialize, Serialize, Clone, Default, Debug, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct NodeBGPStatus {
+    pub backoff: u32,
+    pub cluster_bgp_refs: Option<Vec<String>>,
     pub conditions: Option<Vec<NodeBGPCondition>>,
 }
 

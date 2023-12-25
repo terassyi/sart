@@ -48,6 +48,12 @@ pub enum Error {
     #[error("Invalid parameter: {0}")]
     InvalidParameter(String),
 
+    #[error("Node not found")]
+    NodeNotFound,
+
+    #[error("Peer already exists")]
+    PeerAlreadyExists,
+
     #[error("Address not found")]
     AddressNotFound,
 

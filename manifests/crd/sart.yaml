@@ -123,6 +123,17 @@ spec:
             type: object
           status:
             nullable: true
+            properties:
+              desiredNodes:
+                items:
+                  type: string
+                nullable: true
+                type: array
+              nodes:
+                items:
+                  type: string
+                nullable: true
+                type: array
             type: object
         required:
         - spec
@@ -156,14 +167,18 @@ spec:
       jsonPath: .spec.routerId
       name: ROUTERID
       type: string
-    - description: Date from created
-      jsonPath: .metadata.creationTimestamp
-      name: AGE
-      type: date
+    - description: Back off counter
+      jsonPath: .status.backoff
+      name: BACKOFF
+      type: integer
     - description: Status of a local speaker
       jsonPath: .status.conditions[-1:].status
       name: STATUS
       type: string
+    - description: Date from created
+      jsonPath: .metadata.creationTimestamp
+      name: AGE
+      type: date
     name: v1alpha2
     schema:
       openAPIV3Schema:
@@ -193,6 +208,9 @@ spec:
                             type: string
                           nullable: true
                           type: array
+                        clusterBGPRef:
+                          nullable: true
+                          type: string
                         groups:
                           items:
                             type: string
@@ -256,6 +274,15 @@ spec:
           status:
             nullable: true
             properties:
+              backoff:
+                format: uint32
+                minimum: 0.0
+                type: integer
+              clusterBgpRefs:
+                items:
+                  type: string
+                nullable: true
+                type: array
               conditions:
                 items:
                   properties:
@@ -276,6 +303,8 @@ spec:
                   type: object
                 nullable: true
                 type: array
+            required:
+            - backoff
             type: object
         required:
         - spec
@@ -380,6 +409,14 @@ spec:
       jsonPath: .spec.nodeBGPRef
       name: NODEBGP
       type: string
+    - description: Name of the ClusterBGP that has this peer
+      jsonPath: .spec.clusterBGPRef
+      name: CLUSTERBGP
+      type: string
+    - description: Backoff count for the peer
+      jsonPath: .status.backoff
+      name: BACKOFF
+      type: string
     - description: Status of a local speaker
       jsonPath: .status.conditions[-1:].status
       name: STATUS
@@ -406,6 +443,9 @@ spec:
                   type: string
                 nullable: true
                 type: array
+              clusterBGPRef:
+                nullable: true
+                type: string
               groups:
                 items:
                   type: string
@@ -444,6 +484,10 @@ spec:
           status:
             nullable: true
             properties:
+              backoff:
+                format: uint32
+                minimum: 0.0
+                type: integer
               conditions:
                 items:
                   properties:
@@ -465,6 +509,8 @@ spec:
                   type: object
                 nullable: true
                 type: array
+            required:
+            - backoff
             type: object
         required:
         - spec

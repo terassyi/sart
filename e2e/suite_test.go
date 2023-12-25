@@ -19,7 +19,7 @@ var _ = BeforeSuite(func() {
 	fmt.Println("Preparing...")
 
 	SetDefaultEventuallyPollingInterval(time.Second)
-	SetDefaultEventuallyTimeout(3 * time.Minute)
+	SetDefaultEventuallyTimeout(5 * time.Minute)
 })
 
 var _ = Describe("End to End test for Sart", func() {
@@ -53,5 +53,19 @@ func testBgp() {
 }
 
 func testKubernetes() {
-	Context("controller", testController)
+	Context("workloads", testControllerWorkloads)
+	Context("bgp=a", testClusterBGPA)
+	Context("bgp=b", testClusterBGPB)
+	Context("create load-balancer", testCreatingLoadBalancer)
+	Context("load-balancer connectivity", testLoadBalancerConnectivity)
+	Context("address pool", testAddressPool)
+	Context("externalTrafficPolicy", testExternalTrafficPolicy)
+	Context("bgp change", testBGPLabelChange)
+	Context("delete cluster bgp", testDeleteClusterBGP)
+	Context("delete bgp peer", testDeleteBGPPeer)
+	Context("bgp2=c", testClusterBGPC)
+	Context("restart agent", testRestartAgent)
+	Context("restart controller", testRestartController)
+	Context("restart bgp", testRestartBGP)
+	// Context("controller", testController)
 }

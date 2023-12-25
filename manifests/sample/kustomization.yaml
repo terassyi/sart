@@ -1,6 +1,7 @@
 resources:
-  - cluster_bgp.yaml
+  - cluster_bgp_a.yaml
+  - cluster_bgp_c.yaml
   - peer_template.yaml
-  - bgp_peer.yaml
   - lb_address_pool.yaml
   - lb.yaml
+  - lb_another.yaml
