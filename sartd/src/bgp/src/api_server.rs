@@ -7,11 +7,11 @@ use ipnet::IpNet;
 use sartd_proto::sart::bgp_api_server::BgpApi;
 use sartd_proto::sart::{
     AddPathRequest, AddPathResponse, AddPeerRequest, BgpInfo, ClearBgpInfoRequest,
-    DeletePathRequest, DeletePathResponse, DeletePeerRequest, GetBgpInfoRequest,
-    GetBgpInfoResponse, GetNeighborPathRequest, GetNeighborPathResponse, GetNeighborRequest,
-    GetNeighborResponse, GetPathByPrefixRequest, GetPathByPrefixResponse, GetPathRequest,
-    GetPathResponse, HealthRequest, ListNeighborRequest, ListNeighborResponse, Path, Peer,
-    SetAsRequest, SetRouterIdRequest, ConfigureMultiPathRequest,
+    ConfigureMultiPathRequest, DeletePathRequest, DeletePathResponse, DeletePeerRequest,
+    GetBgpInfoRequest, GetBgpInfoResponse, GetNeighborPathRequest, GetNeighborPathResponse,
+    GetNeighborRequest, GetNeighborResponse, GetPathByPrefixRequest, GetPathByPrefixResponse,
+    GetPathRequest, GetPathResponse, HealthRequest, ListNeighborRequest, ListNeighborResponse,
+    Path, Peer, SetAsRequest, SetRouterIdRequest,
 };
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{Mutex, Notify};
@@ -24,7 +24,7 @@ use super::{event::ControlEvent, family::AddressFamily, packet::attribute::Attri
 
 #[derive(Debug)]
 pub struct ApiServer {
-    tx: Sender<ControlEvent>,
+    tx: Mutex<Sender<ControlEvent>>,
     response_rx: Mutex<Receiver<ApiResponse>>,
     timeout: u64,
     internal_timeout: u64,
@@ -40,7 +40,7 @@ impl ApiServer {
         signal: Arc<Notify>,
     ) -> Self {
         Self {
-            tx,
+            tx: Mutex::new(tx),
             response_rx: Mutex::new(response_rx),
             timeout,
             internal_timeout,
@@ -53,7 +53,8 @@ impl ApiServer {
 impl BgpApi for ApiServer {
     async fn health(&self, _req: Request<HealthRequest>) -> Result<Response<()>, Status> {
         tracing::info!("start health checking");
-        self.tx.send(ControlEvent::Health).await.unwrap();
+        let guard_tx = self.tx.lock().await;
+        guard_tx.send(ControlEvent::Health).await.unwrap();
         self.signal.notified().await;
         tracing::info!("health checking");
         Ok(Response::new(()))
@@ -63,7 +64,8 @@ impl BgpApi for ApiServer {
         &self,
         _req: Request<GetBgpInfoRequest>,
     ) -> Result<Response<GetBgpInfoResponse>, Status> {
-        self.tx.send(ControlEvent::GetBgpInfo).await.unwrap();
+        let guard_tx = self.tx.lock().await;
+        guard_tx.send(ControlEvent::GetBgpInfo).await.unwrap();
         let mut rx = self.response_rx.lock().await;
         match timeout(Duration::from_secs(self.internal_timeout), rx.recv()).await {
             Ok(res) => match res {
@@ -80,6 +82,7 @@ impl BgpApi for ApiServer {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     async fn get_neighbor(
         &self,
         req: Request<GetNeighborRequest>,
@@ -88,7 +91,8 @@ impl BgpApi for ApiServer {
             Ok(addr) => addr,
             Err(_) => return Err(Status::aborted("failed to parse peer address")),
         };
-        self.tx.send(ControlEvent::GetPeer(addr)).await.unwrap();
+        let guard_tx = self.tx.lock().await;
+        guard_tx.send(ControlEvent::GetPeer(addr)).await.unwrap();
 
         let mut rx = self.response_rx.lock().await;
         match timeout(Duration::from_secs(self.internal_timeout), rx.recv()).await {
@@ -99,10 +103,14 @@ impl BgpApi for ApiServer {
                             peer: Some(peer),
                         }))
                     } else {
-                        Err(Status::internal("failed to get neighbor information"))
+                        tracing::error!(result=?res,"failed to get a neighbor information");
+                        return Err(Status::internal("failed to get neighbor information"));
                     }
                 }
-                None => Err(Status::internal("failed to get neighbor information")),
+                None => {
+                    tracing::error!(result = "None", "failed to get neighbor information");
+                    return Err(Status::internal("failed to get neighbor information"));
+                }
             },
             Err(_e) => Err(Status::not_found("peer not found")),
         }
@@ -112,7 +120,8 @@ impl BgpApi for ApiServer {
         &self,
         _req: Request<ListNeighborRequest>,
     ) -> Result<Response<ListNeighborResponse>, Status> {
-        self.tx.send(ControlEvent::ListPeer).await.unwrap();
+        let guard_tx = self.tx.lock().await;
+        guard_tx.send(ControlEvent::ListPeer).await.unwrap();
         let mut rx = self.response_rx.lock().await;
         match timeout(Duration::from_secs(self.internal_timeout), rx.recv()).await {
             Ok(res) => match res {
@@ -141,7 +150,8 @@ impl BgpApi for ApiServer {
             Ok(f) => f,
             Err(_) => return Err(Status::aborted("failed to get AddressFamily")),
         };
-        self.tx.send(ControlEvent::GetPath(family)).await.unwrap();
+        let guard_tx = self.tx.lock().await;
+        guard_tx.send(ControlEvent::GetPath(family)).await.unwrap();
 
         let mut rx = self.response_rx.lock().await;
         match timeout(Duration::from_secs(self.internal_timeout), rx.recv()).await {
@@ -180,7 +190,8 @@ impl BgpApi for ApiServer {
             Err(_) => return Err(Status::aborted("failed to get rib kind")),
         };
 
-        self.tx
+        let guard_tx = self.tx.lock().await;
+        guard_tx
             .send(ControlEvent::GetNeighborPath(kind, addr, family))
             .await
             .unwrap();
@@ -217,7 +228,8 @@ impl BgpApi for ApiServer {
             Ok(f) => f,
             Err(_) => return Err(Status::aborted("failed to get AddressFamily")),
         };
-        self.tx
+        let guard_tx = self.tx.lock().await;
+        guard_tx
             .send(ControlEvent::GetPathByPrefix(prefix, family))
             .await
             .unwrap();
@@ -239,7 +251,8 @@ impl BgpApi for ApiServer {
     }
 
     async fn set_as(&self, req: Request<SetAsRequest>) -> Result<Response<()>, Status> {
-        match self.tx.send(ControlEvent::SetAsn(req.get_ref().asn)).await {
+        let guard_tx = self.tx.lock().await;
+        match guard_tx.send(ControlEvent::SetAsn(req.get_ref().asn)).await {
             Ok(_) => Ok(Response::new(())),
             Err(_) => Err(Status::aborted("failed to send rib event")),
         }
@@ -253,15 +266,23 @@ impl BgpApi for ApiServer {
             Ok(id) => id,
             Err(_) => return Err(Status::aborted("failed to parse router_id as Ipv4Addr")),
         };
-        match self.tx.send(ControlEvent::SetRouterId(router_id)).await {
+        let guard_tx = self.tx.lock().await;
+        match guard_tx.send(ControlEvent::SetRouterId(router_id)).await {
             Ok(_) => Ok(Response::new(())),
             Err(_) => Err(Status::aborted("failed to send rib event")),
         }
     }
 
-    async fn configure_multi_path(&self, req: Request<ConfigureMultiPathRequest>) -> Result<Response<()>, Status> {
+    async fn configure_multi_path(
+        &self,
+        req: Request<ConfigureMultiPathRequest>,
+    ) -> Result<Response<()>, Status> {
         let enable = req.get_ref().enable;
-        match self.tx.send(ControlEvent::ConfigureMultiPath(enable)).await {
+        let guard_tx = self.tx.lock().await;
+        match guard_tx
+            .send(ControlEvent::ConfigureMultiPath(enable))
+            .await
+        {
             Ok(_) => Ok(Response::new(())),
             Err(_) => Err(Status::aborted("failed to send rib event")),
         }
@@ -271,7 +292,8 @@ impl BgpApi for ApiServer {
         &self,
         _req: Request<ClearBgpInfoRequest>,
     ) -> Result<Response<()>, Status> {
-        match self.tx.send(ControlEvent::ClearBgpInfo).await {
+        let guard_tx = self.tx.lock().await;
+        match guard_tx.send(ControlEvent::ClearBgpInfo).await {
             Ok(_) => Ok(Response::new(())),
             Err(_) => Err(Status::internal("failed to clear BGP server information")),
         }
@@ -286,7 +308,8 @@ impl BgpApi for ApiServer {
             },
             None => return Err(Status::aborted("Neighbor information is not set")),
         };
-        match self.tx.send(ControlEvent::AddPeer(neighbor_config)).await {
+        let guard_tx = self.tx.lock().await;
+        match guard_tx.send(ControlEvent::AddPeer(neighbor_config)).await {
             Ok(_) => Ok(Response::new(())),
             Err(_) => Err(Status::aborted("failed to send rib event")),
         }
@@ -297,7 +320,8 @@ impl BgpApi for ApiServer {
             Ok(addr) => addr,
             Err(_) => return Err(Status::aborted("failed to parse peer addr as IpAddr")),
         };
-        match self.tx.send(ControlEvent::DeletePeer(addr)).await {
+        let guard_tx = self.tx.lock().await;
+        match guard_tx.send(ControlEvent::DeletePeer(addr)).await {
             Ok(_) => Ok(Response::new(())),
             Err(_) => Err(Status::aborted("failed to send rib event")),
         }
@@ -327,8 +351,8 @@ impl BgpApi for ApiServer {
                 }
             }
         }
-        match self
-            .tx
+        let guard_tx = self.tx.lock().await;
+        match guard_tx
             .send(ControlEvent::AddPath(prefixes, attributes))
             .await
         {
@@ -359,8 +383,8 @@ impl BgpApi for ApiServer {
                 Err(e) => return Err(Status::aborted(format!("invalid network format: {:?}", e))),
             }
         }
-        match self
-            .tx
+        let guard_tx = self.tx.lock().await;
+        match guard_tx
             .send(ControlEvent::DeletePath(family, prefixes))
             .await
         {
