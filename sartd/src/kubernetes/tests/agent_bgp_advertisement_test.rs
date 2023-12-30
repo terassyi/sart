@@ -63,6 +63,7 @@ async fn integration_test_agent_bgp_advertisement() {
     dbg!("Creating BGPPeer");
     let mut bp = test_bgp_peer();
     bp.status = Some(BGPPeerStatus {
+        backoff: 0,
         conditions: Some(vec![BGPPeerCondition {
             status: BGPPeerConditionStatus::Established,
             reason: String::new(),

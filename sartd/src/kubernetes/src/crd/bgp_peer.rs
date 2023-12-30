@@ -25,6 +25,8 @@ pub const PEER_GROUP_ANNOTATION: &str = "bgppeer.sart.terassyi.net/group";
     printcolumn = r#"{"name":"ASN", "type":"integer", "description":"ASN of the remote BGP speaker", "jsonPath":".spec.asn"}"#,
     printcolumn = r#"{"name":"ADDRESS", "type":"string", "description":"Address of the remote BGP speaker", "jsonPath":".spec.addr"}"#,
     printcolumn = r#"{"name":"NODEBGP", "type":"string", "description":"Name of the NodeBGP that has local BGP speaker information", "jsonPath":".spec.nodeBGPRef"}"#,
+    printcolumn = r#"{"name":"CLUSTERBGP", "type":"string", "description":"Name of the ClusterBGP that has this peer", "jsonPath":".spec.clusterBGPRef"}"#,
+    printcolumn = r#"{"name":"BACKOFF", "type":"string", "description":"Backoff count for the peer", "jsonPath":".status.backoff"}"#,
     printcolumn = r#"{"name":"STATUS", "type":"string", "description":"Status of a local speaker", "jsonPath":".status.conditions[-1:].status"}"#,
     printcolumn = r#"{"name":"AGE", "type":"date", "description":"Date from created", "jsonPath":".metadata.creationTimestamp"}"#
 )]
@@ -38,12 +40,15 @@ pub struct BGPPeerSpec {
     pub capabilities: Option<Vec<String>>,
     #[serde(rename = "nodeBGPRef")]
     pub node_bgp_ref: String,
+    #[serde(rename = "clusterBGPRef")]
+    pub cluster_bgp_ref: Option<String>,
     pub speaker: SpeakerConfig,
     pub groups: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Default, Debug, JsonSchema)]
 pub struct BGPPeerStatus {
+    pub backoff: u32,
     pub conditions: Option<Vec<BGPPeerCondition>>,
 }
 
@@ -90,6 +95,7 @@ impl BGPPeerSlim {
                 keepalive_time: self.spec.keepalive_time,
                 capabilities: self.spec.capabilities.clone(),
                 node_bgp_ref: nb.name_any(),
+                cluster_bgp_ref: self.spec.cluster_bgp_ref.clone(),
                 speaker: nb.spec.speaker.clone(),
                 groups: self.spec.groups.clone(),
             },

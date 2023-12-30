@@ -26,7 +26,7 @@ pub async fn handle_validation(
         }
     }
 
-    let admisstion_req: AdmissionRequest<AddressPool> = match body.into_inner().try_into() {
+    let admission_req: AdmissionRequest<AddressPool> = match body.into_inner().try_into() {
         Ok(req) => req,
         Err(e) => {
             tracing::error!(error=?e,"Invalid request");
@@ -35,9 +35,9 @@ pub async fn handle_validation(
         }
     };
 
-    let mut resp = AdmissionResponse::from(&admisstion_req);
+    let mut resp = AdmissionResponse::from(&admission_req);
 
-    if let Some(ap) = admisstion_req.object {
+    if let Some(ap) = admission_req.object {
         if ap.spec.block_size > MAX_BLOCK_SIZE {
             resp.allowed = false;
             resp.result = Status {
@@ -68,9 +68,9 @@ pub async fn handle_validation(
                         resp.result = Status {
                             status: Some(StatusSummary::Failure),
                             code: http::StatusCode::FORBIDDEN.as_u16(),
-                            message: "Forbideen because Auto assinable address pool must be one."
+                            message: "Forbidden because Auto assignable address pool must be one."
                                 .to_string(),
-                            reason: "Auto assinable AddressPool already exists".to_string(),
+                            reason: "Auto assignable AddressPool already exists".to_string(),
                             details: None,
                         };
                         return HttpResponse::Ok().json(resp.into_review());

@@ -101,6 +101,12 @@ async fn run(c: Controller, trace_config: TraceConfig) {
             .await;
     });
 
+    tracing::info!("Start Node watcher");
+    let node_state = state.clone();
+    tokio::spawn(async move {
+        reconciler::node_watcher::run(node_state, c.requeue_interval).await;
+    });
+
     tracing::info!("Start Service watcher");
     let service_state = state.clone();
     let svc_allocator_set = allocator_set.clone();

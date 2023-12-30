@@ -16,12 +16,14 @@ use crate::{
     agent::{bgp::speaker, error::Error},
     context::{error_policy, Context, State},
     crd::{
-        bgp_peer::BGPPeer,
+        bgp_advertisement::{AdvertiseStatus, BGPAdvertisement},
+        bgp_peer::{BGPPeer, BGPPeerCondition, BGPPeerConditionStatus},
         node_bgp::{
             NodeBGP, NodeBGPCondition, NodeBGPConditionReason, NodeBGPConditionStatus,
             NodeBGPStatus, NODE_BGP_FINALIZER,
         },
     },
+    util::get_namespace,
 };
 
 pub const ENV_HOSTNAME: &str = "HOSTNAME";
@@ -47,14 +49,78 @@ async fn reconcile(api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Resul
 
     // NodeBGP.spec.asn and routerId should be immutable
 
+    let backoff = match nb.status.as_ref() {
+        Some(status) => match status.conditions.as_ref() {
+            Some(conds) => match conds.last() {
+                Some(cond) => cond.status.eq(&NodeBGPConditionStatus::Available),
+                None => false,
+            },
+            None => false,
+        },
+        None => false,
+    };
+
     let timeout = nb.spec.speaker.timeout.unwrap_or(DEFAULT_SPEAKER_TIMEOUT);
     let mut speaker_client =
-        speaker::connect_bgp_with_retry(&nb.spec.speaker.path, Duration::from_secs(timeout))
-            .await?;
+        match speaker::connect_bgp_with_retry(&nb.spec.speaker.path, Duration::from_secs(timeout))
+            .await
+        {
+            Ok(client) => client,
+            Err(e) => {
+                if backoff {
+                    let new_nb = backoff_node_bgp(nb);
+                    api.replace_status(
+                        &nb.name_any(),
+                        &PostParams::default(),
+                        serde_json::to_vec(&new_nb).map_err(Error::Serialization)?,
+                    )
+                    .await
+                    .map_err(Error::Kube)?;
+                }
+                tracing::warn!(
+                    name = nb.name_any(),
+                    asn = nb.spec.asn,
+                    router_id = nb.spec.router_id,
+                    "Backoff BGP advertisement"
+                );
+                backoff_advertisements(nb, &ctx.client.clone()).await?;
+                return Err(e);
+            }
+        };
 
-    let res = speaker_client
+    let res = match speaker_client
         .get_bgp_info(sartd_proto::sart::GetBgpInfoRequest {})
-        .await?;
+        .await
+    {
+        Ok(res) => res,
+        Err(e) => {
+            if backoff {
+                let new_nb = backoff_node_bgp(nb);
+                api.replace_status(
+                    &nb.name_any(),
+                    &PostParams::default(),
+                    serde_json::to_vec(&new_nb).map_err(Error::Serialization)?,
+                )
+                .await
+                .map_err(Error::Kube)?;
+                tracing::warn!(
+                    name = nb.name_any(),
+                    asn = nb.spec.asn,
+                    router_id = nb.spec.router_id,
+                    "Backoff NodeBGP"
+                );
+                backoff_advertisements(nb, &ctx.client.clone()).await?;
+                tracing::warn!(
+                    name = nb.name_any(),
+                    asn = nb.spec.asn,
+                    router_id = nb.spec.router_id,
+                    "Backoff BGP advertisement"
+                );
+            }
+            return Err(Error::GotgPRC(e));
+        }
+    };
+
     let info = res.get_ref().info.clone().ok_or(Error::FailedToGetData(
         "BGP information is not set".to_string(),
     ))?;
@@ -74,20 +140,37 @@ async fn reconcile(api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Resul
             })
             .await?;
 
-        let cond = NodeBGPCondition::default();
-        let new_status = match &nb.status {
+        let cond = NodeBGPCondition {
+            status: NodeBGPConditionStatus::Available,
+            reason: NodeBGPConditionReason::Configured,
+        };
+        let mut new_status = match &nb.status {
             Some(status) => {
                 let mut new_status = status.clone();
                 match new_status.conditions.as_mut() {
-                    Some(conditions) => conditions.push(cond),
+                    Some(conditions) => {
+                        if let Some(last_cond) = conditions.last() {
+                            if cond.ne(last_cond) {
+                                conditions.push(cond);
+                            }
+                        } else {
+                            conditions.push(cond);
+                        }
+                    }
                     None => new_status.conditions = Some(vec![cond]),
                 }
                 new_status
             }
             None => NodeBGPStatus {
+                backoff: 0,
+                cluster_bgp_refs: None,
                 conditions: Some(vec![cond]),
             },
         };
+        if backoff {
+            backoff_advertisements(nb, &ctx.client.clone()).await?;
+            new_status.backoff += 1;
+        }
         tracing::info!(
             name = nb.name_any(),
             asn = nb.spec.asn,
@@ -105,6 +188,48 @@ async fn reconcile(api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Resul
         )
         .await
         .map_err(Error::Kube)?;
+
+        // add peer's backoff count
+        let bgp_peer_api = Api::<BGPPeer>::all(ctx.client.clone());
+        if let Some(peers) = new_nb.spec.peers.as_ref() {
+            for peer in peers.iter() {
+                if let Some(mut bp) = bgp_peer_api
+                    .get_opt(&peer.name)
+                    .await
+                    .map_err(Error::Kube)?
+                {
+                    if let Some(status) = bp.status.as_mut() {
+                        status.backoff += 1;
+                        match status.conditions.as_mut() {
+                            Some(conds) => conds.push(BGPPeerCondition {
+                                status: BGPPeerConditionStatus::Idle,
+                                reason: "Changed by NodeBGP reconciler".to_string(),
+                            }),
+                            None => {
+                                status.conditions = Some(vec![BGPPeerCondition {
+                                    status: BGPPeerConditionStatus::Idle,
+                                    reason: "Changed by NodeBGP reconciler".to_string(),
+                                }])
+                            }
+                        }
+
+                        tracing::info!(
+                            name = nb.name_any(),
+                            peer = bp.name_any(),
+                            "Increment peer's backoff count"
+                        );
+                        bgp_peer_api
+                            .replace_status(
+                                &bp.name_any(),
+                                &PostParams::default(),
+                                serde_json::to_vec(&bp).map_err(Error::Serialization)?,
+                            )
+                            .await
+                            .map_err(Error::Kube)?;
+                    }
+                }
+            }
+        }
 
         // requeue immediately
         return Ok(Action::requeue(Duration::from_secs(1)));
@@ -155,6 +280,8 @@ async fn reconcile(api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Resul
             new_status
         }
         None => NodeBGPStatus {
+            backoff: 0,
+            cluster_bgp_refs: None,
             conditions: Some(vec![cond]),
         },
     };
@@ -174,11 +301,21 @@ async fn reconcile(api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Resul
         )
         .await
         .map_err(Error::Kube)?;
+
+        // In this reconciliation, only updating status.
+        return Ok(Action::requeue(Duration::from_secs(1)));
     }
 
     // create peers based on NodeBGP.spec.peers
     if available {
+        let cluster_bgps = nb
+            .status
+            .as_ref()
+            .and_then(|status| status.cluster_bgp_refs.as_ref())
+            .unwrap_or(&Vec::new());
+
         let bgp_peers = Api::<BGPPeer>::all(ctx.client.clone());
+
         if let Some(peers) = new_nb.spec.peers.as_mut() {
             let mut errors: Vec<Error> = Vec::new();
             for p in peers.iter_mut() {
@@ -219,11 +356,11 @@ async fn reconcile(api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Resul
         }
     }
 
-    Ok(Action::await_change())
+    Ok(Action::requeue(Duration::from_secs(60)))
 }
 
 #[tracing::instrument(skip_all)]
-async fn cleanup(_api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Result<Action, Error> {
+async fn cleanup(_api: &Api<NodeBGP>, nb: &NodeBGP, _ctx: Arc<Context>) -> Result<Action, Error> {
     tracing::info!(name = nb.name_any(), "Cleanup NodeBGP");
 
     let timeout = nb.spec.speaker.timeout.unwrap_or(DEFAULT_SPEAKER_TIMEOUT);
@@ -288,4 +425,82 @@ pub async fn run(state: State, interval: u64) {
         .filter_map(|x| async move { std::result::Result::ok(x) })
         .for_each(|_| futures::future::ready(()))
         .await;
+}
+
+fn backoff_node_bgp(nb: &NodeBGP) -> NodeBGP {
+    let mut new_nb = nb.clone();
+
+    let backoff_cond = NodeBGPCondition {
+        status: NodeBGPConditionStatus::Unavailable,
+        reason: NodeBGPConditionReason::InvalidConfiguration,
+    };
+
+    match new_nb.status.as_mut() {
+        Some(status) => {
+            match status.conditions.as_mut() {
+                Some(conds) => conds.push(backoff_cond),
+                None => status.conditions = Some(vec![backoff_cond]),
+            }
+            status.backoff += 1;
+        }
+        None => {
+            new_nb.status = Some(NodeBGPStatus {
+                backoff: 1,
+                cluster_bgp_refs: None,
+                conditions: Some(vec![NodeBGPCondition {
+                    status: NodeBGPConditionStatus::Unavailable,
+                    reason: NodeBGPConditionReason::InvalidConfiguration,
+                }]),
+            })
+        }
+    }
+
+    new_nb
+}
+
+async fn backoff_advertisements(nb: &NodeBGP, client: &Client) -> Result<(), Error> {
+    let bgp_advertisement_api = Api::<BGPAdvertisement>::all(client.clone());
+    let nb_peers = match nb.spec.peers.as_ref() {
+        Some(peers) => peers
+            .iter()
+            .map(|p| p.name.clone())
+            .collect::<Vec<String>>(),
+        None => return Ok(()),
+    };
+
+    let ba_list = bgp_advertisement_api
+        .list(&ListParams::default())
+        .await
+        .map_err(Error::Kube)?;
+
+    for ba in ba_list.iter() {
+        let mut new_ba = ba.clone();
+        if let Some(status) = new_ba.status.as_mut() {
+            if let Some(peers) = status.peers.as_mut() {
+                let mut need_update = false;
+                for peer in nb_peers.iter() {
+                    if let Some(adv_status) = peers.get_mut(peer) {
+                        if AdvertiseStatus::NotAdvertised.ne(adv_status) {
+                            *adv_status = AdvertiseStatus::NotAdvertised;
+                            need_update = true;
+                        }
+                    }
+                }
+                if need_update {
+                    let ns = get_namespace(ba).map_err(Error::KubeLibrary)?;
+                    let ns_bgp_advertisement_api =
+                        Api::<BGPAdvertisement>::namespaced(client.clone(), &ns);
+                    ns_bgp_advertisement_api
+                        .replace_status(
+                            &new_ba.name_any(),
+                            &PostParams::default(),
+                            serde_json::to_vec(&new_ba).map_err(Error::Serialization)?,
+                        )
+                        .await
+                        .map_err(Error::Kube)?;
+                }
+            }
+        }
+    }
+    Ok(())
 }

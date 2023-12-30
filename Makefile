@@ -3,6 +3,15 @@ CARGO := cargo
 IMAGE_VERSION := dev
 PROJECT := github.com/terassyi/sart
 
+KIND_VERSION := 0.20.0
+KUBERNETES_VERSION := 1.28.0
+KUSTOMIZE_VERSION := 5.2.1
+
+BINDIR := $(abspath $(PWD)/bin)
+KIND := $(BINDIR)/kind
+KUBECTL := $(BINDIR)/kubectl
+KUSTOMIZE := $(BINDIR)/kustomize
+
 RELEASE_VERSION=
 .PHONY: release-pr
 release-pr: validate-release-version cargo-bump
@@ -133,7 +142,7 @@ unit-test:
 	cd sartd; $(CARGO) test -p sartd-util
 
 .PHONY: integration-test
-integration-test:
+integration-test: $(KIND) $(KUBECTL) $(KUSTOMIZE)
 	cd sartd; $(CARGO) test -p sartd-kubernetes -- --ignored
 
 NO_BUILD:=
@@ -156,3 +165,18 @@ $(CARGO_BUMP):
 ifeq ($(shell which ${CARGO_BUMP}),)
 	cargo install cargo-bump
 endif
+
+$(KIND):
+	mkdir -p $(dir $@)
+	curl -sfL -o $@ https://github.com/kubernetes-sigs/kind/releases/download/v$(KIND_VERSION)/kind-linux-amd64
+	chmod a+x $@
+
+$(KUBECTL):
+	mkdir -p $(dir $@)
+	curl -sfL -o $@ https://dl.k8s.io/release/v$(KUBERNETES_VERSION)/bin/linux/amd64/kubectl
+	chmod a+x $@
+
+$(KUSTOMIZE):
+	mkdir -p $(dir $@)
+	curl -sfL https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv$(KUSTOMIZE_VERSION)/kustomize_v$(KUSTOMIZE_VERSION)_linux_amd64.tar.gz | tar -xz -C $(BINDIR)
+	chmod a+x $@

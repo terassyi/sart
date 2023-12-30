@@ -26,7 +26,11 @@ pub struct ClusterBGPSpec {
 }
 
 #[derive(Deserialize, Serialize, Clone, Default, Debug, JsonSchema)]
-pub struct ClusterBGPStatus {}
+#[serde(rename_all = "camelCase")]
+pub struct ClusterBGPStatus {
+    pub desired_nodes: Option<Vec<String>>,
+    pub nodes: Option<Vec<String>>,
+}
 
 #[derive(Deserialize, Serialize, Clone, Default, Debug, JsonSchema)]
 #[serde(rename_all = "camelCase")]
