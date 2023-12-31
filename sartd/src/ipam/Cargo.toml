@@ -5,5 +5,5 @@ edition = "2021"
 
 [dependencies]
 ipnet = "2.9.0"
-thiserror = "1.0.50"
+thiserror = "1.0.53"
 rstest = "0.18.2"

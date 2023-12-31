@@ -20,7 +20,6 @@ release-pr: validate-release-version cargo-bump
 	git pull origin main
 	git checkout -b bump-v$(RELEASE_VERSION)
 
-	yq -i '.images[].newTag="$(RELEASE_VERSION)"' controller/config/release/kustomization.yaml
 	cd sartd; $(CARGO) bump $(RELEASE_VERSION) && $(CARGO) update
 	cd sart; $(CARGO) bump $(RELEASE_VERSION) && $(CARGO) update
 
