@@ -20,11 +20,21 @@ release-pr: validate-release-version cargo-bump
 	git pull origin main
 	git checkout -b bump-v$(RELEASE_VERSION)
 
+	yq -i '.images[].newTag="$(RELEASE_VERSION)"' ./kustomization.yaml
+	cd sartd/src/bgp; $(CARGO) bump $(RELEASE_VERSION) && $(CARGO) update
+	cd sartd/src/cert; $(CARGO) bump $(RELEASE_VERSION) && $(CARGO) update
+	cd sartd/src/cmd; $(CARGO) bump $(RELEASE_VERSION) && $(CARGO) update
+	cd sartd/src/fib; $(CARGO) bump $(RELEASE_VERSION) && $(CARGO) update
+	cd sartd/src/ipam; $(CARGO) bump $(RELEASE_VERSION) && $(CARGO) update
+	cd sartd/src/kubernetes; $(CARGO) bump $(RELEASE_VERSION) && $(CARGO) update
+	cd sartd/src/mock; $(CARGO) bump $(RELEASE_VERSION) && $(CARGO) update
+	cd sartd/src/proto; $(CARGO) bump $(RELEASE_VERSION) && $(CARGO) update
+	cd sartd/src/trace; $(CARGO) bump $(RELEASE_VERSION) && $(CARGO) update
+	cd sartd/src/util; $(CARGO) bump $(RELEASE_VERSION) && $(CARGO) update
 	cd sartd; $(CARGO) bump $(RELEASE_VERSION) && $(CARGO) update
 	cd sart; $(CARGO) bump $(RELEASE_VERSION) && $(CARGO) update
 
 	$(MAKE) build-image
-	cd controller; make docker-build
 
 	git add .
 	git commit -m "bump v$(RELEASE_VERSION)" --allow-empty
@@ -96,6 +106,10 @@ clean: clean-crd clean-certs
 MANIFESTS_DIR := $(PWD)/manifests
 CRD_DIR := $(MANIFESTS_DIR)/crd
 CERT_DIR := $(MANIFESTS_DIR)/certs
+
+.PHONY: manifest
+manifest: crd certs
+	$(KUSTOMIZE) build . > sart.yaml
 
 .PHONY: crd
 crd: $(CRD_DIR)/sart.yaml

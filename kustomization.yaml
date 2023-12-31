@@ -1,0 +1,6 @@
+resources:
+  - manifests
+images:
+  - name: sart:dev
+    newName: ghcr.io/terassyi/sart
+    newTag: 0.0.6
