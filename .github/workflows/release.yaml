@@ -41,25 +41,3 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/terassyi/sart:${{ steps.set-tag.outputs.RELEASE_TAG }}
-  release:
-    name: Release on GitHub
-    needs:
-      - sart-image
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: Kustomize build
-        uses: karancode/kustomize-github-action@master
-        with:
-          kustomize_version: "5.0.1"
-          kustomize_build_dir: controller/config/release
-          kustomize_comment: false
-          kustomize_output_file: ./sart-controller.yaml
-      - name: Create release
-        uses: softprops/action-gh-release@v1
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          name: Release v${{ github.ref }}
-          files: sart-controller.yaml
