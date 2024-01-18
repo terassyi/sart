@@ -11,6 +11,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .compile(
             &[
                 "../../../proto/bgp.proto",
+                "../../../proto/cni.proto",
                 "../../../proto/fib.proto",
                 "../../../proto/fib_manager.proto",
             ],

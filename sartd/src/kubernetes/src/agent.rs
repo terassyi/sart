@@ -1,4 +1,5 @@
 mod bgp;
+mod cni;
 pub mod config;
 pub mod error;
 pub mod reconciler;

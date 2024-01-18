@@ -1,9 +1,12 @@
+use std::sync::Arc;
+
 use actix_web::{
     get, middleware, web::Data, App, HttpRequest, HttpResponse, HttpServer, Responder,
 };
 use prometheus::{Encoder, TextEncoder};
 use rustls::ServerConfig;
 use sartd_cert::util::{load_certificates_from_pem, load_private_key_from_file};
+use sartd_ipam::manager::AllocatorSet;
 use sartd_trace::init::{prepare_tracing, TraceConfig};
 
 use crate::context::State;
@@ -29,7 +32,7 @@ async fn run(a: Agent, trace_config: TraceConfig) {
     let cert_chain = load_certificates_from_pem(&a.server_cert).unwrap();
     let private_key = load_private_key_from_file(&a.server_key).unwrap();
 
-    // Initiatilize Kubernetes controller state
+    // Initialize Kubernetes controller state
     let state = State::default();
 
     // Start web server
@@ -61,6 +64,9 @@ async fn run(a: Agent, trace_config: TraceConfig) {
     .bind("0.0.0.0:8080")
     .unwrap()
     .shutdown_timeout(5);
+
+    // Pod address allocators
+    let allocator_set = Arc::new(AllocatorSet::new());
 
     tracing::info!("Start Agent Reconcilers");
 

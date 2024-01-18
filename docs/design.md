@@ -365,3 +365,72 @@ And target peers must be changed depending on the change of backend pods schedul
 
 
 ## CNI for Kubernetes
+
+Sart has a [CNI](https://github.com/containernetworking/cni) plugin feature for Kubernetes.
+This feature is named `sart-cni`.
+
+### Components
+
+Sart-cni related programs are below.
+
+- `controller`
+- `agent`
+- `bgp`
+- `sartcni`
+
+`controller` and `agent` is the same used in `sartd-kubernetes`.
+`sartcni` is CNI interface that is called by `kubelet`.
+
+### Architecture
+
+Sart-cni is also the Custom Resource Definition(CRD) based architecture like sart-kubernetes.
+And sart-cni shares almost resources with sart-kubernetes.
+
+The following figure shows the CRDs model of sart-cni.
+
+![kubernetes-cni-model.drawio.svg](./img/kubernetes-cni-model.drawio.svg)
+
+The difference between sart-kubernetes's model is that `AddressBlock` resources belong to nodes.
+And `agent` creates a `BGPAdvertisement` resource that targets only peers that is on the same node as the node on its agent.
+
+### IP Address Management(IPAM)
+
+`Sart-cni` has the IPAM feature for Pods.
+
+#### AddressPool
+
+To allocate IP addresses to pods, we have to create at least one `AddressPool` resource with `type: pod`.
+We also create multiple pools for pods.
+
+#### Choosing pools
+
+As described above, we can create multiple pools in one cluster.
+If there are multiple pools, we can choose the pool we want to use per a pod.
+To choose the pool, we have to specify the annotation to the pod.
+
+Unlike the case of LoadBalancer, we cannot specify multiple pools to one pod.
+
+Even if its annotation is not specified, we have to assign an address to a pod.
+Therefore, we can make some pool default assignable to specify `autoAssign: true` in the spec.
+The default pool must be one in one cluster.
+
+#### AddressBlock
+
+`AddressBlock` is automatically created by `AddressPool` and is a subset of its pool.
+In case of a pool for Pod(`type: pod`), `AddressBlocks` are created according to the number of nodes and belong to its node.
+
+A `BGPAdvertisement` is created per `AddressBlock`.
+And its CIDR field is same as the `AddressBlocks`'s CIDR.
+
+When some pod is scheduled on the some node, its address is picked from the `AddressBlock` belongs to its node.
+
+### Internal
+
+Sart-cni is implemented based on [CNI Specification](https://github.com/containernetworking/cni/blob/v1.1.2/SPEC.md).
+Supported CNI versions are `v1.0.0`, `v0.4.0` and `v0.3.1`.
+
+The program satisfy this specification is `sartcni`.
+`Sartcni` is a stand-alone executable binary.
+And this is called by `kubelet` to create a pod and delegates a given request to `sartd-agent` via gRPC API like following.
+
+![cni-internal.drawio.svg](./img/cni-internal.drawio.svg)
