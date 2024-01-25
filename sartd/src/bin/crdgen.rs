@@ -36,4 +36,9 @@ fn main() {
         "{}",
         serde_yaml::to_string(&crd::address_block::AddressBlock::crd()).unwrap()
     );
+    println!("---");
+    print!(
+        "{}",
+        serde_yaml::to_string(&crd::block_request::BlockRequest::crd()).unwrap()
+    );
 }

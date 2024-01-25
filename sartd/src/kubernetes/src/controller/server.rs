@@ -101,6 +101,12 @@ async fn run(c: Controller, trace_config: TraceConfig) {
             .await;
     });
 
+    tracing::info!("Start BlockRequest reconciler");
+    let block_request_state = state.clone();
+    tokio::spawn(async move {
+        reconciler::block_request::run(block_request_state, c.requeue_interval).await;
+    });
+
     tracing::info!("Start Node watcher");
     let node_state = state.clone();
     tokio::spawn(async move {

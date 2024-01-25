@@ -32,21 +32,26 @@ pub struct AddressPoolSpec {
 
 #[derive(Deserialize, Serialize, Clone, Default, Debug, JsonSchema)]
 pub struct AddressPoolStatus {
-    pub blocks: Option<Vec<String>>,
+    pub requested: Option<Vec<String>>,
+    pub allocated: Option<Vec<String>>,
+    pub released: Option<Vec<String>>,
 }
 
-#[derive(Deserialize, Serialize, Clone, Copy, Default, Debug, JsonSchema)]
+#[derive(Deserialize, Serialize, Clone, Copy, Default, Debug, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum AddressType {
     #[default]
     #[serde(rename = "service")]
     Service,
+    #[serde(rename = "pod")]
+    Pod,
 }
 
 impl std::fmt::Display for AddressType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Service => write!(f, "service"),
+            Self::Pod => write!(f, "pod"),
         }
     }
 }

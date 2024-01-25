@@ -29,20 +29,14 @@ pub mod reconciler {
             endpointslice_watcher::ENDPOINTSLICE_FINALIZER, service_watcher::SERVICE_FINALIZER,
         },
         crd::{
-            address_block::{AddressBlock, AddressBlockSpec, ADDRESS_BLOCK_FINALIZER},
-            address_pool::{
+            address_block::{AddressBlock, AddressBlockSpec, ADDRESS_BLOCK_FINALIZER}, address_pool::{
                 AddressPool, AddressPoolSpec, AddressType, AllocationType, ADDRESS_POOL_FINALIZER,
-            },
-            bgp_advertisement::{
+            }, bgp_advertisement::{
                 BGPAdvertisement, BGPAdvertisementSpec, Protocol, BGP_ADVERTISEMENT_FINALIZER,
-            },
-            bgp_peer::{BGPPeer, BGPPeerSlim, BGPPeerSpec, PeerConfig},
-            bgp_peer_template::{BGPPeerTemplate, BGPPeerTemplateSpec},
-            cluster_bgp::{
+            }, bgp_peer::{BGPPeer, BGPPeerSlim, BGPPeerSpec, PeerConfig}, bgp_peer_template::{BGPPeerTemplate, BGPPeerTemplateSpec}, block_request::{BlockRequest, BlockRequestSpec, BLOCK_REQUEST_FINALIZER}, cluster_bgp::{
                 AsnSelectionType, AsnSelector, ClusterBGP, ClusterBGPSpec, RouterIdSelectionType,
                 RouterIdSelector, SpeakerConfig, CLUSTER_BGP_FINALIZER,
-            },
-            node_bgp::{NodeBGP, NodeBGPSpec},
+            }, node_bgp::{NodeBGP, NodeBGPSpec}
         },
     };
 
@@ -301,6 +295,24 @@ pub mod reconciler {
         }
     }
 
+    pub fn test_address_pool_pod() -> AddressPool {
+        AddressPool {
+            metadata: ObjectMeta {
+                name: Some("test-pool".to_string()),
+                finalizers: Some(vec![ADDRESS_POOL_FINALIZER.to_string()]),
+                ..Default::default()
+            },
+            spec: AddressPoolSpec {
+                cidr: "10.0.0.0/16".to_string(),
+                r#type: AddressType::Pod,
+                alloc_type: Some(AllocationType::Bit),
+                block_size: 27,
+                auto_assign: Some(true),
+            },
+            status: None,
+        }
+    }
+
     pub fn test_address_block_lb_non_default() -> AddressBlock {
         AddressBlock {
             metadata: ObjectMeta {
@@ -316,6 +328,21 @@ pub mod reconciler {
                 auto_assign: false,
             },
             status: None,
+        }
+    }
+
+    pub fn test_block_request() -> BlockRequest {
+        BlockRequest {
+            metadata: ObjectMeta {
+                finalizers: Some(vec![BLOCK_REQUEST_FINALIZER.to_string()]),
+                name: Some("test-pool-test-node".to_string()),
+                ..Default::default()
+            },
+            spec: BlockRequestSpec {
+                pool: "test-pool".to_string(),
+                node: "test-node".to_string(),
+            },
+            status: todo!()
         }
     }
 

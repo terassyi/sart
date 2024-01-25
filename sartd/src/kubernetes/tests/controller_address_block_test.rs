@@ -54,7 +54,7 @@ async fn integration_test_address_block() {
         .await
         .unwrap();
 
-    dbg!("Chencking the block is registered in allocator set");
+    dbg!("Checking the block is registered in allocator set");
     {
         let alloc_set = allocator_set.clone();
         let alloc_set_inner = alloc_set.inner.lock().unwrap();

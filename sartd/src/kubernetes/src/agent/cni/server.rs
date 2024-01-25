@@ -1,7 +1,14 @@
+use std::sync::Arc;
+
+use kube::Client;
+use sartd_ipam::manager::AllocatorSet;
 use sartd_proto::sart::{cni_api_server::CniApi, Args, CniResult};
 use tonic::{async_trait, Request, Response, Status};
 
-pub(crate) struct CNIServer {}
+pub(crate) struct CNIServer {
+    client: Client,
+    allocator_set: Arc<AllocatorSet>,
+}
 
 #[async_trait]
 impl CniApi for CNIServer {

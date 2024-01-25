@@ -46,6 +46,7 @@ async fn reconcile(
 
     match ap.spec.r#type {
         AddressType::Service => reconcile_service_pool(api, ap, ctx).await,
+        AddressType::Pod => reconcile_pod_pool(api, ap, ctx).await,
     }
 }
 
@@ -94,17 +95,19 @@ async fn reconcile_service_pool(
     match new_ap
         .status
         .as_mut()
-        .and_then(|status| status.blocks.as_mut())
+        .and_then(|status| status.allocated.as_mut())
     {
-        Some(blocks) => {
-            if !blocks.contains(&ap.name_any()) {
-                blocks.push(ap.name_any());
+        Some(allocated) => {
+            if !allocated.contains(&ap.name_any()) {
+                allocated.push(ap.name_any());
                 need_update = true;
             }
         }
         None => {
             new_ap.status = Some(AddressPoolStatus {
-                blocks: Some(vec![ap.name_any()]),
+                requested: None,
+                allocated: Some(vec![ap.name_any()]),
+                released: None,
             });
             need_update = true;
         }
@@ -120,6 +123,15 @@ async fn reconcile_service_pool(
         .map_err(Error::Kube)?;
     }
 
+    Ok(Action::await_change())
+}
+
+#[tracing::instrument(skip_all)]
+async fn reconcile_pod_pool(
+    api: &Api<AddressPool>,
+    ap: &AddressPool,
+    ctx: Arc<Context>,
+) -> Result<Action, Error> {
     Ok(Action::await_change())
 }
 
@@ -282,7 +294,9 @@ mod tests {
             let (request, send) = self.0.next_request().await.expect("service not called");
             let mut updated_ap = ap.clone();
             updated_ap.status = Some(AddressPoolStatus {
-                blocks: Some(vec![ap.name_any()]),
+                requested: None,
+                allocated: Some(vec![ap.name_any()]),
+                released: None,
             });
             assert_resource_request(
                 &request,
@@ -343,7 +357,9 @@ mod tests {
                 auto_assign: None,
             },
             status: Some(AddressPoolStatus {
-                blocks: Some(vec!["test-pool".to_string()]),
+                requested: None,
+                allocated: Some(vec!["test-pool".to_string()]),
+                released: None,
             }),
         };
         let mocksrv = fakeserver.address_pool_run(Scenario::UpdateNop(ap.clone()));
