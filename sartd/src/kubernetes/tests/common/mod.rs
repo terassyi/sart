@@ -63,7 +63,7 @@ pub fn cleanup_kind() {
         .expect("failed to delete kind cluster");
     output_result(out);
 
-    std::thread::sleep(std::time::Duration::from_secs(2));
+    std::thread::sleep(std::time::Duration::from_secs(5));
 }
 
 pub fn cleanup_kind_no_output() {

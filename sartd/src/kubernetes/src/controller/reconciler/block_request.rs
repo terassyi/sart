@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
-use kube::{api::{ListParams, PostParams}, core::object::HasSpec, runtime::{controller::Action, finalizer::{finalizer, Event}}, Api, Client, ResourceExt};
-use rustls::internal;
+use futures::StreamExt;
+use kube::{api::{ListParams, PostParams}, runtime::{controller::Action, finalizer::{finalizer, Event}, watcher::Config, Controller}, Api, Client, ResourceExt};
 
-use crate::{context::{Context, Ctx, State}, controller::error::Error, crd::{address_block::AddressBlock, address_pool::{AddressPool, AddressType}, block_request::{BlockRequest, BLOCK_REQUEST_FINALIZER}}};
+
+use crate::{context::{error_policy, Context, Ctx, State}, controller::error::Error, crd::{address_pool::{AddressPool, AddressPoolStatus, AddressType}, block_request::{BlockRequest, BLOCK_REQUEST_FINALIZER}}};
 
 
 #[tracing::instrument(skip_all, fields(trace_id))]
@@ -20,7 +21,7 @@ pub async fn reconciler(br: Arc<BlockRequest>, ctx: Arc<Context>) -> Result<Acti
 }
 
 #[tracing::instrument(skip_all)]
-async fn reconcile(api: &Api<BlockRequest>, br: &BlockRequest, ctx: Arc<Context>) -> Result<Action, Error> {
+async fn reconcile(_api: &Api<BlockRequest>, br: &BlockRequest, ctx: Arc<Context>) -> Result<Action, Error> {
 	tracing::info!(name = br.name_any(), "reconcile BlockRequest");
 
 	let address_pool_api = Api::<AddressPool>::all(ctx.client.clone());
@@ -32,22 +33,31 @@ async fn reconcile(api: &Api<BlockRequest>, br: &BlockRequest, ctx: Arc<Context>
 		return Err(Error::InvalidAddressType);
 	}
 
-	if let Some(status) = pool.status.as_mut() {
-		match status.requested.as_mut() {
-			Some(requested) => {
-				if requested.iter().any(|r| r.eq(&br.name_any())) {
-					tracing::warn!(name=br.name_any(), "Same BlockRequest already exists");
-					return Err(Error::BlockRequestAlreadyExists);
+	match pool.status.as_mut() {
+		Some(status) => {
+			match status.requested.as_mut() {
+				Some(requested) => {
+					if requested.iter().any(|r| r.eq(&br.name_any())) {
+						tracing::warn!(name=br.name_any(), "Same BlockRequest already exists");
+						return Err(Error::BlockRequestAlreadyExists);
+					}
+					requested.push(br.name_any());
+				},
+				None => {
+					status.requested = Some(vec![br.name_any()]);
 				}
-				requested.push(br.name_any());
-			},
-			None => {
-				status.requested = Some(vec![br.name_any()]);
 			}
+		},
+		None => {
+			pool.status = Some(AddressPoolStatus{
+				requested: Some(vec![br.name_any()]),
+				allocated: None,
+				released: None,
+			});
 		}
 	}
 
-	address_pool_api.replace_status(&br.name_any(), &PostParams::default(), serde_json::to_vec(&pool).map_err(Error::Serialization)?).await.map_err(Error::Kube)?;
+	address_pool_api.replace_status(&pool.name_any(), &PostParams::default(), serde_json::to_vec(&pool).map_err(Error::Serialization)?).await.map_err(Error::Kube)?;
 
 	Ok(Action::await_change())
 }

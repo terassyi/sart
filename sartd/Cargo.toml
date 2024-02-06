@@ -40,6 +40,11 @@ doc = false
 name = "certgen"
 path = "src/bin/certgen.rs"
 
+[[bin]]
+doc = false
+name = "cni-installer"
+path = "src/bin/cni-installer.rs"
+
 
 [dependencies]
 anyhow = "1.0.75"

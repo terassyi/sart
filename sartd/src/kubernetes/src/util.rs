@@ -33,21 +33,41 @@ pub fn escape_slash(s: &str) -> String {
     s.replace('/', "~1")
 }
 
-pub fn get_diff(prev: &[String], now: &[String]) -> (Vec<String>, Vec<String>, Vec<String>) {
+// pub fn get_diff(prev: &[String], now: &[String]) -> (Vec<String>, Vec<String>, Vec<String>) {
+//     let removed = prev
+//         .iter()
+//         .filter(|p| !now.contains(p))
+//         .cloned()
+//         .collect::<Vec<String>>();
+//     let added = now
+//         .iter()
+//         .filter(|n| !prev.contains(n) && !removed.contains(n))
+//         .cloned()
+//         .collect::<Vec<String>>();
+//     let shared = prev
+//         .iter()
+//         .filter(|p| now.contains(p))
+//         .cloned()
+//         .collect::<Vec<String>>();
+//     (added, shared, removed)
+// }
+
+pub fn diff<T: PartialEq + Clone>(prev: &[T], now: &[T]) -> (Vec<T>, Vec<T>, Vec<T>) {
     let removed = prev
         .iter()
         .filter(|p| !now.contains(p))
         .cloned()
-        .collect::<Vec<String>>();
+        .collect::<Vec<T>>();
     let added = now
         .iter()
         .filter(|n| !prev.contains(n) && !removed.contains(n))
         .cloned()
-        .collect::<Vec<String>>();
+        .collect::<Vec<T>>();
     let shared = prev
         .iter()
         .filter(|p| now.contains(p))
         .cloned()
-        .collect::<Vec<String>>();
+        .collect::<Vec<T>>();
     (added, shared, removed)
+
 }

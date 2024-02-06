@@ -1,6 +1,5 @@
 use thiserror::Error;
 
-
 #[derive(Debug)]
 pub(super) struct BitSet {
     inner: Vec<u128>,
@@ -27,7 +26,7 @@ impl BitSet {
     // index starts from 0
     pub(super) fn is_set(&self, index: u128) -> bool {
         if index > self.size {
-            return false
+            return false;
         }
         let (v, i) = BitSet::get_inner_index(index);
         let a: u128 = 1 << i;
@@ -37,7 +36,7 @@ impl BitSet {
     // index starts from 0
     pub(super) fn set(&mut self, index: u128, value: bool) -> Result<u128, BitSetError> {
         if index > self.size {
-            return Err(BitSetError::InvalidIndex)
+            return Err(BitSetError::InvalidIndex);
         }
         let (v, n) = BitSet::get_inner_index(index);
 
@@ -50,7 +49,7 @@ impl BitSet {
 
     pub(super) fn set_true(&mut self, index: u128) -> Result<u128, BitSetError> {
         if self.is_set(index) {
-            return Err(BitSetError::AlreadySet)
+            return Err(BitSetError::AlreadySet);
         }
         self.set(index, true)
     }
@@ -88,6 +87,11 @@ impl BitSet {
         self.inner.iter().sum::<u128>() == 0
     }
 
+    // Consider the better way
+    pub(super) fn is_full(&self) -> bool {
+        self.get_min_unset_index().is_err()
+    }
+
     fn get_inner_index(index: u128) -> (usize, usize) {
         ((index as usize / 128), (index as usize % 128))
     }
@@ -110,7 +114,7 @@ mod tests {
     use super::*;
     use rstest::rstest;
 
-    #[rstest(base, index, expected, 
+    #[rstest(base, index, expected,
         case(BitSet::with_value(vec![0], 64), 0, false),
         case(BitSet::with_value(vec![1], 64), 0, true),
         case(BitSet::with_value(vec![1 << 32], 64), 32, true),

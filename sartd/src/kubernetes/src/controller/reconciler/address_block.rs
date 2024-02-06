@@ -53,10 +53,7 @@ async fn reconcile(
     let component = ctx.component.clone();
     let mut alloc_set = component.inner.lock().map_err(|_| Error::FailedToGetLock)?;
 
-    let cidr = match IpNet::from_str(&ab.spec.cidr) {
-        Ok(c) => c,
-        Err(_e) => return Err(Error::InvalidAddress),
-    };
+	let cidr = IpNet::from_str(&ab.spec.cidr).map_err(|_| Error::InvalidCIDR)?;
 
     match alloc_set.blocks.get(&ab.name_any()) {
         Some(_a) => {

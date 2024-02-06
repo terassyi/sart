@@ -43,13 +43,13 @@ spec:
           livenessProbe:
             httpGet:
               path: /healthz
-              port: 8080
+              port: 8000
             initialDelaySeconds: 15
             periodSeconds: 20
           readinessProbe:
             httpGet:
               path: /readyz
-              port: 8080
+              port: 8000
             initialDelaySeconds: 5
             periodSeconds: 10
           resources:
@@ -66,14 +66,11 @@ spec:
       hostNetwork: true
       nodeSelector:
         kubernetes.io/os: linux
-      # serviceAccountName: sartd
       terminationGracePeriodSeconds: 2
       tolerations:
         - effect: NoSchedule
-          key: node-role.kubernetes.io/master
           operator: Exists
         - effect: NoSchedule
-          key: node-role.kubernetes.io/control-plane
           operator: Exists
       volumes:
       - name: cert

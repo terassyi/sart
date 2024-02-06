@@ -14,8 +14,12 @@ use sartd_ipam::manager::AllocatorSet;
 use sartd_trace::init::{prepare_tracing, TraceConfig};
 
 use crate::{
+    config::Mode,
     context::State,
-    crd::{address_pool::AddressPool, bgp_advertisement::BGPAdvertisement, bgp_peer::BGPPeer},
+    crd::{
+        address_block::AddressBlock, address_pool::AddressPool,
+        bgp_advertisement::BGPAdvertisement, bgp_peer::BGPPeer,
+    },
 };
 
 use super::{reconciler, webhook};
@@ -65,6 +69,7 @@ async fn run(c: Controller, trace_config: TraceConfig) {
             .service(bgp_peer_mutating_webhook)
             .service(bgp_advertisement_validating_webhook)
             .service(address_pool_validating_webhook)
+            .service(address_block_mutating_webhook)
             .service(service_mutating_webhook)
             .wrap(
                 middleware::Logger::default()
@@ -72,9 +77,9 @@ async fn run(c: Controller, trace_config: TraceConfig) {
                     .exclude("/readyz"),
             )
     })
-    .bind_rustls_021("0.0.0.0:8443", server_config)
+    .bind_rustls_021(format!("0.0.0.0:{}", c.server_https_port), server_config)
     .unwrap()
-    .bind("0.0.0.0:8080")
+    .bind(format!("0.0.0.0:{}", c.server_port))
     .unwrap()
     .shutdown_timeout(5);
 
@@ -137,17 +142,23 @@ async fn run(c: Controller, trace_config: TraceConfig) {
 }
 
 pub struct Controller {
+    server_port: u32,
+    server_https_port: u32,
     server_cert: String,
     server_key: String,
     requeue_interval: u64,
+    mode: Mode,
 }
 
 impl Controller {
     pub fn new(config: Config) -> Self {
         Self {
+            server_port: config.http_port,
+            server_https_port: config.https_port,
             server_cert: config.tls.cert,
             server_key: config.tls.key,
             requeue_interval: config.requeue_interval,
+            mode: config.mode,
         }
     }
 }
@@ -215,4 +226,12 @@ async fn service_mutating_webhook(
     body: web::Json<AdmissionReview<Service>>,
 ) -> impl Responder {
     webhook::service::handle_mutation(req, body).await
+}
+
+#[post("/mutate-sart-terassyi-net-v1alpha2-addressblock")]
+async fn address_block_mutating_webhook(
+    req: HttpRequest,
+    body: web::Json<AdmissionReview<AddressBlock>>,
+) -> impl Responder {
+    webhook::address_block::handle_mutation(req, body).await
 }

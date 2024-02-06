@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use kube::CustomResource;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -33,7 +35,7 @@ pub struct AddressPoolSpec {
 #[derive(Deserialize, Serialize, Clone, Default, Debug, JsonSchema)]
 pub struct AddressPoolStatus {
     pub requested: Option<Vec<String>>,
-    pub allocated: Option<Vec<String>>,
+    pub allocated: Option<HashMap<String, u128>>,
     pub released: Option<Vec<String>>,
 }
 

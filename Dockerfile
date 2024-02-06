@@ -7,6 +7,7 @@ FROM --platform=$BUILDPLATFORM rust:${RUST_VERSION} as builder
 WORKDIR /home
 COPY ./sartd /home/sartd
 COPY ./sart /home/sart
+COPY ./sartcni /home/sartcni
 COPY ./proto /home/proto
 
 RUN apt update -y && \
@@ -30,9 +31,13 @@ RUN case "$TARGETPLATFORM" in \
 RUN rustup target add $(cat /rust_target.txt)
 
 RUN cd sartd; cargo build --release --target $(cat /rust_target.txt) && \
-	cp /home/sartd/target/$(cat /rust_target.txt)/release/sartd /usr/local/bin/sartd
+	cp /home/sartd/target/$(cat /rust_target.txt)/release/sartd /usr/local/bin/sartd && \
+	cargo build --release --bin cni-installer --target $(cat /rust_target.txt) && \
+	cp /home/sartd/target/$(cat /rust_target.txt)/release/cni-installer /usr/local/bin/cni-installer
 RUN cd sart; cargo build --release --target $(cat /rust_target.txt) && \
 	cp /home/sart/target/$(cat /rust_target.txt)/release/sart /usr/local/bin/sart
+RUN cd sartcni; cargo build --release --target $(cat /rust_target.txt) && \
+	cp /home/sartcni/target/$(cat /rust_target.txt)/release/sart-cni /usr/local/bin/sart-cni
 
 FROM debian:stable
 
@@ -41,3 +46,7 @@ RUN apt update -y && \
 
 COPY --from=builder /usr/local/bin/sartd /usr/local/bin/sartd
 COPY --from=builder /usr/local/bin/sart /usr/local/bin/sart
+COPY --from=builder /usr/local/bin/cni-installer /usr/local/bin/cni-installer
+
+COPY --from=builder /usr/local/bin/sart-cni /host/opt/cni/bin/sart-cni
+COPY netconf.json /host/etc/cni/net.d/10-sart.conflist

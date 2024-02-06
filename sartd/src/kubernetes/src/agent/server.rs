@@ -3,13 +3,20 @@ use std::sync::Arc;
 use actix_web::{
     get, middleware, web::Data, App, HttpRequest, HttpResponse, HttpServer, Responder,
 };
+use kube::Client;
 use prometheus::{Encoder, TextEncoder};
 use rustls::ServerConfig;
 use sartd_cert::util::{load_certificates_from_pem, load_private_key_from_file};
 use sartd_ipam::manager::AllocatorSet;
 use sartd_trace::init::{prepare_tracing, TraceConfig};
+use tokio::sync::mpsc::unbounded_channel;
 
+use crate::agent::cni;
+use crate::agent::cni::server::{CNIServer, CNI_SERVER_ENDPOINT};
+use crate::agent::reconciler::address_block::PodAllocator;
+use crate::config::Mode;
 use crate::context::State;
+use crate::crd::address_block::AddressBlock;
 
 use super::config::Config;
 use super::reconciler;
@@ -59,14 +66,11 @@ async fn run(a: Agent, trace_config: TraceConfig) {
                     .exclude("/readyz"),
             )
     })
-    .bind_rustls_021("0.0.0.0:9443", server_config)
+    .bind_rustls_021(format!("0.0.0.0:{}", a.server_https_port), server_config)
     .unwrap()
-    .bind("0.0.0.0:8080")
+    .bind(format!("0.0.0.0:{}", a.server_http_port))
     .unwrap()
     .shutdown_timeout(5);
-
-    // Pod address allocators
-    let allocator_set = Arc::new(AllocatorSet::new());
 
     tracing::info!("Start Agent Reconcilers");
 
@@ -89,25 +93,65 @@ async fn run(a: Agent, trace_config: TraceConfig) {
         reconciler::bgp_peer_watcher::run(&a.peer_state_watcher).await;
     });
 
+    if a.mode.eq(&Mode::CNI) || a.mode.eq(&Mode::Dual) {
+        // Pod address allocators
+        let allocator_set = Arc::new(AllocatorSet::new());
+        let (sender, receiver) = unbounded_channel::<AddressBlock>();
+        let pod_allocator = Arc::new(PodAllocator {
+            allocator: allocator_set.clone(),
+            notifier: sender,
+        });
+
+        let address_block_state = state.clone();
+        let ab_pod_allocator = pod_allocator.clone();
+        tokio::spawn(async move {
+            reconciler::address_block::run(
+                address_block_state,
+                a.requeue_interval,
+                ab_pod_allocator,
+            )
+            .await;
+        });
+
+        let node_name = std::env::var("HOSTNAME").unwrap();
+        let kube_client = Client::try_default().await.unwrap();
+        let cni_server = CNIServer::new(kube_client, allocator_set.clone(), node_name, receiver);
+
+        let cni_endpoint = a.cni_endpoint.expect("cni endpoint must be given");
+
+        tracing::info!("Start CNI server");
+        tokio::spawn(async move {
+            cni::server::run(&cni_endpoint, cni_server).await;
+        });
+    }
+
     server.run().await.unwrap()
 }
 
 pub struct Agent {
+    server_http_port: u32,
+    server_https_port: u32,
     endpoint: String,
     server_cert: String,
     server_key: String,
     requeue_interval: u64,
     peer_state_watcher: String,
+    cni_endpoint: Option<String>,
+    mode: Mode,
 }
 
 impl Agent {
     pub fn new(config: Config) -> Self {
         Self {
+            server_http_port: config.http_port,
+            server_https_port: config.https_port,
             endpoint: config.endpoint,
             server_cert: config.tls.cert,
             server_key: config.tls.key,
             requeue_interval: config.requeue_interval,
             peer_state_watcher: config.peer_state_watcher,
+            mode: config.mode,
+            cni_endpoint: config.cni_endpoint.clone(),
         }
     }
 }

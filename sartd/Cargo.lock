@@ -2069,6 +2069,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rscni"
+version = "0.0.3"
+source = "git+https://github.com/terassyi/rscni?branch=fix-error-result#e51f1a49d3047f26a45a40f7e56fcbbaa106b2a4"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "rstest"
 version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2207,7 +2217,7 @@ dependencies = [
  "k8s-openapi",
  "kube",
  "rcgen",
- "rscni",
+ "rscni 0.0.2",
  "sartd-cmd",
  "sartd-kubernetes",
  "serde_yaml",
@@ -2311,6 +2321,7 @@ dependencies = [
  "k8s-openapi",
  "kube",
  "prometheus",
+ "rscni 0.0.3",
  "rstest",
  "rtnetlink",
  "rustls",
@@ -2325,6 +2336,7 @@ dependencies = [
  "serde_yaml",
  "thiserror",
  "tokio",
+ "tokio-stream",
  "tonic",
  "tower-test",
  "tracing",

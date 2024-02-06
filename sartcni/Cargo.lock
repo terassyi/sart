@@ -978,8 +978,7 @@ checksum = "e898588f33fdd5b9420719948f9f2a32c922a246964576f71ba7f24f80610fbc"
 [[package]]
 name = "rscni"
 version = "0.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4a8d6aabd78a9df5450201eeeccfc19e597d671cb697b1cfec1279f0979ff19"
+source = "git+https://github.com/terassyi/rscni?branch=fix-error-result#e51f1a49d3047f26a45a40f7e56fcbbaa106b2a4"
 dependencies = [
  "serde",
  "serde_json",
@@ -1072,6 +1071,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
+ "tokio-stream",
  "tonic",
  "tonic-build",
  "tracing",

@@ -114,7 +114,7 @@ async fn integration_test_address_block() {
     .await
     .unwrap_err();
 
-    dbg!("Making diable auto assign");
+    dbg!("Making disable auto assign");
     let mut ab_disable_auto_assign = ab.clone();
     ab_disable_auto_assign.spec.auto_assign = false;
     let ab_patch_disable_auto_assign = Patch::Apply(ab_disable_auto_assign.clone());
@@ -212,7 +212,7 @@ async fn integration_test_address_block() {
         .await
         .unwrap();
 
-    dbg!("Chencking block is deleted");
+    dbg!("Checking block is deleted");
     {
         let alloc_set = allocator_set.clone();
         let alloc_set_inner = alloc_set.inner.lock().unwrap();

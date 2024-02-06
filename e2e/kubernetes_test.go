@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	MANIFEST_DIR string = "../manifests/sample"
+	MANIFEST_DIR string = "../manifests/base/sample"
 	GROUP        string = "sart.terassyi.net"
 	VERSION      string = "v1alpha2"
 )

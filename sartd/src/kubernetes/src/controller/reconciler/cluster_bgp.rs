@@ -25,7 +25,7 @@ use crate::{
         },
         node_bgp::{NodeBGP, NodeBGPSpec, NodeBGPStatus},
     },
-    util::{create_owner_reference, get_diff},
+    util::{create_owner_reference, diff},
 };
 
 #[tracing::instrument(skip_all, fields(trace_id))]
@@ -74,7 +74,8 @@ async fn reconcile(cb: &ClusterBGP, ctx: Arc<Context>) -> Result<Action, Error> 
 
     tracing::info!(name = cb.name_any(), matched=?matched_node_names, "matched nodes");
 
-    let (added, remain, removed) = get_diff(&actual_nodes, &matched_node_names);
+    // let (added, remain, removed) = get_diff(&actual_nodes, &matched_node_names);
+    let (added, remain, removed) = diff::<String>(&actual_nodes, &matched_node_names);
 
     let node_bgps = Api::<NodeBGP>::all(ctx.client.clone());
 

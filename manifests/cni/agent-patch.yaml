@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: sartd-agent
+  namespace: kube-system
+spec:
+  template:
+    spec:
+      containers:
+        - name: sartd
+          args:
+            - agent
+            - --mode=cni
+            - --cni-endpoint=0.0.0.0:6000
+          volumeMounts:
+            - mountPath: /var/run
+              name: run
+      initContainers:
+        - name: installer
+          image: sart:dev
+          command: ["cni-installer"]
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - mountPath: /opt/cni/bin
+              name: cni-bin
+            - mountPath: /etc/cni/net.d
+              name: cni-conf
+      volumes:
+        - name: run
+          hostPath:
+            path: /var/run
+        - name: cni-bin
+          hostPath:
+            path: /opt/cni/bin
+        - name: cni-conf
+          hostPath:
+            path: /etc/cni/net.d

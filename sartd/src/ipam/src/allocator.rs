@@ -2,7 +2,10 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use ipnet::IpNet;
 
-use super::{bitset::{BitSet, BitSetError}, error::Error};
+use super::{
+    bitset::{BitSet, BitSetError},
+    error::Error,
+};
 
 #[derive(Debug, Copy, Clone)]
 pub enum AllocatorMethod {
@@ -19,11 +22,17 @@ impl Allocator {
     pub fn new(cidr: IpNet, method: AllocatorMethod) -> Result<Allocator, Error> {
         if let IpNet::V6(c) = cidr {
             if 128 - c.prefix_len() > Allocator::MAX_SIZE {
-                return Err(Error::CIDRTooLarge(c.prefix_len()))
+                return Err(Error::CIDRTooLarge(c.prefix_len()));
             }
         }
         match method {
             AllocatorMethod::Bit => Ok(Allocator::Bit(BitAllocator::new(cidr))),
+        }
+    }
+
+    pub fn prefix_len(&self) -> u8 {
+        match self {
+            Allocator::Bit(a) => a.prefix_len(),
         }
     }
 
@@ -53,7 +62,13 @@ impl Allocator {
 
     pub fn is_empty(&self) -> bool {
         match self {
-            Allocator::Bit(a) => a.is_empty()
+            Allocator::Bit(a) => a.is_empty(),
+        }
+    }
+
+    pub fn is_full(&self) -> bool {
+        match self {
+            Allocator::Bit(a) => a.is_full(),
         }
     }
 
@@ -84,6 +99,10 @@ impl BitAllocator {
         }
     }
 
+    fn prefix_len(&self) -> u8 {
+        self.cidr.prefix_len()
+    }
+
     fn size(&self) -> u128 {
         self.allocator.size()
     }
@@ -100,12 +119,10 @@ impl BitAllocator {
     }
 
     fn allocate_next(&mut self) -> Result<IpAddr, Error> {
-
-        let index = self.allocator.set_next()
-            .map_err(|e| match e {
-                BitSetError::Full => Error::Full,
-                _ => Error::BitSet(e)
-            })?;
+        let index = self.allocator.set_next().map_err(|e| match e {
+            BitSetError::Full => Error::Full,
+            _ => Error::BitSet(e),
+        })?;
         self.allocated += 1;
 
         Ok(index_to_addr(index, &self.cidr))
@@ -122,6 +139,10 @@ impl BitAllocator {
 
     fn is_empty(&self) -> bool {
         self.allocator.is_empty()
+    }
+
+    fn is_full(&self) -> bool {
+        self.allocator.is_full()
     }
 
     fn release(&mut self, addr: &IpAddr) -> Result<IpAddr, Error> {
@@ -195,7 +216,7 @@ fn index_to_addr(index: u128, cidr: &IpNet) -> IpAddr {
                 + ((a_octs[0] as u32) << 24);
             let new_bits = a_bits + index as u32;
             IpAddr::V4(Ipv4Addr::from(new_bits.to_be_bytes()))
-        },
+        }
         IpNet::V6(c) => {
             let a_octs = c.network().octets();
             let mut a_bits = 0u128;
@@ -208,14 +229,13 @@ fn index_to_addr(index: u128, cidr: &IpNet) -> IpAddr {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use ipnet::{IpNet, Ipv4Net, Ipv6Net};
+    use rstest::rstest;
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
     use std::str::FromStr;
-    use rstest::rstest;
 
     #[rstest(
         cidr,
@@ -231,9 +251,9 @@ mod tests {
     }
 
     #[rstest(
-        addr, 
-        cidr, 
-        expected, 
+        addr,
+        cidr,
+        expected,
         case(IpAddr::V4(Ipv4Addr::from_str("10.0.0.0").unwrap()), IpNet::V4(Ipv4Net::from_str("10.0.0.0/24").unwrap()), 0),
         case(IpAddr::V4(Ipv4Addr::from_str("10.0.0.1").unwrap()), IpNet::V4(Ipv4Net::from_str("10.0.0.0/24").unwrap()), 1),
         case(IpAddr::V4(Ipv4Addr::from_str("10.0.0.100").unwrap()), IpNet::V4(Ipv4Net::from_str("10.0.0.0/24").unwrap()), 100),
@@ -248,9 +268,9 @@ mod tests {
     }
 
     #[rstest(
-        addr, 
-        cidr, 
-        expected, 
+        addr,
+        cidr,
+        expected,
         case(IpAddr::V6(Ipv6Addr::from_str("2001:db8::").unwrap()), IpNet::V4(Ipv4Net::from_str("10.0.0.0/24").unwrap()), Error::ProtocolMistmatch),
         case(IpAddr::V4(Ipv4Addr::from_str("10.0.1.0").unwrap()), IpNet::V4(Ipv4Net::from_str("10.0.0.0/24").unwrap()), Error::NotContains),
     )]
@@ -264,8 +284,8 @@ mod tests {
 
     #[rstest(
         index,
-        cidr, 
-        expected, 
+        cidr,
+        expected,
         case(0, IpNet::V4(Ipv4Net::from_str("10.0.0.0/24").unwrap()), IpAddr::V4(Ipv4Addr::from_str("10.0.0.0").unwrap())),
         case(1, IpNet::V4(Ipv4Net::from_str("10.0.0.0/24").unwrap()), IpAddr::V4(Ipv4Addr::from_str("10.0.0.1").unwrap())),
         case(100, IpNet::V4(Ipv4Net::from_str("10.0.0.0/24").unwrap()), IpAddr::V4(Ipv4Addr::from_str("10.0.0.100").unwrap())),

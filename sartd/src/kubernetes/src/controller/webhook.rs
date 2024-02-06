@@ -1,3 +1,4 @@
+pub mod address_block;
 pub mod address_pool;
 pub mod bgp_advertisement;
 pub mod bgp_peer;

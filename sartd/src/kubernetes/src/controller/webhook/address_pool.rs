@@ -61,7 +61,7 @@ pub async fn handle_validation(
                     if ap_list
                         .items
                         .iter()
-                        .any(|p| p.spec.auto_assign.unwrap_or(false))
+                        .any(|p| p.spec.auto_assign.unwrap_or(false) && p.spec.r#type.eq(&ap.spec.r#type))
                     {
                         tracing::warn!("Auto assignable AddressPool already exists.");
                         resp.allowed = false;

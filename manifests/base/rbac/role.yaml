@@ -8,6 +8,32 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
   - endpoints
   verbs:
   - get
@@ -144,7 +170,7 @@ rules:
 - apiGroups:
   - sart.terassyi.net
   resources:
-  - blockrequests 
+  - blockrequests
   verbs:
   - create
   - delete

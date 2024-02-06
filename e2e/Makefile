@@ -3,7 +3,9 @@ include Makefile.versions
 SUDO ?= sudo
 
 BINDIR := $(abspath $(PWD)/bin)
-MANIFESTDIR := $(abspath $(PWD)/../manifests)
+MANIFESTDIR := $(abspath $(PWD)/../manifests/base)
+LB_MANIFESTDIR := $(abspath $(PWD)/../manifests/lb)
+CNI_MANIFESTDIR := $(abspath $(PWD)/../manifests/cni)
 TOPOLOGYDIR := $(abspath $(PWD)/topology)
 
 KIND := $(BINDIR)/kind
@@ -16,7 +18,10 @@ IMAGE_NAME := sart
 IMAGE_VERSION := dev
 CLUSTER_NAME = sart
 KIND_CONFIG = kind-config.yaml
+CNI_KIND_CONFIG = kind-config-disable-cni.yaml
 CONTAINERLAB_KUBERNETES = $(TOPOLOGYDIR)/kubernetes.yaml
+
+MODE := lb
 
 WORKER_ASN ?= 65000
 WORKER2_ASN ?= 65000
@@ -43,7 +48,11 @@ topology:
 kubernetes:
 	$(SUDO) sysctl -w fs.inotify.max_user_instances=512
 	$(SUDO) sysctl -w fs.inotify.max_user_watches=65536
+ifeq ($(MODE),cni)
+	$(KIND) create cluster --image kindest/node:v$(KUBERNETES_VERSION) --config=$(CNI_KIND_CONFIG) --name $(CLUSTER_NAME)
+else
 	$(KIND) create cluster --image kindest/node:v$(KUBERNETES_VERSION) --config=$(KIND_CONFIG) --name $(CLUSTER_NAME)
+endif
 	$(SUDO) $(CONTAINERLAB) -t $(CONTAINERLAB_KUBERNETES) deploy
 
 	$(KUBECTL) label nodes --overwrite $(CLUSTER_NAME)-worker bgp=a
@@ -55,7 +64,7 @@ kubernetes:
 	$(KUBECTL) label nodes --overwrite $(CLUSTER_NAME)-worker3 sart.terassyi.net/asn=$(WORKER3_ASN)
 	$(KUBECTL) label nodes --overwrite $(CLUSTER_NAME)-control-plane sart.terassyi.net/asn=$(CP_ASN)
 
-	$(KIND) load docker-image $(IMAGE_NAME):$(IMAGE_VERSION) -n $(CLUSTER_NAME) 
+	$(KIND) load docker-image $(IMAGE_NAME):$(IMAGE_VERSION) -n $(CLUSTER_NAME)
 
 .PHONY: kubernetes-down
 kubernetes-down:
@@ -64,11 +73,20 @@ kubernetes-down:
 
 .PHONY: install-sart
 install-sart: $(MANIFESTDIR)/crd/sart.yaml
-	$(KUSTOMIZE) build $(MANIFESTDIR) | $(KUBECTL) apply -f -
+ifeq ($(MODE),lb)
+	$(KUSTOMIZE) build $(LB_MANIFESTDIR) | $(KUBECTL) apply -f -
+else
+	$(KUSTOMIZE) build $(CNI_MANIFESTDIR) | $(KUBECTL) apply -f -
+endif
 
 .PHONY: sample
 sample:
+ifeq ($(MODE), lb)
 	$(KUSTOMIZE) build $(MANIFESTDIR)/sample | $(KUBECTL) apply -f -
+else
+	$(KUSTOMIZE) build $(CNI_MANIFESTDIR)/sample | $(KUBECTL) apply -f -
+endif
+
 
 $(MANIFESTDIR)/crd/sart.yaml:
 	@echo "PLEASE GENERATE CRD MANIFESTS FIRST"

@@ -116,6 +116,12 @@ pub enum Error {
 
     #[error("Invalid address type")]
     InvalidAddressType,
+
+    #[error("Invalid CIDR")]
+    InvalidCIDR,
+
+    #[error("Invalid pool")]
+    InvalidPool,
 }
 
 #[derive(Debug, Error)]

@@ -2,10 +2,12 @@ use std::{collections::HashMap, sync::Mutex};
 
 use bytes::Bytes;
 
-use rscni::types::CNIResult;
 use tonic::{Request, Response, Status};
 
-use crate::proto::{sart::{self, CniResult}, CNIErrorDetail};
+use crate::proto::{
+    sart::{self, CniResult},
+    CNIErrorDetail,
+};
 
 #[derive(Debug, Clone)]
 pub(super) struct MockContainer {
@@ -39,7 +41,8 @@ impl sart::cni_api_server::CniApi for MockCNIApiServer {
                     code: sart::ErrorCode::NotExist as u32,
                     msg: rscni::error::Error::NotExist(String::new()).to_string(),
                     details: format!("{container_id} is already added"),
-                }).unwrap();
+                })
+                .unwrap();
                 let buf = Bytes::from(e);
                 return Err(Status::with_details(
                     tonic::Code::NotFound,
@@ -49,11 +52,12 @@ impl sart::cni_api_server::CniApi for MockCNIApiServer {
             }
         };
         if container.add {
-            let e = serde_json::to_vec(&CNIErrorDetail{
+            let e = serde_json::to_vec(&CNIErrorDetail {
                 code: sart::ErrorCode::AlreadyAdded as u32,
                 msg: "Already Added".to_string(),
                 details: format!("{container_id} is already added"),
-            }).unwrap();
+            })
+            .unwrap();
 
             let buf = Bytes::from(e);
             return Err(Status::with_details(
@@ -73,11 +77,12 @@ impl sart::cni_api_server::CniApi for MockCNIApiServer {
         let container = match c.get_mut(&container_id) {
             Some(container) => container,
             None => {
-                let e = serde_json::to_vec(&CNIErrorDetail{
+                let e = serde_json::to_vec(&CNIErrorDetail {
                     code: sart::ErrorCode::NotExist as u32,
                     msg: rscni::error::Error::NotExist(String::new()).to_string(),
                     details: format!("{container_id} is already added"),
-                }).unwrap();
+                })
+                .unwrap();
                 let buf = Bytes::from(e);
                 return Err(Status::with_details(
                     tonic::Code::NotFound,
@@ -100,11 +105,12 @@ impl sart::cni_api_server::CniApi for MockCNIApiServer {
         let container = match c.get_mut(&container_id) {
             Some(container) => container,
             None => {
-                let e = serde_json::to_vec(&CNIErrorDetail{
+                let e = serde_json::to_vec(&CNIErrorDetail {
                     code: sart::ErrorCode::NotExist as u32,
                     msg: rscni::error::Error::NotExist(String::new()).to_string(),
                     details: format!("{container_id} is already added"),
-                }).unwrap();
+                })
+                .unwrap();
                 let buf = Bytes::from(e);
                 return Err(Status::with_details(
                     tonic::Code::NotFound,

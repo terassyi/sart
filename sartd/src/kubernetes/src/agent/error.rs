@@ -6,6 +6,9 @@ pub enum Error {
     #[error("std::io::Error")]
     StdIo(#[from] std::io::Error),
 
+    #[error("Failed to get lock")]
+    FailedToGetLock,
+
     #[error("Var Error: {0}")]
     Var(#[source] std::env::VarError),
 
@@ -47,8 +50,29 @@ pub enum Error {
     #[error("Kubernetes Library Error: {0}")]
     KubeLibrary(#[source] crate::error::Error),
 
+    #[error("Ipam Error: {0}")]
+    Ipam(#[source] sartd_ipam::error::Error),
+
     #[error("Peer exists")]
     PeerExists,
+
+    #[error("Invalid CIDR")]
+    InvalidCIDR,
+
+    #[error("Auto assignable pool already exists")]
+    AutoAssignAlreadyExists,
+
+    #[error("Cannot delete")]
+    CannotDelete,
+
+    #[error("Not empty")]
+    NotEmpty,
+
+    #[error("Failed to notify")]
+    FailedToNotify,
+
+    #[error("Missing fields: {0}")]
+    MissingFields(String),
 }
 
 #[derive(Debug, Error, Clone)]

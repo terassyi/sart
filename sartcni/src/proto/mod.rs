@@ -1,11 +1,8 @@
 use rscni::{
     error::Error,
-    types::{Args, CNIResult, Dns, ErrorResult, Interface, IpConfig, Route},
+    types::{Args, CNIResult, Dns, Interface, IpConfig, Route},
 };
-use serde::{
-    de::{self, Visitor},
-    Deserialize, Serialize,
-};
+use serde::{Deserialize, Serialize};
 
 use crate::error::{ERROR_CODE_GRPC, ERROR_MSG_GRPC};
 
@@ -195,13 +192,13 @@ impl From<&sart::Dns> for Dns {
 pub(super) struct CNIErrorDetail {
     pub(super) code: u32,
     pub(super) msg: String,
-    pub(super) details: String
+    pub(super) details: String,
 }
 
 impl From<&CNIErrorDetail> for Error {
     fn from(res: &CNIErrorDetail) -> Self {
         if res.code > 100 {
-            return Error::Custom(res.code as u32, res.msg.clone(), res.details.clone());
+            return Error::Custom(res.code, res.msg.clone(), res.details.clone());
         }
         match res.code {
             1 => Error::IncompatibleVersion(res.details.clone()),

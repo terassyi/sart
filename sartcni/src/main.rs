@@ -27,10 +27,7 @@ async fn main() {
 
     match plugin.run().await {
         Ok(_) => std::process::exit(0),
-        Err(e) => {
-            println!("{e}");
-            std::process::exit(1)
-        }
+        Err(e) => std::process::exit(1),
     }
 }
 

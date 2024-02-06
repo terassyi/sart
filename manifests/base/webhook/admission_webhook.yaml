@@ -53,7 +53,7 @@ webhooks:
         namespace: system
         path: /validate-sart-terassyi-net-v1alpha2-addresspool
     failurePolicy: Fail
-    name: vbgpadvertisement.kb.io
+    name: vaddresspool.kb.io
     rules:
       - apiGroups:
           - sart.terassyi.net
@@ -91,6 +91,26 @@ webhooks:
           - UPDATE
         resources:
           - bgppeers
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: sart-webhook-service
+        namespace: system
+        path: /mutate-sart-terassyi-net-v1alpha2-addressblock
+    failurePolicy: Fail
+    name: maddressblock.kb.io
+    rules:
+      - apiGroups:
+          - sart.terassyi.net
+        apiVersions:
+          - v1alpha2
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - addressblocks
     sideEffects: None
   - admissionReviewVersions:
       - v1
