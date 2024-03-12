@@ -20,8 +20,9 @@ Sart has following progarams.
 	- fib: FIB daemon
 	- agent: Kubernetes agent running as DaemonSet
 	- controller: Kubernetes custom controller running as Deployment
-- `sartcni`
-  - TBD
+- `sart-cni`
+  - CLI tool for CNI
+  - gRPC client to communicate with `sartd agent`
 
 ## BGP
 
@@ -42,7 +43,7 @@ Now sartd-bgp support minimal features to work as BGP speaker.
 - [ ] BGP unnumbered
 - [ ] Route Reflector
 
-### Archietecture
+### Architecture
 
 This figure shows a basic model of sartd-bgp.
 
@@ -434,3 +435,15 @@ The program satisfy this specification is `sartcni`.
 And this is called by `kubelet` to create a pod and delegates a given request to `sartd-agent` via gRPC API like following.
 
 ![cni-internal.drawio.svg](./img/cni-internal.drawio.svg)
+
+The flow looks like following.
+
+1. The admin creates the AddressPool.
+2. The user creates a pod.
+3. Kubelet on a node creates container processes.
+4. Kubelet(or container runtime) call `sart-cni` binary to set up the interface in the container.
+5. `Sart-cni` calls gRPC API to the `sartd-agent` on the same node to configure the interface.
+6. `Sartd-agent` gets the desired pool to assign an IP address and refers to the block on the node.
+7. If a block doesn't exist on the node, `sartd-agent` requests to allocate and `sart-controller` creates it.
+8. `Sartd-agent` assigns an IP address to the pod from the block and configures an interface and routing information.
+9. `Sartd-agent` returns the result to `sart-cni` and `sart-cni` also propagates its result to the caller.

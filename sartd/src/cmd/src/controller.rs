@@ -1,5 +1,8 @@
 use clap::Parser;
-use sartd_kubernetes::controller::config::{DEFAULT_HTTPS_PORT, DEFAULT_HTTP_PORT};
+use sartd_kubernetes::{
+    config::Mode,
+    controller::config::{DEFAULT_HTTPS_PORT, DEFAULT_HTTP_PORT},
+};
 
 #[derive(Debug, Clone, Parser)]
 pub struct ControllerCmd {
@@ -25,4 +28,11 @@ pub struct ControllerCmd {
 
     #[arg(long = "tls-key", help = "path to TLS Key for controller")]
     pub tls_key: Option<String>,
+
+    #[arg(
+        long = "mode",
+        help = "Running mode(Default is Dual)",
+        default_value_t = Mode::Dual,
+    )]
+    pub mode: Mode,
 }

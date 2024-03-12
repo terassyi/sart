@@ -72,7 +72,7 @@ pub async fn handle_validation(
 
     tracing::info!(
         name = admission_req.name,
-        "incoming request try to updates existing object"
+        "incoming request tries to update existing object"
     );
 
     let old = admission_req.old_object.unwrap();

@@ -1,12 +1,10 @@
 # How to Use as Kubernetes network load-balancer
 
-To use kubernetes network load-balancer, we need to run two components: `sartd controller` and `sartd agent`.
+To use kubernetes network load-balancer, we need to run three components: `sartd controller`, `sartd agent` and `sartd bgp`.
 
 The `controller` runs as `Deployment`.
-And the `agent` runs as `DaemonSet`.
-`agent` must run in host network namespace.
-
-For installation, please read [setup for kubernetes](./setup-kubernetes.md).
+And the `agent` and `bgp` run as `DaemonSet`.
+`agent` and `bgp` must run in host network namespace.
 
 To know sart's CRDs, please see [design #Kubernetes](./design.md#kubernetes)
 

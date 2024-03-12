@@ -177,6 +177,8 @@ pub fn run() {
                 config.tls.key = key;
             }
 
+            config.mode = c.mode;
+
             sartd_kubernetes::controller::server::start(config, trace_conf);
         }
     }

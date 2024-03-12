@@ -17,7 +17,7 @@ use sartd_ipam::manager::{AllocatorSet, Block};
 use crate::{
     context::{error_policy, ContextWith, Ctx, State},
     controller::error::Error,
-    crd::address_block::{AddressBlock, ADDRESS_BLOCK_FINALIZER},
+    crd::{address_block::{AddressBlock, ADDRESS_BLOCK_FINALIZER}, address_pool::AddressType},
 };
 
 #[tracing::instrument(skip_all, fields(trace_id))]
@@ -48,16 +48,19 @@ async fn reconcile(
     ab: &AddressBlock,
     ctx: Arc<ContextWith<Arc<AllocatorSet>>>,
 ) -> Result<Action, Error> {
-    tracing::info!(name = ab.name_any(), "reconcile AddressBlock");
+    // only handling lb address block here
+    if ab.spec.r#type.ne(&AddressType::Service) {
+        return Ok(Action::await_change());
+    }
+    tracing::info!(name = ab.name_any(), "Reconcile AddressBlock");
 
     let component = ctx.component.clone();
     let mut alloc_set = component.inner.lock().map_err(|_| Error::FailedToGetLock)?;
 
-	let cidr = IpNet::from_str(&ab.spec.cidr).map_err(|_| Error::InvalidCIDR)?;
+    let cidr = IpNet::from_str(&ab.spec.cidr).map_err(|_| Error::InvalidCIDR)?;
 
     match alloc_set.blocks.get(&ab.name_any()) {
         Some(_a) => {
-            tracing::info!(name = ab.name_any(), "Address block already exists");
             match ab.spec.auto_assign {
                 true => {
                     // Check if already set

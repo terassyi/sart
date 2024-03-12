@@ -18,7 +18,7 @@ spec:
       securityContext:
         runAsNonRoot: false
       containers:
-        - name: sartd
+        - name: controller
           command:
             - sartd
           args:
@@ -54,6 +54,23 @@ spec:
           - mountPath: /etc/sartd/cert
             name: cert
             readOnly: true
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: control-plane
+                    operator: In
+                    values:
+                    - sart-controller
+              topologyKey: "kubernetes.io/hostname"
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              control-plane: sart-controller
       volumes:
       - name: cert
         secret:

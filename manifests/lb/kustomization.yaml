@@ -3,3 +3,4 @@ resources:
 
 patchesStrategicMerge:
   - agent-patch.yaml
+  - controller-patch.yaml

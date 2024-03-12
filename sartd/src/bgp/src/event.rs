@@ -56,6 +56,42 @@ impl Event {
     pub const MESSAGE_KEEPALIVE_MSG: u8 = 26;
     pub const MESSAGE_UPDATE_MSG: u8 = 27;
     pub const MESSAGE_UPDATE_MSG_ERROR: u8 = 28;
+
+    pub fn to_str(event: u8) -> String {
+        match event {
+            1 => "ManualStart".to_string(),
+            2 => "ManualStop".to_string(),
+            3 => "AutomaticStart".to_string(),
+            4 => "ManualStartWithPassiveTcpEstablishment".to_string(),
+            5 => "AutomaticStartWithPassiveTcpEstablishment".to_string(),
+            6 => "AutomaticStartWithDampPeerOscillations".to_string(),
+            7 => "AutomaticStartWithDampPeerOscillationsAndPassiveTcpEstablishment".to_string(),
+            8 => "AutomaticStop".to_string(),
+            9 => "ConnectRetryTimerExpire".to_string(),
+            10 => "HoldTimerExpire".to_string(),
+            11 => "KeepaliveTimerExpire".to_string(),
+            12 => "DelayOpenTimerExpire".to_string(),
+            13 => "IdleHoldTimerExpire".to_string(),
+            14 => "TcpConnectionValid".to_string(),
+            15 => "TcpCRInvalid".to_string(),
+            16 => "TcpCRAcked".to_string(),
+            17 => "TcpConnectionConfirmed".to_string(),
+            18 => "TcpConnectionFail".to_string(),
+            19 => "BgpOpen".to_string(),
+            20 => "BgpOpenWithDelayOpenTimerRunning".to_string(),
+            21 => "BgpHeaderError".to_string(),
+            22 => "BgpOpenMsgErr".to_string(),
+            23 => "OpenCollisionDump".to_string(),
+            24 => "NotifMsgVerErr".to_string(),
+            25 => "NotifMsg".to_string(),
+            26 => "KeepAliveMsg".to_string(),
+            27 => "UpdateMsg".to_string(),
+            28 => "UpdateMsgErr".to_string(),
+            100 => "RouteRefreshMsg".to_string(),
+            101 => "RouteRefreshMsgErr".to_string(),
+            _ => "Unknown".to_string(),
+        }
+    }
 }
 
 impl From<&Event> for u8 {
@@ -86,7 +122,7 @@ impl From<&Event> for u8 {
 			Event::Message(BgpMessageEvent::OpenCollisionDump) => 23,
 			Event::Message(BgpMessageEvent::NotifMsgVerErr) => 24,
 			Event::Message(BgpMessageEvent::NotifMsg(_)) => 25,
-			Event::Message(BgpMessageEvent::KeepAliveMsg) => 26,
+			Event::Message(BgpMessageEvent::KeepAliveMsg{ local_port: _, peer_port: _}) => 26,
 			Event::Message(BgpMessageEvent::UpdateMsg(_)) => 27,
 			Event::Message(BgpMessageEvent::UpdateMsgErr(_)) => 28,
             Event::Message(BgpMessageEvent::RouteRefreshMsg(_)) => 100,
@@ -106,12 +142,6 @@ impl std::fmt::Display for Event {
             Event::Control(e) => write!(f, "{}", e),
             Event::Api(e) => write!(f, "{}", e),
         }
-    }
-}
-
-impl From<u8> for Event {
-    fn from(_: u8) -> Self {
-        Self::Admin(AdministrativeEvent::ManualStart)
     }
 }
 
@@ -251,7 +281,10 @@ pub enum BgpMessageEvent {
     OpenCollisionDump,
     NotifMsgVerErr,
     NotifMsg(Message),
-    KeepAliveMsg,
+    KeepAliveMsg {
+        local_port: u16,
+        peer_port: u16,
+    },
     UpdateMsg(Message),
     UpdateMsgErr(UpdateMessageError),
     RouteRefreshMsg(Message),
@@ -274,7 +307,10 @@ impl std::fmt::Display for BgpMessageEvent {
             BgpMessageEvent::OpenCollisionDump => write!(f, "Message::OpenCollisionDump"),
             BgpMessageEvent::NotifMsgVerErr => write!(f, "Message::NotifMsgVerErr"),
             BgpMessageEvent::NotifMsg(_) => write!(f, "Message::NotifMsg"),
-            BgpMessageEvent::KeepAliveMsg => write!(f, "Message::KeepAliveMsg"),
+            BgpMessageEvent::KeepAliveMsg {
+                local_port: _,
+                peer_port: _,
+            } => write!(f, "Message::KeepAliveMsg"),
             BgpMessageEvent::UpdateMsg(_) => write!(f, "Message::UpdateMsg"),
             BgpMessageEvent::UpdateMsgErr(_) => write!(f, "Message::UpdateMsgErr"),
             BgpMessageEvent::RouteRefreshMsg(_) => write!(f, "Message::RouteRefreshMsg"),
@@ -297,7 +333,10 @@ impl From<BgpMessageEvent> for u8 {
             BgpMessageEvent::OpenCollisionDump => 23,
             BgpMessageEvent::NotifMsgVerErr => 24,
             BgpMessageEvent::NotifMsg(_) => 25,
-            BgpMessageEvent::KeepAliveMsg => 26,
+            BgpMessageEvent::KeepAliveMsg {
+                local_port: _,
+                peer_port: _,
+            } => 26,
             BgpMessageEvent::UpdateMsg(_) => 27,
             BgpMessageEvent::UpdateMsgErr(_) => 28,
             BgpMessageEvent::RouteRefreshMsg(_) => 100,

@@ -50,7 +50,7 @@ impl FiniteStateMachine {
 				match event {
 					Event::CONNECTION_TCP_CONNECTION_FAIL => State::Active,
 					Event::MESSAGE_BGP_OPEN => State::OpenConfirm,
-					1 | 3 | 4 | 5 | 6 | 7 | 14 | 15 => current,
+					1 | 3 | 4 | 5 | 6 | 7 | 14 | 15 | 16 | 17 => current,
 					_ => State::Idle,
 				}
 			},

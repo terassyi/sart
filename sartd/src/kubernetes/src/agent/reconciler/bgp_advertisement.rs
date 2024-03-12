@@ -93,6 +93,7 @@ async fn reconcile(
 
     let mut new_ba = ba.clone();
     let mut need_update = false;
+    let mut need_requeue = false;
 
     if let Some(peers) = nb.spec.peers {
         let bgp_peers = Api::<BGPPeer>::all(ctx.client.clone());
@@ -115,6 +116,7 @@ async fn reconcile(
                 .is_none()
             {
                 tracing::warn!(peer = bp.name_any(), "BGPPeer is not established");
+                need_requeue = true;
                 continue;
             }
             // peer is established
@@ -184,6 +186,9 @@ async fn reconcile(
             );
             return Ok(Action::requeue(Duration::from_secs(60)));
         }
+    }
+    if need_requeue {
+        return Ok(Action::requeue(Duration::from_secs(10)));
     }
     Ok(Action::await_change())
 }

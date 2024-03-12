@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, str::FromStr, sync::Arc};
+use std::{collections::BTreeMap, str::FromStr, sync::Arc, time::Duration};
 
 use futures::StreamExt;
 use ipnet::IpNet;
@@ -26,6 +26,7 @@ use crate::{
             AdvertiseStatus, BGPAdvertisement, BGPAdvertisementSpec, BGPAdvertisementStatus,
             Protocol,
         },
+        node_bgp::NodeBGP,
     },
     util::create_owner_reference,
 };
@@ -62,7 +63,7 @@ pub async fn reconciler(
 
 #[tracing::instrument(skip_all)]
 async fn reconcile(
-    _api: &Api<AddressBlock>,
+    api: &Api<AddressBlock>,
     ab: &AddressBlock,
     ctx: Arc<ContextWith<Arc<PodAllocator>>>,
 ) -> Result<Action, Error> {
@@ -79,7 +80,26 @@ async fn reconcile(
         .clone()
         .ok_or(Error::MissingFields("spec.node_ref".to_string()))?;
 
+    let adv_api = Api::<BGPAdvertisement>::namespaced(ctx.client().clone(), &namespace);
     let mut create_adv = false;
+    let mut need_update_adv = false;
+    let mut need_gc = false;
+
+    if let Some(adv) = adv_api.get_opt(&ab.name_any()).await.map_err(Error::Kube)? {
+        match adv.status.as_ref() {
+            Some(status) => match status.peers.as_ref() {
+                Some(peers) => {
+                    if peers.is_empty() {
+                        need_update_adv = true;
+                    }
+                }
+                None => need_update_adv = true,
+            },
+            None => need_update_adv = true,
+        }
+    } else {
+        create_adv = true;
+    }
 
     {
         let mut alloc_set = component
@@ -87,10 +107,16 @@ async fn reconcile(
             .inner
             .lock()
             .map_err(|_| Error::FailedToGetLock)?;
-
         match alloc_set.blocks.get(&ab.name_any()) {
-            Some(_a) => {
+            Some(block) => {
                 tracing::info!(name = ab.name_any(), "Address block already exists");
+
+                // GC empty block
+                if block.allocator.is_empty() {
+                    tracing::info!(name = ab.name_any(), "Block is empty");
+                    need_gc = true;
+                }
+
                 match ab.spec.auto_assign {
                     true => {
                         // Check if already set
@@ -153,8 +179,15 @@ async fn reconcile(
         }
     }
 
+    if need_gc {
+        tracing::info!(name = ab.name_any(), "Delete empty AddressBlock");
+        api.delete(&ab.name_any(), &DeleteParams::default())
+            .await
+            .map_err(Error::Kube)?;
+        return Ok(Action::await_change());
+    }
+
     if create_adv {
-        tracing::info!(name = ab.name_any(), "Create new BGPAdvertisement");
         let adv = BGPAdvertisement {
             metadata: ObjectMeta {
                 name: Some(ab.name_any()),
@@ -172,17 +205,47 @@ async fn reconcile(
                 protocol: Protocol::from(&cidr),
                 attrs: None,
             },
-            status: Some(BGPAdvertisementStatus {
-                peers: Some(BTreeMap::from([(
-                    node.clone(),
-                    AdvertiseStatus::NotAdvertised,
-                )])),
-            }),
+            status: None,
         };
 
-        let adv_api = Api::<BGPAdvertisement>::namespaced(ctx.client().clone(), &namespace);
         adv_api
             .create(&PostParams::default(), &adv)
+            .await
+            .map_err(Error::Kube)?;
+
+        return Ok(Action::requeue(Duration::from_secs(1)));
+    }
+
+    if need_update_adv {
+        let mut adv = adv_api.get(&ab.name_any()).await.map_err(Error::Kube)?;
+        let peers = get_target_peer(ctx.client().clone(), &node)
+            .await?
+            .into_iter()
+            .map(|p| (p, AdvertiseStatus::NotAdvertised))
+            .collect::<BTreeMap<String, AdvertiseStatus>>();
+        match adv.status.as_mut() {
+            Some(status) => match status.peers.as_mut() {
+                Some(status_peers) => {
+                    for (peer, _) in peers.iter() {
+                        if status_peers.get(peer).is_none() {
+                            status_peers.insert(peer.to_string(), AdvertiseStatus::NotAdvertised);
+                        }
+                    }
+                }
+                None => status.peers = Some(peers),
+            },
+            None => {
+                adv.status = Some(BGPAdvertisementStatus {
+                    peers: Some(peers.clone()),
+                });
+            }
+        }
+        adv_api
+            .replace_status(
+                &adv.name_any(),
+                &PostParams::default(),
+                serde_json::to_vec(&adv).map_err(Error::Serialization)?,
+            )
             .await
             .map_err(Error::Kube)?;
     }
@@ -224,7 +287,6 @@ async fn cleanup(
     }
 
     if deletable {
-        tracing::warn!(name = ab.name_any(), "Delete BGPAdvertisement");
         let adv_api = Api::<BGPAdvertisement>::namespaced(ctx.client().clone(), &namespace);
         adv_api
             .delete(&ab.name_any(), &DeleteParams::default())
@@ -261,4 +323,17 @@ pub async fn run(state: State, interval: u64, pod_allocator: Arc<PodAllocator>) 
         .filter_map(|x| async move { std::result::Result::ok(x) })
         .for_each(|_| futures::future::ready(()))
         .await;
+}
+
+async fn get_target_peer(client: Client, node: &str) -> Result<Vec<String>, Error> {
+    let node_bgp_api = Api::<NodeBGP>::all(client);
+
+    let nb = node_bgp_api.get(node).await.map_err(Error::Kube)?;
+    match nb.spec.peers.as_ref() {
+        Some(peers) => Ok(peers
+            .iter()
+            .map(|p| p.name.clone())
+            .collect::<Vec<String>>()),
+        None => Ok(vec![]),
+    }
 }

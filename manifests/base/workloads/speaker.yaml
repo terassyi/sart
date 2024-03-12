@@ -32,7 +32,7 @@ spec:
                   fieldPath: status.hostIP
           image: sart:dev
           imagePullPolicy: IfNotPresent
-          name: sartd
+          name: bgp
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

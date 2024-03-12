@@ -31,15 +31,9 @@ spec:
                   fieldPath: status.hostIP
           image: sart:dev
           imagePullPolicy: IfNotPresent
-          name: sartd
+          name: agent
           securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              add:
-                - NET_RAW
-              drop:
-                - ALL
-            readOnlyRootFilesystem: true
+            privileged: true
           livenessProbe:
             httpGet:
               path: /healthz
@@ -64,6 +58,7 @@ spec:
             name: cert
             readOnly: true
       hostNetwork: true
+      hostPID: true
       nodeSelector:
         kubernetes.io/os: linux
       terminationGracePeriodSeconds: 2

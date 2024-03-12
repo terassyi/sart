@@ -6,7 +6,8 @@ metadata:
 spec:
   template:
     spec:
-      name: sartd
-      args:
+      containers:
+      - name: agent
+        args:
         - agent
         - --mode=lb

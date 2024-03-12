@@ -3,8 +3,8 @@ CARGO := cargo
 IMAGE_VERSION := dev
 PROJECT := github.com/terassyi/sart
 
-KIND_VERSION := 0.20.0
-KUBERNETES_VERSION := 1.28.0
+KIND_VERSION := 0.22.0
+KUBERNETES_VERSION := 1.29.2
 KUSTOMIZE_VERSION := 5.2.1
 
 BINDIR := $(abspath $(PWD)/bin)

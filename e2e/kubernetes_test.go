@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -20,9 +22,11 @@ import (
 )
 
 const (
-	MANIFEST_DIR string = "../manifests/base/sample"
-	GROUP        string = "sart.terassyi.net"
-	VERSION      string = "v1alpha2"
+	MANIFEST_DIR      string = "../manifests/lb/sample"
+	MANIFEST_DIR_CNI  string = "../manifests/cni/sample"
+	MANIFEST_DIR_DUAL string = "../manifests/dual"
+	GROUP             string = "sart.terassyi.net"
+	VERSION           string = "v1alpha2"
 )
 
 var (
@@ -63,6 +67,19 @@ var (
 	}
 )
 
+func getManifestDir() string {
+	target := os.Getenv("TARGET")
+	manifestDirBase := "../manifests"
+	switch target {
+	case "kubernetes":
+		return filepath.Join(manifestDirBase, "base", "sample")
+	case "cni":
+		return filepath.Join(manifestDirBase, "cni", "sample")
+	default:
+		return filepath.Join(manifestDirBase, "base", "sample")
+	}
+}
+
 func testControllerWorkloads() {
 	It("should confirm workloads is working well", func() {
 		By("checking sartd-agent working")
@@ -95,7 +112,7 @@ func testControllerWorkloads() {
 		Eventually(func(g Gomega) error {
 			out, err := kubectl(nil, "-n", "kube-system", "get", "deploy", "sart-controller", "-ojson")
 			g.Expect(err).NotTo(HaveOccurred())
-			err = json.Unmarshal(out, &ds)
+			err = json.Unmarshal(out, &dp)
 			g.Expect(err).NotTo(HaveOccurred())
 			if dp.Status.Replicas != dp.Status.AvailableReplicas {
 				return fmt.Errorf("sart-controller is not ready")
@@ -108,47 +125,14 @@ func testControllerWorkloads() {
 func testClusterBGPA() {
 	It("should install BGP related resource", func() {
 		By("applying sample resource")
-		_, err := kubectl(nil, "apply", "-f", path.Join(MANIFEST_DIR, "peer_template.yaml"))
-		Expect(err).NotTo(HaveOccurred())
-
-		_, err = kubectl(nil, "apply", "-f", path.Join(MANIFEST_DIR, "cluster_bgp_a.yaml"))
-		Expect(err).NotTo(HaveOccurred())
-
-		_, err = kubectl(nil, "apply", "-f", path.Join(MANIFEST_DIR, "lb_address_pool.yaml"))
-		Expect(err).NotTo(HaveOccurred())
-
-	})
-
-	It("should create AddressBlocks", func() {
-		By("preparing dynamic client")
-		dynamicClient, err := getDynamicClient()
-		Expect(err).NotTo(HaveOccurred())
-
-		ctx := context.Background()
-
-		By("getting AddressPool")
-
-		addressPoolList, err := dynamicClient.Resource(addressPool).List(ctx, metav1.ListOptions{})
-		Expect(err).NotTo(HaveOccurred())
-		Expect(len(addressPoolList.Items)).To(Equal(2))
-
-		By("getting AddressBlocks")
 		Eventually(func(g Gomega) error {
-			for _, pool := range addressPoolList.Items {
-				cidr, found, err := unstructured.NestedString(pool.Object, "spec", "cidr")
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(found).To(BeTrue())
-
-				addressBlock, err := dynamicClient.Resource(addressBlock).Get(ctx, pool.GetName(), metav1.GetOptions{})
-				g.Expect(err).NotTo(HaveOccurred())
-				blockCidr, found, err := unstructured.NestedString(addressBlock.Object, "spec", "cidr")
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(found).To(BeTrue())
-
-				g.Expect(blockCidr).To(Equal(cidr))
-			}
+			_, err := kubectl(nil, "apply", "-f", path.Join(MANIFEST_DIR, "peer_template.yaml"))
+			g.Expect(err).NotTo(HaveOccurred())
+			_, err = kubectl(nil, "apply", "-f", path.Join(MANIFEST_DIR, "cluster_bgp_a.yaml"))
+			g.Expect(err).NotTo(HaveOccurred())
 			return nil
 		}).Should(Succeed())
+
 	})
 
 	It("should create ClusterBGP and BGPPeers", func() {
@@ -220,6 +204,57 @@ func testClusterBGPA() {
 			return nil
 		}).Should(Succeed())
 	})
+}
+
+func testCreateLBAddressPool() {
+	It("should create AddressPool", func() {
+		By("applying LB address pool")
+		Eventually(func(g Gomega) error {
+			_, err := kubectl(nil, "apply", "-f", path.Join(MANIFEST_DIR, "lb_address_pool.yaml"))
+			g.Expect(err).NotTo(HaveOccurred())
+			return nil
+		}).Should(Succeed())
+
+		By("preparing dynamic client")
+		dynamicClient, err := getDynamicClient()
+		Expect(err).NotTo(HaveOccurred())
+
+		ctx := context.Background()
+
+		By("getting AddressPool")
+
+		addressPoolList, err := dynamicClient.Resource(addressPool).List(ctx, metav1.ListOptions{})
+		Expect(err).NotTo(HaveOccurred())
+		lbPoolList := []unstructured.Unstructured{}
+		for _, obj := range addressPoolList.Items {
+			t, found, err := unstructured.NestedString(obj.Object, "spec", "type")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(found).To(BeTrue())
+			if t == "service" {
+				lbPoolList = append(lbPoolList, obj)
+			}
+		}
+		Expect(len(lbPoolList)).To(Equal(2))
+
+		By("getting AddressBlocks")
+		Eventually(func(g Gomega) error {
+			for _, pool := range lbPoolList {
+				cidr, found, err := unstructured.NestedString(pool.Object, "spec", "cidr")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(found).To(BeTrue())
+
+				addressBlock, err := dynamicClient.Resource(addressBlock).Get(ctx, pool.GetName(), metav1.GetOptions{})
+				g.Expect(err).NotTo(HaveOccurred())
+				blockCidr, found, err := unstructured.NestedString(addressBlock.Object, "spec", "cidr")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(found).To(BeTrue())
+
+				g.Expect(blockCidr).To(Equal(cidr))
+			}
+			return nil
+		}).Should(Succeed())
+	})
+
 }
 
 func testClusterBGPB() {

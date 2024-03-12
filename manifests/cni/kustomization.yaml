@@ -1,6 +1,8 @@
 resources:
   - ../base
+  - configmap.yaml
 
 patchesStrategicMerge:
   - agent-patch.yaml
   - controller-patch.yaml
+  - speaker-patch.yaml

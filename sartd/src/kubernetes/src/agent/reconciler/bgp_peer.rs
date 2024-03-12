@@ -1,9 +1,9 @@
-use std::{sync::Arc, time::Duration};
+use std::{net::IpAddr, sync::Arc, time::Duration};
 
 use futures::StreamExt;
 use k8s_openapi::api::discovery::v1::EndpointSlice;
 use kube::{
-    api::{ListParams, Patch, PatchParams, PostParams},
+    api::{ListParams, PostParams},
     runtime::{
         controller::Action,
         finalizer::{finalizer, Event},
@@ -86,11 +86,6 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
             let mut need_status_update = false;
             match &peer.get_ref().peer {
                 Some(peer) => {
-                    tracing::info!(
-                        asn = bp.spec.asn,
-                        addr = bp.spec.addr,
-                        "Peer already exists"
-                    );
                     // update status
                     match new_bp.status.as_mut() {
                         Some(status) => match status.conditions.as_mut() {
@@ -393,7 +388,6 @@ async fn cleanup(_api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Result
         .list(&ListParams::default())
         .await
         .map_err(Error::Kube)?;
-    tracing::warn!(name = bp.name_any(), "Reach here");
     for ba in ba_list.iter_mut() {
         if let Some(status) = ba.status.as_mut() {
             if let Some(peers) = status.peers.as_mut() {

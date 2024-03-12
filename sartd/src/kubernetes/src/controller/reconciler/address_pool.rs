@@ -284,7 +284,6 @@ async fn reconcile_pod_pool(
         }
     }
 
-    tracing::info!(name = ap.name_any(), "Calculate allocatable blocks");
     let all_blocks: Vec<u128> = (0..pool_size).step_by(block_size as usize).collect();
     let allocated_blocks = if let Some(allocated) = ap
         .status

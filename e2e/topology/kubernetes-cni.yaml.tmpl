@@ -1,0 +1,235 @@
+name: sart
+topology:
+  kinds:
+    linux:
+      cmd: bash
+  nodes:
+    core0:
+      kind: linux
+      image: frrouting/frr:v8.4.0
+      exec:
+        - ip addr add 169.252.1.0/24 dev net0 scope link
+        - ip addr add 169.252.2.0/24 dev net1 scope link
+        - ip addr add 192.168.0.1/24 dev net2 scope link
+        - ip link add dummy0 type dummy
+        - ip addr add 5.5.5.5/32 dev dummy0 scope global
+        - ip link set up dev dummy0
+        - ip route add 6.6.6.6/32 via 192.168.0.2 dev net2
+        - sysctl -w net.ipv4.fib_multipath_hash_policy=1
+        - sysctl -p
+        # Boiler plate to make FRR work
+        - touch /etc/frr/vtysh.conf
+        - sed -i -e 's/bgpd=no/bgpd=yes/g' /etc/frr/daemons
+        - /usr/lib/frr/frrinit.sh start
+        # FRR configuration
+        - >-
+          vtysh -c 'conf t'
+          -c 'frr defaults datacenter'
+          -c '!'
+          -c 'router bgp 65000'
+          -c '  bgp router-id 5.5.5.5'
+          -c '  bgp bestpath as-path multipath-relax'
+          -c '  neighbor 169.252.1.1 remote-as 65001'
+          -c '  neighbor 169.252.2.1 remote-as 65002'
+          -c '!'
+    core0-debug:
+      kind: linux
+      image: nicolaka/netshoot:latest
+      network-mode: container:clab-sart-core0
+    spine0:
+      kind: linux
+      image: frrouting/frr:v8.4.0
+      exec:
+        - ip addr add 169.254.1.1/24 dev net0 scope link
+        - ip addr add 169.254.2.1/24 dev net1 scope link
+        - ip addr add 169.254.3.1/24 dev net2 scope link
+        - ip addr add 169.254.4.1/24 dev net3 scope link
+        - ip addr add 169.252.1.1/24 dev net4 scope link
+        # route for node primary address
+        - ip route add {{ .ControlPlane }}/32 dev net0
+        - ip route add {{ .Worker }}/32 dev net1
+        - ip route add {{ .Worker2 }}/32 dev net2
+        - ip route add {{ .Worker3 }}/32 dev net3
+        - ip link add dummy0 type dummy
+        - ip addr add 9.9.9.9/32 dev dummy0
+        - ip link set up dev dummy0
+        - sysctl -w net.ipv4.fib_multipath_hash_policy=1
+        - sysctl -p
+        # Boiler plate to make FRR work
+        - touch /etc/frr/vtysh.conf
+        - sed -i -e 's/bgpd=no/bgpd=yes/g' /etc/frr/daemons
+        - /usr/lib/frr/frrinit.sh start
+        # FRR configuration
+        - >-
+          vtysh -c 'conf t'
+          -c 'frr defaults datacenter'
+          -c '!'
+          -c 'router bgp 65001'
+          -c '  bgp router-id 9.9.9.9'
+          -c '  bgp bestpath as-path multipath-relax'
+          -c '  neighbor 169.252.1.0 remote-as 65000'
+          -c '  neighbor  169.254.1.2 remote-as 65010'
+          -c '  neighbor 169.254.2.2 remote-as 65020'
+          -c '  neighbor 169.254.3.2 remote-as 65030'
+          -c '  neighbor 169.254.4.2 remote-as 65040'
+          -c '  neighbor  169.254.1.2 update-source dummy0'
+          -c '  neighbor 169.254.2.2 update-source dummy0'
+          -c '  neighbor 169.254.3.2 update-source dummy0'
+          -c '  neighbor 169.254.4.2 update-source dummy0'
+          -c '  neighbor  169.254.1.2 next-hop-self'
+          -c '  neighbor 169.254.2.2 next-hop-self'
+          -c '  neighbor 169.254.3.2 next-hop-self'
+          -c '  neighbor 169.254.4.2 next-hop-self'
+          -c '!'
+    spine0-debug:
+      kind: linux
+      image: nicolaka/netshoot:latest
+      network-mode: container:clab-sart-spine0
+    spine1:
+      kind: linux
+      image: frrouting/frr:v8.4.0
+      exec:
+        - ip addr add 169.253.1.1/24 dev net0 scope link
+        - ip addr add 169.253.2.1/24 dev net1 scope link
+        - ip addr add 169.253.3.1/24 dev net2 scope link
+        - ip addr add 169.253.4.1/24 dev net3 scope link
+        - ip addr add 169.252.2.1/24 dev net4 scope link
+        - ip link add dummy0 type dummy
+        - ip addr add 7.7.7.7/32 dev dummy0
+        - ip link set up dev dummy0
+        - ip route add {{ .ControlPlane }}/32 dev net0
+        - ip route add {{ .Worker }}/32 dev net1
+        - ip route add {{ .Worker2 }}/32 dev net2
+        - ip route add {{ .Worker3 }}/32 dev net3
+        - sysctl -w net.ipv4.fib_multipath_hash_policy=1
+        - sysctl -p
+        # Boiler plate to make FRR work
+        - touch /etc/frr/vtysh.conf
+        - sed -i -e 's/bgpd=no/bgpd=yes/g' /etc/frr/daemons
+        - /usr/lib/frr/frrinit.sh start
+        # FRR configuration
+        - >-
+          vtysh -c 'conf t'
+          -c 'frr defaults datacenter'
+          -c '!'
+          -c 'router bgp 65002'
+          -c '  bgp router-id 7.7.7.7'
+          -c '  bgp bestpath as-path multipath-relax'
+          -c '  neighbor 169.252.2.0 remote-as 65000'
+          -c '  neighbor  169.253.1.2 remote-as 65010'
+          -c '  neighbor 169.253.2.2 remote-as 65020'
+          -c '  neighbor 169.253.3.2 remote-as 65030'
+          -c '  neighbor 169.253.4.2 remote-as 65040'
+          -c '  neighbor  169.253.1.2 update-source dummy0'
+          -c '  neighbor 169.253.2.2 update-source dummy0'
+          -c '  neighbor 169.253.3.2 update-source dummy0'
+          -c '  neighbor 169.253.4.2 update-source dummy0'
+          -c '  neighbor  169.253.1.2 next-hop-self'
+          -c '  neighbor 169.253.2.2 next-hop-self'
+          -c '  neighbor 169.253.3.2 next-hop-self'
+          -c '  neighbor 169.253.4.2 next-hop-self'
+          -c '!'
+    spine1-debug:
+      kind: linux
+      image: nicolaka/netshoot:latest
+      network-mode: container:clab-sart-spine1
+    control-plane0:
+      kind: linux
+      image: nicolaka/netshoot:latest
+      network-mode: container:sart-control-plane
+      exec:
+        # Enable ECMP
+        - sysctl -w net.ipv4.fib_multipath_hash_policy=1
+        - sysctl -p
+        # Address for peering
+        - ip addr add 169.254.1.2/24 dev net0 scope link
+        - ip addr add 169.253.1.2/24 dev net1 scope link
+        # Route traffic to the lab through router
+        - ip route add {{ .Worker }}/32 src {{ .ControlPlane }} nexthop via 169.254.1.1 weight 1 nexthop via 169.253.1.1 weight 1
+        - ip route add {{ .Worker2 }}/32 src {{ .ControlPlane }} nexthop via 169.254.1.1 weight 1 nexthop via 169.253.1.1 weight 1
+        - ip route add {{ .Worker3 }}/32 src {{ .ControlPlane }} nexthop via 169.254.1.1 weight 1 nexthop via 169.253.1.1 weight 1
+        - ip route add 192.168.0.0/24 via 169.254.1.1 dev net0
+        - ip route add 192.168.1.0/24 via 169.253.1.1 dev net1
+        - ip route add 6.6.6.6/32 via 169.254.1.1 dev net0
+        - ip route add 9.9.9.9/32 via 169.254.1.1 dev net0
+        - ip route add 7.7.7.7/32 via 169.253.1.1 dev net1
+    worker0:
+      kind: linux
+      image: nicolaka/netshoot:latest
+      network-mode: container:sart-worker
+      exec:
+        # Enable ECMP
+        - sysctl -w net.ipv4.fib_multipath_hash_policy=1
+        - sysctl -p
+        # Address for peering
+        - ip addr add 169.254.2.2/24 dev net0 scope link
+        - ip addr add 169.253.2.2/24 dev net1 scope link
+        # Route traffic to the lab through router
+        - ip route add {{ .ControlPlane }}/32 src {{ .Worker }} nexthop via 169.254.2.1 weight 1 nexthop via 169.253.2.1 weight 1
+        - ip route add {{ .Worker2 }}/32 src {{ .Worker }} nexthop via 169.254.2.1 weight 1 nexthop via 169.253.2.1 weight 1
+        - ip route add {{ .Worker3 }}/32 src {{ .Worker }} nexthop via 169.254.2.1 weight 1 nexthop via 169.253.2.1 weight 1
+        - ip route add 192.168.0.0/24 via 169.254.2.1 dev net0
+        - ip route add 192.168.1.0/24 via 169.253.2.1 dev net1
+        - ip route add 6.6.6.6/32 via 169.254.2.1 dev net0
+        - ip route add 9.9.9.9/32 via 169.254.2.1 dev net0
+        - ip route add 7.7.7.7/32 via 169.253.2.1 dev net1
+    worker1:
+      kind: linux
+      image: nicolaka/netshoot:latest
+      network-mode: container:sart-worker2
+      exec:
+        # Enable ECMP
+        - sysctl -w net.ipv4.fib_multipath_hash_policy=1
+        - sysctl -p
+        # Address for peering
+        - ip addr add 169.254.3.2/24 dev net0 scope link
+        - ip addr add 169.253.3.2/24 dev net1 scope link
+        # Route traffic to the lab through router
+        - ip route add {{ .ControlPlane }}/32 src {{ .Worker2 }} nexthop via 169.254.3.1 weight 1 nexthop via 169.253.3.1 weight 1
+        - ip route add {{ .Worker }}/32 src {{ .Worker2 }} nexthop via 169.254.3.1 weight 1 nexthop via 169.253.3.1 weight 1
+        - ip route add {{ .Worker3 }}/32 src {{ .Worker2 }} nexthop via 169.254.3.1 weight 1 nexthop via 169.253.3.1 weight 1
+        - ip route add 192.168.0.0/24 via 169.254.3.1 dev net0
+        - ip route add 192.168.1.0/24 via 169.253.3.1 dev net1
+        - ip route add 6.6.6.6/32 via 169.254.3.1 dev net0
+        - ip route add 9.9.9.9/32 via 169.254.3.1 dev net0
+        - ip route add 7.7.7.7/32 via 169.253.3.1 dev net1
+    worker2:
+      kind: linux
+      image: nicolaka/netshoot:latest
+      network-mode: container:sart-worker3
+      exec:
+        # Enable ECMP
+        - sysctl -w net.ipv4.fib_multipath_hash_policy=1
+        - sysctl -p
+        # Address for peering
+        - ip addr add 169.254.4.2/24 dev net0 scope link
+        - ip addr add 169.253.4.2/24 dev net1 scope link
+        # Route traffic to the lab through router
+        - ip route add {{ .ControlPlane }}/32 src {{ .Worker3 }} nexthop via 169.254.4.1 weight 1 nexthop via 169.253.4.1 weight 1
+        - ip route add {{ .Worker }}/32 src {{ .Worker3 }} nexthop via 169.254.4.1 weight 1 nexthop via 169.253.4.1 weight 1
+        - ip route add {{ .Worker2 }}/32 src {{ .Worker3 }} nexthop via 169.254.4.1 weight 1 nexthop via 169.253.4.1 weight 1
+        - ip route add 192.168.0.0/24 via 169.254.4.1 dev net0
+        - ip route add 192.168.1.0/24 via 169.253.4.1 dev net1
+        - ip route add 6.6.6.6/32 via 169.254.4.1 dev net0
+        - ip route add 9.9.9.9/32 via 169.254.4.1 dev net0
+        - ip route add 7.7.7.7/32 via 169.253.4.1 dev net1
+    client0:
+      kind: linux
+      image: nicolaka/netshoot:latest
+      exec:
+        - ip addr add 192.168.0.2/24 dev net0 scope global
+        - ip route change default dev net0
+        - sysctl -w net.ipv4.fib_multipath_hash_policy=1
+        - sysctl -p
+  links:
+    - endpoints: ["core0:net0", "spine0:net4"]
+    - endpoints: ["core0:net1", "spine1:net4"]
+    - endpoints: ["spine0:net0", "control-plane0:net0"]
+    - endpoints: ["spine0:net1", "worker0:net0"]
+    - endpoints: ["spine0:net2", "worker1:net0"]
+    - endpoints: ["spine0:net3", "worker2:net0"]
+    - endpoints: ["spine1:net0", "control-plane0:net1"]
+    - endpoints: ["spine1:net1", "worker0:net1"]
+    - endpoints: ["spine1:net2", "worker1:net1"]
+    - endpoints: ["spine1:net3", "worker2:net1"]
+    - endpoints: ["core0:net2", "client0:net0"]

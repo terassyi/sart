@@ -80,4 +80,5 @@ pub enum RouterIdSelectionType {
 pub struct SpeakerConfig {
     pub path: String,
     pub timeout: Option<u64>,
+    pub multipath: Option<bool>,
 }

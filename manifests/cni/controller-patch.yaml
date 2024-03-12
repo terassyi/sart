@@ -6,6 +6,11 @@ metadata:
 spec:
   template:
     spec:
+      containers:
+        - name: controller
+          args:
+            - controller
+            - --mode=cni
       hostNetwork: true
       priorityClassName: system-cluster-critical
       tolerations:

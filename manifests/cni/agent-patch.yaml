@@ -7,7 +7,7 @@ spec:
   template:
     spec:
       containers:
-        - name: sartd
+        - name: agent
           args:
             - agent
             - --mode=cni
@@ -15,6 +15,10 @@ spec:
           volumeMounts:
             - mountPath: /var/run
               name: run
+              mountPropagation: HostToContainer  # to see bind mount netns file under /run/netns
+            - mountPath: /run
+              name: run2
+              mountPropagation: HostToContainer  # to see bind mount netns file under /run/netns
       initContainers:
         - name: installer
           image: sart:dev
@@ -30,6 +34,9 @@ spec:
         - name: run
           hostPath:
             path: /var/run
+        - name: run2
+          hostPath:
+            path: /run
         - name: cni-bin
           hostPath:
             path: /opt/cni/bin

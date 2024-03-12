@@ -1,4 +1,4 @@
-use std::{fmt::{self, write}, str::FromStr};
+use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -18,7 +18,7 @@ pub enum Mode {
 }
 
 impl std::fmt::Display for Mode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::CNI => write!(f, "cni"),
             Self::LB => write!(f, "lb"),
@@ -30,8 +30,8 @@ impl std::fmt::Display for Mode {
 #[derive(Debug, Clone, Copy, Error)]
 pub struct ParseModeError;
 
-impl fmt::Display for ParseModeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl std::fmt::Display for ParseModeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         "provided string was not `true` or `false`".fmt(f)
     }
 }

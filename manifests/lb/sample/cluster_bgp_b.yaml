@@ -1,0 +1,14 @@
+apiVersion: sart.terassyi.net/v1alpha2
+kind: ClusterBGP
+metadata:
+  name: clusterbgp-sample-b
+spec:
+  nodeSelector:
+    bgp: b
+  asnSelector:
+    from: label
+  routerIdSelector:
+    from: internalAddress
+  speaker:
+    path: 127.0.0.1:5000
+    multipath: true

@@ -11,6 +11,7 @@ spec:
     from: internalAddress
   speaker:
     path: 127.0.0.1:5000
+    multipath: true
   peers:
     - peerConfig:
         asn: 65000

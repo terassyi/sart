@@ -1,9 +1,12 @@
+use std::net::IpAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use actix_web::{
     get, middleware, web::Data, App, HttpRequest, HttpResponse, HttpServer, Responder,
 };
-use kube::Client;
+use k8s_openapi::api::core::v1::Node;
+use kube::{Api, Client};
 use prometheus::{Encoder, TextEncoder};
 use rustls::ServerConfig;
 use sartd_cert::util::{load_certificates_from_pem, load_private_key_from_file};
@@ -11,8 +14,8 @@ use sartd_ipam::manager::AllocatorSet;
 use sartd_trace::init::{prepare_tracing, TraceConfig};
 use tokio::sync::mpsc::unbounded_channel;
 
-use crate::agent::cni;
-use crate::agent::cni::server::{CNIServer, CNI_SERVER_ENDPOINT};
+use crate::agent::cni::server::{CNIServer, CNI_ROUTE_TABLE_ID};
+use crate::agent::cni::{self, gc};
 use crate::agent::reconciler::address_block::PodAllocator;
 use crate::config::Mode;
 use crate::context::State;
@@ -72,6 +75,12 @@ async fn run(a: Agent, trace_config: TraceConfig) {
     .unwrap()
     .shutdown_timeout(5);
 
+    tracing::info!(
+        http_port = a.server_http_port,
+        https_port = a.server_https_port,
+        "Agent server is running."
+    );
+
     tracing::info!("Start Agent Reconcilers");
 
     let node_bgp_state = state.clone();
@@ -114,14 +123,33 @@ async fn run(a: Agent, trace_config: TraceConfig) {
         });
 
         let node_name = std::env::var("HOSTNAME").unwrap();
+        // get node internal ip
+        let node_addr = get_node_addr(&node_name).await;
         let kube_client = Client::try_default().await.unwrap();
-        let cni_server = CNIServer::new(kube_client, allocator_set.clone(), node_name, receiver);
+        let cni_server = CNIServer::new(
+            kube_client.clone(),
+            allocator_set.clone(),
+            node_name,
+            node_addr,
+            CNI_ROUTE_TABLE_ID,
+            receiver,
+        );
 
         let cni_endpoint = a.cni_endpoint.expect("cni endpoint must be given");
 
         tracing::info!("Start CNI server");
         tokio::spawn(async move {
             cni::server::run(&cni_endpoint, cni_server).await;
+        });
+
+        tracing::info!("Start Garbage collector");
+        let mut garbage_collector = gc::GarbageCollector::new(
+            Duration::from_secs(60),
+            kube_client.clone(),
+            allocator_set.clone(),
+        );
+        tokio::spawn(async move {
+            garbage_collector.run().await;
         });
     }
 
@@ -179,4 +207,17 @@ async fn metrics_(c: Data<State>, _req: HttpRequest) -> impl Responder {
 async fn index(c: Data<State>, _req: HttpRequest) -> impl Responder {
     let d = c.diagnostics().await;
     HttpResponse::Ok().json(&d)
+}
+
+// This function can panic
+async fn get_node_addr(name: &str) -> IpAddr {
+    let client = Client::try_default().await.unwrap();
+    let node_api = Api::<Node>::all(client);
+    let node = node_api.get(name).await.unwrap();
+    for addr in node.status.unwrap().addresses.unwrap().iter() {
+        if addr.type_.eq("InternalIP") {
+            return addr.address.parse::<IpAddr>().unwrap();
+        }
+    }
+    panic!("Failed to get Node internal IP");
 }

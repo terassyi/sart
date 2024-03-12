@@ -44,7 +44,7 @@ async fn run(c: Controller, trace_config: TraceConfig) {
     let cert_chain = load_certificates_from_pem(&c.server_cert).unwrap();
     let private_key = load_private_key_from_file(&c.server_key).unwrap();
 
-    // Initiatilize Kubernetes controller state
+    // Initialize Kubernetes controller state
     let state = State::new("controller");
 
     // Start web server
@@ -83,6 +83,12 @@ async fn run(c: Controller, trace_config: TraceConfig) {
     .unwrap()
     .shutdown_timeout(5);
 
+    tracing::info!(
+        http_port = c.server_port,
+        https_port = c.server_https_port,
+        "Controller server is running."
+    );
+
     let allocator_set = Arc::new(AllocatorSet::new());
 
     // Start reconcilers
@@ -106,11 +112,13 @@ async fn run(c: Controller, trace_config: TraceConfig) {
             .await;
     });
 
-    tracing::info!("Start BlockRequest reconciler");
-    let block_request_state = state.clone();
-    tokio::spawn(async move {
-        reconciler::block_request::run(block_request_state, c.requeue_interval).await;
-    });
+    if c.mode.eq(&Mode::CNI) || c.mode.eq(&Mode::Dual) {
+        tracing::info!("Start BlockRequest reconciler");
+        let block_request_state = state.clone();
+        tokio::spawn(async move {
+            reconciler::block_request::run(block_request_state, c.requeue_interval).await;
+        });
+    }
 
     tracing::info!("Start Node watcher");
     let node_state = state.clone();
@@ -118,19 +126,21 @@ async fn run(c: Controller, trace_config: TraceConfig) {
         reconciler::node_watcher::run(node_state, c.requeue_interval).await;
     });
 
-    tracing::info!("Start Service watcher");
-    let service_state = state.clone();
-    let svc_allocator_set = allocator_set.clone();
-    tokio::spawn(async move {
-        reconciler::service_watcher::run(service_state, c.requeue_interval, svc_allocator_set)
-            .await;
-    });
+    if c.mode.eq(&Mode::LB) || c.mode.eq(&Mode::Dual) {
+        tracing::info!("Start Service watcher");
+        let service_state = state.clone();
+        let svc_allocator_set = allocator_set.clone();
+        tokio::spawn(async move {
+            reconciler::service_watcher::run(service_state, c.requeue_interval, svc_allocator_set)
+                .await;
+        });
 
-    tracing::info!("Start Endpointslice watcher");
-    let endpointslice_state = state.clone();
-    tokio::spawn(async move {
-        reconciler::endpointslice_watcher::run(endpointslice_state, c.requeue_interval).await;
-    });
+        tracing::info!("Start Endpointslice watcher");
+        let endpointslice_state = state.clone();
+        tokio::spawn(async move {
+            reconciler::endpointslice_watcher::run(endpointslice_state, c.requeue_interval).await;
+        });
+    }
 
     tracing::info!("Start BGPAdvertisement reconciler");
     let bgp_advertisement_state = state.clone();

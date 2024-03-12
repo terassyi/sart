@@ -57,12 +57,17 @@ impl Decoder for Codec {
     #[tracing::instrument(skip(self, src))]
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         if src.is_empty() {
-            tracing::debug!("got empty packet");
             return Ok(None);
         }
         let mut messages = Vec::new();
         while src.remaining() > 0 {
-            let msg = decode_msg(src, &self.family, self.as4_enabled, self.path_id_enabled)?;
+            let msg = match decode_msg(src, &self.family, self.as4_enabled, self.path_id_enabled) {
+                Ok(msg) => msg,
+                Err(e) => {
+                    tracing::error!(error=?e, "Failed to decode message");
+                    return Err(e);
+                }
+            };
             messages.push(msg);
         }
         Ok(Some(messages))
@@ -337,7 +342,11 @@ mod tests {
 
     const BASE: &str = "../../testdata/messages";
     fn input_file(name: &str) -> String {
-        std::path::Path::new(BASE).join(name).to_str().unwrap().to_string()
+        std::path::Path::new(BASE)
+            .join(name)
+            .to_str()
+            .unwrap()
+            .to_string()
     }
 
     #[tokio::test]

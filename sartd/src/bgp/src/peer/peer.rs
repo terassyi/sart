@@ -220,6 +220,12 @@ impl Peer {
                 info.name.clone(),
             )
         };
+        tracing::info!(
+            from =? old_state,
+            to =? state,
+            event = Event::to_str(event),
+            "Move state"
+        );
         if let Some(exporter) = &mut self.exporter {
             if state.ne(&old_state) {
                 if let Err(e) = exporter
@@ -244,7 +250,7 @@ impl Peer {
 
         let (msg_event_tx, mut msg_event_rx) = unbounded_channel::<BgpMessageEvent>();
 
-        tracing::debug!("handlng the peer event");
+        tracing::debug!("handling the peer event");
 
         let (conn_close_tx, mut conn_close_rx) = channel::<u16>(2);
 
@@ -333,7 +339,7 @@ impl Peer {
                             BgpMessageEvent::BgpOpenMsgErr(e) => self.bgp_open_msg_error(e).await,
                             BgpMessageEvent::NotifMsgVerErr => self.notification_msg_ver_error().await,
                             BgpMessageEvent::NotifMsg(msg) => self.notification_msg(msg).await,
-                            BgpMessageEvent::KeepAliveMsg => self.keepalive_msg().await,
+                            BgpMessageEvent::KeepAliveMsg{local_port, peer_port} => self.keepalive_msg(local_port, peer_port).await,
                             BgpMessageEvent::UpdateMsg(msg) => self.update_msg(msg).await,
                             BgpMessageEvent::UpdateMsgErr(e) => self.update_msg_error(e).await,
                             BgpMessageEvent::RouteRefreshMsg(_msg) => self.route_refresh_msg(),
@@ -395,15 +401,120 @@ impl Peer {
         connections[0].send(msg)
     }
 
-    #[tracing::instrument(skip(self, msg))]
-    fn send_to_dup_conn(&self, msg: Message, passive: bool) -> Result<(), Error> {
+    #[tracing::instrument(skip(self))]
+    fn send_all_conn(&self, msg: Message) -> Result<(), Error> {
         let connections = self.connections.lock().unwrap();
         for conn in connections.iter() {
-            if conn.is_passive() == passive {
+            if conn.state.eq(&State::OpenConfirm) {
+                conn.send(msg.clone())?;
+            }
+        }
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self, msg))]
+    fn send_to_dup_conn(&self, msg: Message, passive: bool) -> Result<(), Error> {
+        let mut connections = self.connections.lock().unwrap();
+        for conn in connections.iter_mut() {
+            if conn.is_passive() == passive
+                && (msg.msg_type().eq(&MessageType::Open)
+                    || msg.msg_type().eq(&MessageType::Keepalive))
+            {
+                if !(conn.state.eq(&State::Established) || conn.state.eq(&State::OpenConfirm)) {
+                    tracing::info!(
+                        local_addr = conn.local_addr.to_string(),
+                        remote_addr = conn.peer_addr.to_string(),
+                        local_port = conn.local_port,
+                        remote_port = conn.peer_port,
+                        target_passive = passive,
+                        "Per connection status moves to OpenSent"
+                    );
+                    conn.state = State::OpenSent;
+                }
                 return conn.send(msg);
             }
         }
         Err(Error::Peer(PeerError::ConnectionNotEstablished))
+    }
+
+    #[tracing::instrument(skip_all)]
+    fn decide_connection(&self, passive: bool) -> Result<Option<usize>, Error> {
+        // ref: https://datatracker.ietf.org/doc/html/rfc4271#section-6.8
+        let (local_id, remote_id) = {
+            let info = self.info.lock().unwrap();
+            (info.router_id, info.neighbor.get_router_id())
+        };
+
+        let prefer_local_conn = local_id > remote_id;
+
+        let mut connections = self.connections.lock().unwrap();
+
+        let (incoming_idx, incoming_conn) = connections
+            .iter()
+            .enumerate()
+            .find(|(_, c)| c.is_passive() == passive)
+            .ok_or(Error::Peer(PeerError::ConnectionNotFound))?;
+        // incoming.state = State::OpenConfirm;
+        let drop_idx = if let Some((colliding_idx, colliding_conn)) = connections
+            .iter()
+            .enumerate()
+            .find(|(_, c)| c.ne(&incoming_conn))
+        {
+            match colliding_conn.state {
+                State::OpenConfirm => {
+                    // detect the connection collision
+                    if prefer_local_conn {
+                        // close the connection initiated by remote
+                        if incoming_conn.is_passive() {
+                            // close
+                            Some(incoming_idx)
+                        } else if colliding_conn.is_passive() {
+                            // close
+                            Some(colliding_idx)
+                        } else {
+                            None
+                        }
+                    } else {
+                        // close the connection initiated by local
+                        if !incoming_conn.is_passive() {
+                            Some(incoming_idx)
+                            // close
+                        } else if !colliding_conn.is_passive() {
+                            // close
+                            Some(colliding_idx)
+                        } else {
+                            None
+                        }
+                    }
+                }
+                State::Established => {
+                    // existing the already established connection
+                    Some(incoming_idx)
+                }
+                _ => {
+                    // incoming connection is should be established
+                    Some(colliding_idx)
+                }
+            }
+        } else {
+            None
+        };
+
+        if let Some(drop_idx) = drop_idx {
+            let dropped_conn = connections.remove(drop_idx);
+            tracing::warn!(
+                local_addr = dropped_conn.local_addr.to_string(),
+                remote_addr = dropped_conn.peer_addr.to_string(),
+                local_port = dropped_conn.local_port,
+                remote_port = dropped_conn.peer_port,
+                "Drop the collided connection"
+            );
+            drop(dropped_conn);
+
+            return Ok(Some(drop_idx));
+        }
+
+        Ok(None)
     }
 
     #[tracing::instrument(skip(self, stream, msg_event_tx, close_signal))]
@@ -413,10 +524,11 @@ impl Peer {
         msg_event_tx: UnboundedSender<BgpMessageEvent>,
         close_signal: Sender<u16>,
     ) -> Result<bool, Error> {
+        let peer_addr = stream.peer_addr().unwrap().ip();
         let peer_port = stream.peer_addr().unwrap().port();
+        let local_addr = stream.local_addr().unwrap().ip();
         let local_port = stream.local_addr().unwrap().port();
 
-        let local_addr = stream.local_addr().unwrap().ip();
         self.info.lock().unwrap().addr = local_addr;
 
         let passive = local_port == Bgp::BGP_PORT;
@@ -427,8 +539,13 @@ impl Peer {
         let conn_down_signal = Arc::new(Notify::new());
         {
             let mut connections = self.connections.lock().unwrap();
+            if connections.len() >= 2 {
+                return Err(Error::Peer(PeerError::TooManyConnections));
+            }
             connections.push(Connection::new(
+                local_addr,
                 local_port,
+                peer_addr,
                 peer_port,
                 msg_tx,
                 conn_down_signal.clone(),
@@ -442,8 +559,11 @@ impl Peer {
 
         tracing::info!(
             local_addr = local_addr.to_string(),
+            local_port = local_port,
+            peer_addr = peer_addr.to_string(),
+            peer_port = peer_port,
             passive = passive,
-            "initialize the connection"
+            "Initialize the connection"
         );
         self.initialized.store(false, Ordering::Relaxed);
 
@@ -469,7 +589,7 @@ impl Peer {
                                             },
                                             MessageType::Keepalive => {
                                                 recv_counter.lock().unwrap().keepalive += 1;
-                                                msg_event_tx.send(BgpMessageEvent::KeepAliveMsg)
+                                                msg_event_tx.send(BgpMessageEvent::KeepAliveMsg{local_port, peer_port})
                                             },
                                             MessageType::Notification => {
                                                 recv_counter.lock().unwrap().notification += 1;
@@ -774,7 +894,7 @@ impl Peer {
                 // restarts the KeepaliveTimer, and
                 // remains in the OpenConfirmed state
                 let msg = Self::build_keepalive_msg()?;
-                self.send(msg)?;
+                self.send_all_conn(msg)?;
             }
             _ => {
                 // if the ConnectRetryTimer is running, stops and resets the ConnectRetryTimer (sets to zero),
@@ -945,7 +1065,7 @@ impl Peer {
                 self.send(msg)?;
                 let msg = Self::build_keepalive_msg()?;
                 self.send(msg)?;
-                tracing::info!(state=?self.state(),"establish bgp session");
+                tracing::info!(local_port=local_port, remote_port=peer_port,state=?self.state(),"Establish bgp session");
                 let _negotiated_hold_time = self.negotiate_hold_time(hold_time as u64)?;
 
                 // when new session is established, it needs to advertise all paths.
@@ -976,9 +1096,9 @@ impl Peer {
                 // sets the HoldTimer according to the negotiated value (see Section 4.2),
                 // changes its state to OpenConfirm
                 let msg = Self::build_keepalive_msg()?;
-                tracing::info!(state=?self.state(),"establish bgp session");
+                tracing::info!(local_port=local_port, remote_port=peer_port,state=?self.state(),"Establish bgp session");
                 let _negotiated_hold_time = self.negotiate_hold_time(hold_time as u64)?;
-                self.send(msg)?;
+                self.send_to_dup_conn(msg, local_port == Bgp::BGP_PORT)?;
 
                 // when new session is established, it needs to advertise all paths.
                 let (peer_asn, peer_addr, families) = {
@@ -1010,22 +1130,29 @@ impl Peer {
                 //   - releases all BGP resources,
                 //   - drops the TCP connection (send TCP FIN),
                 //   - increments the ConnectRetryCounter by 1,
+
+                // If local_port is 179, its connection should be the passively opened connection.
                 let passive = local_port == Bgp::BGP_PORT;
-                let mut builder = MessageBuilder::builder(MessageType::Notification);
-                let msg = builder.code(NotificationCode::Cease)?.build()?;
-                self.send_to_dup_conn(msg, passive)?;
+
+                // move per connection state to OpenConfirm
                 {
                     let mut connections = self.connections.lock().unwrap();
-                    if let Some(idx) = connections
-                        .iter()
-                        .position(|conn| conn.is_passive() == passive)
-                    {
-                        tracing::warn!(passive = passive, "drop duplicate connection");
-                        let dup_conn = connections.remove(idx);
-                        drop(dup_conn);
+                    for conn in connections.iter_mut() {
+                        if conn.is_passive() == passive {
+                            tracing::info!(
+                                local_addr = conn.local_addr.to_string(),
+                                remote_addr = conn.peer_addr.to_string(),
+                                local_port = conn.local_port,
+                                remote_port = conn.peer_port,
+                                target_passive = passive,
+                                "Per connection status moves to OpenConfirm"
+                            );
+                            conn.state = State::OpenConfirm;
+                        }
                     }
                 }
-                self.connect_retry_counter += 1;
+
+                self.decide_connection(passive)?;
                 return Ok(());
             }
             State::Established => {
@@ -1261,7 +1388,7 @@ impl Peer {
 
     // Event 26
     #[tracing::instrument(skip(self))]
-    async fn keepalive_msg(&mut self) -> Result<(), Error> {
+    async fn keepalive_msg(&mut self, local_port: u16, peer_port: u16) -> Result<(), Error> {
         tracing::debug!(state=?self.state(),"received keepalive message");
         match self.state() {
             State::OpenSent => {
@@ -1278,10 +1405,36 @@ impl Peer {
                 self.release(true).await?;
                 self.connect_retry_counter += 1;
             }
-            State::OpenConfirm | State::Established => {
+            State::OpenConfirm => {
                 // restarts the HoldTimer and if the negotiated HoldTime value is non-zero, and
                 // changes(remains) its state to Established.
                 // self.hold_timer.push(self.negotiated_hold_time);
+                self.hold_timer.last = Instant::now();
+                // workaround for https://github.com/terassyi/sart/issues/44
+                self.invalid_msg_count = 0;
+
+                let passive = local_port == Bgp::BGP_PORT;
+                // move per connection state to OpenConfirm
+                {
+                    let mut connections = self.connections.lock().unwrap();
+                    for conn in connections.iter_mut() {
+                        if conn.is_passive() == passive {
+                            tracing::info!(
+                                local_addr = conn.local_addr.to_string(),
+                                remote_addr = conn.peer_addr.to_string(),
+                                local_port = conn.local_port,
+                                remote_port = conn.peer_port,
+                                target_passive = passive,
+                                "Per connection status moves to OpenConfirm"
+                            );
+                            conn.state = State::OpenConfirm;
+                        }
+                    }
+                }
+
+                self.decide_connection(passive)?;
+            }
+            State::Established => {
                 self.hold_timer.last = Instant::now();
                 // workaround for https://github.com/terassyi/sart/issues/44
                 self.invalid_msg_count = 0;
@@ -1740,22 +1893,39 @@ impl Peer {
 
 #[derive(Debug)]
 struct Connection {
+    local_addr: IpAddr,
     local_port: u16,
+    peer_addr: IpAddr,
     peer_port: u16,
+    state: State,
     msg_tx: UnboundedSender<Message>,
     active_close_signal: Arc<Notify>,
 }
 
+impl PartialEq for Connection {
+    fn eq(&self, other: &Self) -> bool {
+        self.local_addr.eq(&other.local_addr)
+            && self.peer_addr.eq(&other.peer_addr)
+            && self.local_port == other.local_port
+            && self.peer_port == other.peer_port
+    }
+}
+
 impl Connection {
     fn new(
+        local_addr: IpAddr,
         local_port: u16,
+        peer_addr: IpAddr,
         peer_port: u16,
         msg_tx: UnboundedSender<Message>,
         active_close_signal: Arc<Notify>,
     ) -> Connection {
         Connection {
+            local_addr,
             local_port,
+            peer_addr,
             peer_port,
+            state: State::Connect, // temporary state
             msg_tx,
             active_close_signal,
         }
