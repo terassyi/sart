@@ -4,7 +4,8 @@
 *.pcaping
 .vscode
 *.bin
-**/bin
+/bin
+/e2e/bin
 */*.pem
 */*.cert
 */*.key
@@ -14,7 +15,8 @@ sart.yaml
 
 **/e2e.test
 e2e/topology/.*.yaml.bak
+e2e/topology/kubernetes-cni*.yaml
 e2e/clab-sart
 
-manifests/certs/*
+manifests/base/certs/*
 manifests/webhook/admission_webhook_patch.yaml

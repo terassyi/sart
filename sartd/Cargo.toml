@@ -40,6 +40,11 @@ doc = false
 name = "certgen"
 path = "src/bin/certgen.rs"
 
+[[bin]]
+doc = false
+name = "cni-installer"
+path = "src/bin/cni-installer.rs"
+
 
 [dependencies]
 anyhow = "1.0.75"
@@ -52,6 +57,7 @@ serde_yaml = "0.9.27"
 time = "0.3.30"
 sartd-cmd = { path = "src/cmd" }
 sartd-kubernetes = { path = "src/kubernetes" }
+rscni = { git = "https://github.com/terassyi/rscni", branch = "main" }
 
 [patch.crates-io]
 # netlink-packet-route = { git = "https://github.com/terassyi/netlink-packet-route", branch = "next-hop-default", features = [

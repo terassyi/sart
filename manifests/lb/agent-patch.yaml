@@ -1,0 +1,13 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: sartd-agent
+  namespace: kube-system
+spec:
+  template:
+    spec:
+      containers:
+      - name: agent
+        args:
+        - agent
+        - --mode=lb

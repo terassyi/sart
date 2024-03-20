@@ -1,0 +1,79 @@
+syntax = "proto3";
+
+package sart.v1;
+
+import "google/protobuf/empty.proto";
+
+service CNIApi {
+	rpc Add(Args) returns (CNIResult);
+	rpc Del(Args) returns (CNIResult);
+	rpc Check(Args) returns (CNIResult);
+}
+
+message Args {
+	string container_id = 1;
+	string netns = 2;
+	string ifname = 3;
+	repeated string path = 4;
+	string args = 5;
+	CNIResult prev_result = 6;
+	SartConf conf = 7;
+	string data = 8;
+}
+
+message CNIResult {
+	repeated Interface interfaces = 1;
+	repeated IPConf ips = 2;
+	repeated RouteConf routes = 3;
+	Dns dns = 4;
+}
+
+message SartConf {
+
+}
+
+message Interface {
+	string name = 1;
+	string mac = 2;
+	string sandbox = 3;
+}
+
+message IPConf {
+	uint32 interface = 1;
+	string address = 2;
+	string gateway = 3;
+}
+
+message RouteConf {
+	string dst = 1;
+	string gw = 2;
+	int32 mtu = 3;
+	int32 advmss = 5;
+}
+
+message Dns {
+	repeated string nameservers = 1;
+	string domain = 2;
+	repeated string search = 3;
+	repeated string options = 4;
+}
+
+enum ErrorCode {
+	Unknown = 0;
+	IncompatibleVersion = 1;
+	UnsupportedNetworkConfiguration = 2;
+	NotExist = 3;
+	InvalidEnvValue = 4;
+	IOFailure = 5;
+	FailedToDecode = 6;
+	InvalidNetworkConfig = 7;
+	TryAgainLater = 11;
+
+	AlreadyAdded = 120;
+}
+
+message ErrorResult {
+	ErrorCode code = 1;
+	string msg = 2;
+	string details = 3;
+}

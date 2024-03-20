@@ -129,6 +129,7 @@ async fn reconcile(api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Resul
             name = nb.name_any(),
             asn = nb.spec.asn,
             router_id = nb.spec.router_id,
+            multipath =? nb.spec.speaker.multipath,
             "Configure local BGP settings"
         );
         speaker_client
@@ -139,6 +140,14 @@ async fn reconcile(api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Resul
                 router_id: nb.spec.router_id.clone(),
             })
             .await?;
+
+        if let Some(multi_path) = nb.spec.speaker.multipath {
+            speaker_client
+                .configure_multi_path(sartd_proto::sart::ConfigureMultiPathRequest {
+                    enable: multi_path,
+                })
+                .await?;
+        }
 
         let cond = NodeBGPCondition {
             status: NodeBGPConditionStatus::Available,
@@ -171,12 +180,6 @@ async fn reconcile(api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Resul
             backoff_advertisements(nb, &ctx.client.clone()).await?;
             new_status.backoff += 1;
         }
-        tracing::info!(
-            name = nb.name_any(),
-            asn = nb.spec.asn,
-            router_id = nb.spec.router_id,
-            "Update NodeBGP status"
-        );
         // update status
         let mut new_nb = nb.clone();
         new_nb.status = Some(new_status);
@@ -308,12 +311,6 @@ async fn reconcile(api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Resul
 
     // create peers based on NodeBGP.spec.peers
     if available {
-        let cluster_bgps = nb
-            .status
-            .as_ref()
-            .and_then(|status| status.cluster_bgp_refs.as_ref())
-            .unwrap_or(&Vec::new());
-
         let bgp_peers = Api::<BGPPeer>::all(ctx.client.clone());
 
         if let Some(peers) = new_nb.spec.peers.as_mut() {

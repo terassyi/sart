@@ -72,7 +72,7 @@ pub async fn handle_validation(
 
     tracing::info!(
         name = admission_req.name,
-        "incoming request try to updates existing object"
+        "incoming request tries to update existing object"
     );
 
     let old = admission_req.old_object.unwrap();
@@ -128,7 +128,7 @@ pub async fn handle_mutation(
     req: HttpRequest,
     body: web::Json<AdmissionReview<BGPPeer>>,
 ) -> impl Responder {
-    tracing::info!(method=?req.method(), uri=?req.uri(),"call mutating webhook for BgpPeer");
+    tracing::info!(method=?req.method(), uri=?req.uri(),"call mutating webhook for BGPPeer");
 
     if let Some(content_type) = req.head().headers.get("content-type") {
         if content_type != "application/json" {

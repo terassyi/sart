@@ -184,9 +184,15 @@ impl KernelRtPoller {
                 request = self.rx.recv().fuse() => {
                     if let Some((req, route)) = request {
                         let res = match req {
-                            RequestType::Add | RequestType::Replace => add_route(&handle, req, route).await,
+                            RequestType::Add | RequestType::Replace => {
+                                let new_route = extract_nexthop(route).await?;
+                                add_route(req, new_route).await
+                            },
                             RequestType::Delete => delete_route(&handle, route).await,
-                            RequestType::AddMultiPath => add_multi_path_route(&handle, route).await,
+                            RequestType::AddMultiPath => {
+                                let new_route = extract_nexthop(route).await?;
+                                add_multi_path_route(&handle, new_route).await
+                            },
                             RequestType::DeleteMultiPath => delete_multi_path_route(&handle, route).await,
                         };
                         match res {
@@ -202,13 +208,56 @@ impl KernelRtPoller {
     }
 }
 
-#[tracing::instrument(skip(handle))]
-async fn add_route(
-    handle: &rtnetlink::Handle,
-    req: RequestType,
-    route: Route,
-) -> Result<(), Error> {
-    tracing::info!("add or replace the rouet to kernel");
+#[tracing::instrument()]
+async fn extract_nexthop(route: Route) -> Result<Route, Error> {
+    let (conn, handle, _) = rtnetlink::new_connection()?;
+    tokio::spawn(conn);
+
+    let targets: Vec<IpAddr> = route.next_hops.iter().map(|nxt| nxt.gateway).collect();
+    let mut new_targets: HashMap<IpAddr, (IpAddr, u32)> = HashMap::new();
+
+    let mut get_route_res = handle.route().get(route.version.clone()).execute();
+    while let Some(r) = get_route_res.try_next().await? {
+        if let Some(dst) = r.destination_prefix() {
+            let dst_net = IpNet::new(dst.0, dst.1).unwrap(); // we can unwrap
+            for target in targets.iter() {
+                if dst_net.contains(target) {
+                    if let Some(gateway) = r.gateway() {
+                        if let Some(iface) = r.output_interface() {
+                            new_targets.insert(*target, (gateway, iface));
+                        } else {
+                            new_targets.insert(*target, (gateway, 0));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let new_nexthops = route
+        .clone()
+        .next_hops
+        .iter()
+        .map(|nxt| {
+            let mut new_nxt = nxt.clone();
+            if let Some(new_gw) = new_targets.get(&nxt.gateway) {
+                new_nxt.gateway = new_gw.0;
+                new_nxt.interface = new_gw.1;
+            }
+            new_nxt
+        })
+        .collect::<Vec<crate::route::NextHop>>();
+    let mut new_route = route.clone();
+    new_route.next_hops = new_nexthops;
+    Ok(new_route)
+}
+
+#[tracing::instrument()]
+async fn add_route(req: RequestType, route: Route) -> Result<(), Error> {
+    tracing::info!("add or replace the route to kernel");
+
+    let (conn, handle, _) = rtnetlink::new_connection()?;
+    tokio::spawn(conn);
+
     let rt = handle.route();
 
     let mut existing = false;
@@ -334,7 +383,7 @@ async fn add_multi_path_route(handle: &rtnetlink::Handle, route: Route) -> Resul
         r.next_hops.push(next_hop);
     }
 
-    add_route(handle, RequestType::Replace, r).await
+    add_route(RequestType::Replace, r).await
 }
 
 #[tracing::instrument(skip(handle))]
@@ -344,7 +393,7 @@ async fn delete_multi_path_route(handle: &rtnetlink::Handle, route: Route) -> Re
     r.next_hops
         .retain(|n| route.next_hops.iter().any(|nn| nn.gateway.ne(&n.gateway)));
 
-    add_route(handle, RequestType::Replace, r).await
+    add_route(RequestType::Replace, r).await
 }
 
 #[tracing::instrument(skip(handle))]

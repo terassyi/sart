@@ -107,6 +107,21 @@ pub enum Error {
 
     #[error("Cannot delete")]
     CannotDelete,
+
+    #[error("BlockRequest already exists")]
+    BlockRequestAlreadyExists,
+
+    #[error("BlockRequest not performed")]
+    BlockRequestNotPerformed,
+
+    #[error("Invalid address type")]
+    InvalidAddressType,
+
+    #[error("Invalid CIDR")]
+    InvalidCIDR,
+
+    #[error("Invalid pool")]
+    InvalidPool,
 }
 
 #[derive(Debug, Error)]

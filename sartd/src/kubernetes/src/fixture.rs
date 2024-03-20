@@ -38,6 +38,7 @@ pub mod reconciler {
             },
             bgp_peer::{BGPPeer, BGPPeerSlim, BGPPeerSpec, PeerConfig},
             bgp_peer_template::{BGPPeerTemplate, BGPPeerTemplateSpec},
+            block_request::{BlockRequest, BlockRequestSpec, BLOCK_REQUEST_FINALIZER},
             cluster_bgp::{
                 AsnSelectionType, AsnSelector, ClusterBGP, ClusterBGPSpec, RouterIdSelectionType,
                 RouterIdSelector, SpeakerConfig, CLUSTER_BGP_FINALIZER,
@@ -319,6 +320,111 @@ pub mod reconciler {
         }
     }
 
+    pub fn test_address_pool_pod() -> AddressPool {
+        AddressPool {
+            metadata: ObjectMeta {
+                name: Some("test-pool".to_string()),
+                finalizers: Some(vec![ADDRESS_POOL_FINALIZER.to_string()]),
+                ..Default::default()
+            },
+            spec: AddressPoolSpec {
+                cidr: "10.0.0.0/16".to_string(),
+                r#type: AddressType::Pod,
+                alloc_type: Some(AllocationType::Bit),
+                block_size: 27,
+                auto_assign: Some(true),
+            },
+            status: None,
+        }
+    }
+
+    pub fn test_address_pool_pod_another() -> AddressPool {
+        AddressPool {
+            metadata: ObjectMeta {
+                name: Some("test-pool".to_string()),
+                finalizers: Some(vec![ADDRESS_POOL_FINALIZER.to_string()]),
+                ..Default::default()
+            },
+            spec: AddressPoolSpec {
+                cidr: "10.0.0.0/30".to_string(),
+                r#type: AddressType::Pod,
+                alloc_type: Some(AllocationType::Bit),
+                block_size: 31,
+                auto_assign: Some(true),
+            },
+            status: None,
+        }
+    }
+
+    pub fn test_address_block_pod() -> AddressBlock {
+        AddressBlock {
+            metadata: ObjectMeta {
+                finalizers: Some(vec![ADDRESS_BLOCK_FINALIZER.to_string()]),
+                name: Some("test-pool-sart-integration-control-plane-10.0.0.0".to_string()),
+                ..Default::default()
+            },
+            spec: AddressBlockSpec {
+                cidr: "10.0.0.0/27".to_string(),
+                r#type: AddressType::Pod,
+                pool_ref: "test-pool".to_string(),
+                node_ref: Some("sart-integration-control-plane".to_string()),
+                auto_assign: true,
+            },
+            status: None,
+        }
+    }
+
+    pub fn test_address_block_pod2() -> AddressBlock {
+        AddressBlock {
+            metadata: ObjectMeta {
+                finalizers: Some(vec![ADDRESS_BLOCK_FINALIZER.to_string()]),
+                name: Some("test-pool-sart-integration-control-plane-10.0.0.32".to_string()),
+                ..Default::default()
+            },
+            spec: AddressBlockSpec {
+                cidr: "10.0.0.32/27".to_string(),
+                r#type: AddressType::Pod,
+                pool_ref: "test-pool".to_string(),
+                node_ref: Some("sart-integration-control-plane".to_string()),
+                auto_assign: true,
+            },
+            status: None,
+        }
+    }
+
+    pub fn test_address_block_pod_non_default() -> AddressBlock {
+        AddressBlock {
+            metadata: ObjectMeta {
+                finalizers: Some(vec![ADDRESS_BLOCK_FINALIZER.to_string()]),
+                name: Some("test-pool-non-default-sart-integration-10.1.0.0".to_string()),
+                ..Default::default()
+            },
+            spec: AddressBlockSpec {
+                cidr: "10.1.0.0/24".to_string(),
+                r#type: AddressType::Pod,
+                pool_ref: "test-pool".to_string(),
+                node_ref: None,
+                auto_assign: false,
+            },
+            status: None,
+        }
+    }
+
+    pub fn test_block_request() -> BlockRequest {
+        BlockRequest {
+            metadata: ObjectMeta {
+                finalizers: Some(vec![BLOCK_REQUEST_FINALIZER.to_string()]),
+                name: Some("test-pool-sart-integration-control-plane".to_string()),
+                ..Default::default()
+            },
+            spec: BlockRequestSpec {
+                pool: "test-pool".to_string(),
+                node: "sart-integration-control-plane".to_string(),
+            },
+            status: None,
+        }
+    }
+
     pub fn test_cluster_bgp() -> ClusterBGP {
         ClusterBGP {
             metadata: ObjectMeta {
@@ -339,6 +445,7 @@ pub mod reconciler {
                 speaker: SpeakerConfig {
                     path: "localhost:5000".to_string(),
                     timeout: None,
+                    multipath: Some(false),
                 },
                 peers: Some(vec![PeerConfig {
                     peer_template_ref: Some("test-bgp-peer-templ".to_string()),
@@ -441,6 +548,7 @@ pub mod reconciler {
                     speaker: SpeakerConfig {
                         path: "localhost".to_string(),
                         timeout: None,
+                        multipath: Some(false),
                     },
                     peers: Some(vec![
                         BGPPeerSlim {
@@ -452,6 +560,7 @@ pub mod reconciler {
                                 speaker: SpeakerConfig {
                                     path: "localhost".to_string(),
                                     timeout: None,
+                                    multipath: Some(false),
                                 },
                                 groups: None,
                                 ..Default::default()
@@ -466,6 +575,7 @@ pub mod reconciler {
                                 speaker: SpeakerConfig {
                                     path: "localhost".to_string(),
                                     timeout: None,
+                                    multipath: Some(false),
                                 },
                                 groups: None,
                                 ..Default::default()
@@ -487,6 +597,7 @@ pub mod reconciler {
                     speaker: SpeakerConfig {
                         path: "localhost".to_string(),
                         timeout: None,
+                        multipath: Some(false),
                     },
                     peers: Some(vec![BGPPeerSlim {
                         name: "test2-peer1".to_string(),
@@ -497,6 +608,7 @@ pub mod reconciler {
                             speaker: SpeakerConfig {
                                 path: "localhost".to_string(),
                                 timeout: None,
+                                multipath: Some(false),
                             },
                             groups: None,
                             ..Default::default()
@@ -517,6 +629,7 @@ pub mod reconciler {
                     speaker: SpeakerConfig {
                         path: "localhost".to_string(),
                         timeout: None,
+                        multipath: Some(false),
                     },
                     peers: Some(vec![BGPPeerSlim {
                         name: "test3-peer1".to_string(),
@@ -527,6 +640,7 @@ pub mod reconciler {
                             speaker: SpeakerConfig {
                                 path: "localhost".to_string(),
                                 timeout: None,
+                                multipath: Some(false),
                             },
                             groups: None,
                             ..Default::default()

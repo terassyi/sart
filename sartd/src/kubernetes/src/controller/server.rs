@@ -14,8 +14,12 @@ use sartd_ipam::manager::AllocatorSet;
 use sartd_trace::init::{prepare_tracing, TraceConfig};
 
 use crate::{
+    config::Mode,
     context::State,
-    crd::{address_pool::AddressPool, bgp_advertisement::BGPAdvertisement, bgp_peer::BGPPeer},
+    crd::{
+        address_block::AddressBlock, address_pool::AddressPool,
+        bgp_advertisement::BGPAdvertisement, bgp_peer::BGPPeer,
+    },
 };
 
 use super::{reconciler, webhook};
@@ -40,7 +44,7 @@ async fn run(c: Controller, trace_config: TraceConfig) {
     let cert_chain = load_certificates_from_pem(&c.server_cert).unwrap();
     let private_key = load_private_key_from_file(&c.server_key).unwrap();
 
-    // Initiatilize Kubernetes controller state
+    // Initialize Kubernetes controller state
     let state = State::new("controller");
 
     // Start web server
@@ -65,6 +69,7 @@ async fn run(c: Controller, trace_config: TraceConfig) {
             .service(bgp_peer_mutating_webhook)
             .service(bgp_advertisement_validating_webhook)
             .service(address_pool_validating_webhook)
+            .service(address_block_mutating_webhook)
             .service(service_mutating_webhook)
             .wrap(
                 middleware::Logger::default()
@@ -72,11 +77,17 @@ async fn run(c: Controller, trace_config: TraceConfig) {
                     .exclude("/readyz"),
             )
     })
-    .bind_rustls_021("0.0.0.0:8443", server_config)
+    .bind_rustls_021(format!("0.0.0.0:{}", c.server_https_port), server_config)
     .unwrap()
-    .bind("0.0.0.0:8080")
+    .bind(format!("0.0.0.0:{}", c.server_port))
     .unwrap()
     .shutdown_timeout(5);
+
+    tracing::info!(
+        http_port = c.server_port,
+        https_port = c.server_https_port,
+        "Controller server is running."
+    );
 
     let allocator_set = Arc::new(AllocatorSet::new());
 
@@ -101,25 +112,35 @@ async fn run(c: Controller, trace_config: TraceConfig) {
             .await;
     });
 
+    if c.mode.eq(&Mode::CNI) || c.mode.eq(&Mode::Dual) {
+        tracing::info!("Start BlockRequest reconciler");
+        let block_request_state = state.clone();
+        tokio::spawn(async move {
+            reconciler::block_request::run(block_request_state, c.requeue_interval).await;
+        });
+    }
+
     tracing::info!("Start Node watcher");
     let node_state = state.clone();
     tokio::spawn(async move {
         reconciler::node_watcher::run(node_state, c.requeue_interval).await;
     });
 
-    tracing::info!("Start Service watcher");
-    let service_state = state.clone();
-    let svc_allocator_set = allocator_set.clone();
-    tokio::spawn(async move {
-        reconciler::service_watcher::run(service_state, c.requeue_interval, svc_allocator_set)
-            .await;
-    });
+    if c.mode.eq(&Mode::LB) || c.mode.eq(&Mode::Dual) {
+        tracing::info!("Start Service watcher");
+        let service_state = state.clone();
+        let svc_allocator_set = allocator_set.clone();
+        tokio::spawn(async move {
+            reconciler::service_watcher::run(service_state, c.requeue_interval, svc_allocator_set)
+                .await;
+        });
 
-    tracing::info!("Start Endpointslice watcher");
-    let endpointslice_state = state.clone();
-    tokio::spawn(async move {
-        reconciler::endpointslice_watcher::run(endpointslice_state, c.requeue_interval).await;
-    });
+        tracing::info!("Start Endpointslice watcher");
+        let endpointslice_state = state.clone();
+        tokio::spawn(async move {
+            reconciler::endpointslice_watcher::run(endpointslice_state, c.requeue_interval).await;
+        });
+    }
 
     tracing::info!("Start BGPAdvertisement reconciler");
     let bgp_advertisement_state = state.clone();
@@ -131,17 +152,23 @@ async fn run(c: Controller, trace_config: TraceConfig) {
 }
 
 pub struct Controller {
+    server_port: u32,
+    server_https_port: u32,
     server_cert: String,
     server_key: String,
     requeue_interval: u64,
+    mode: Mode,
 }
 
 impl Controller {
     pub fn new(config: Config) -> Self {
         Self {
+            server_port: config.http_port,
+            server_https_port: config.https_port,
             server_cert: config.tls.cert,
             server_key: config.tls.key,
             requeue_interval: config.requeue_interval,
+            mode: config.mode,
         }
     }
 }
@@ -209,4 +236,12 @@ async fn service_mutating_webhook(
     body: web::Json<AdmissionReview<Service>>,
 ) -> impl Responder {
     webhook::service::handle_mutation(req, body).await
+}
+
+#[post("/mutate-sart-terassyi-net-v1alpha2-addressblock")]
+async fn address_block_mutating_webhook(
+    req: HttpRequest,
+    body: web::Json<AdmissionReview<AddressBlock>>,
+) -> impl Responder {
+    webhook::address_block::handle_mutation(req, body).await
 }

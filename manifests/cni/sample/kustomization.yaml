@@ -1,0 +1,9 @@
+resources:
+  - cluster_bgp_a.yaml
+  - cluster_bgp_b.yaml
+  - peer_template.yaml
+  - bgp_peer.yaml
+  - namespace.yaml
+  - pool.yaml
+  - deployment.yaml
+  - client.yaml

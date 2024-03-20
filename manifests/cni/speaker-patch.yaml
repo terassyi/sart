@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: sartd-bgp
+  namespace: system
+spec:
+  template:
+    spec:
+      containers:
+        - name: bgp
+          command: ["sartd"]
+          args:
+            - bgp
+            - --fib
+            - localhost:5010
+            - --exporter=127.0.0.1:5003
+        - name: fib
+          image: sart:dev
+          imagePullPolicy: IfNotPresent
+          command: ["sartd"]
+          args:
+            - fib
+            - -f
+            - /etc/sart/fib-config.yaml
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: sartd-fib-config
+              mountPath: /etc/sart/fib-config.yaml
+              subPath: fib-config.yaml
+      volumes:
+      - name: sartd-fib-config
+        configMap:
+          name: sartd-fib-config
+          items:
+          - key: fib-config.yaml
+            path: fib-config.yaml

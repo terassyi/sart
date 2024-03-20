@@ -574,6 +574,7 @@ spec:
               type:
                 enum:
                 - service
+                - pod
                 type: string
             required:
             - cidr
@@ -661,6 +662,7 @@ spec:
               type:
                 enum:
                 - service
+                - pod
                 type: string
             required:
             - blockSize
@@ -670,7 +672,19 @@ spec:
           status:
             nullable: true
             properties:
-              blocks:
+              allocated:
+                additionalProperties:
+                  format: uint128
+                  minimum: 0.0
+                  type: integer
+                nullable: true
+                type: object
+              released:
+                items:
+                  type: string
+                nullable: true
+                type: array
+              requested:
                 items:
                   type: string
                 nullable: true
@@ -739,6 +753,7 @@ spec:
               type:
                 enum:
                 - service
+                - pod
                 type: string
             required:
             - autoAssign
@@ -752,6 +767,56 @@ spec:
         required:
         - spec
         title: AddressBlock
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: blockrequests.sart.terassyi.net
+spec:
+  group: sart.terassyi.net
+  names:
+    categories: []
+    kind: BlockRequest
+    plural: blockrequests
+    shortNames: []
+    singular: blockrequest
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - description: Address pool name
+      jsonPath: .spec.pool
+      name: POOL
+      type: string
+    - description: Node name
+      jsonPath: .spec.node
+      name: NODE
+      type: string
+    name: v1alpha2
+    schema:
+      openAPIV3Schema:
+        description: Auto-generated derived type for BlockRequestSpec via `CustomResource`
+        properties:
+          spec:
+            properties:
+              node:
+                type: string
+              pool:
+                type: string
+            required:
+            - node
+            - pool
+            type: object
+          status:
+            nullable: true
+            type: object
+        required:
+        - spec
+        title: BlockRequest
         type: object
     served: true
     storage: true

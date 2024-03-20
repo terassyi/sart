@@ -1,0 +1,31 @@
+apiVersion: sart.terassyi.net/v1alpha2
+kind: BGPPeer
+metadata:
+  labels:
+    bgp: b
+    bgppeer.sart.terassyi.net/node: sart-control-plane
+  name: bgppeer-sart-cp-spine0
+spec:
+  addr: 9.9.9.9
+  asn: 65001
+  groups:
+    - to-spine0
+  nodeBGPRef: sart-control-plane
+  speaker:
+    path: 127.0.0.1:5000
+---
+apiVersion: sart.terassyi.net/v1alpha2
+kind: BGPPeer
+metadata:
+  labels:
+    bgp: b
+    bgppeer.sart.terassyi.net/node: sart-control-plane
+  name: bgppeer-sart-cp-spine1
+spec:
+  addr: 7.7.7.7
+  asn: 65002
+  groups:
+    - to-spine1
+  nodeBGPRef: sart-control-plane
+  speaker:
+    path: 127.0.0.1:5000

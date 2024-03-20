@@ -1,0 +1,153 @@
+name: e2e test
+on:
+  pull_request:
+    paths-ignore:
+    - '.gitignore'
+    - '.dockerignore'
+    - 'LICENSE'
+    - '**.md'
+  push:
+    branches:
+      - main
+
+env:
+  CARGO_TERM_COLOR: always
+  TAGS: dev
+  go-version: "1.22"
+
+jobs:
+  build-image:
+    name: Build container image
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build and Export
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          tags: sart:dev
+          outputs: type=docker,dest=/tmp/sart.tar
+      - name: Upload container image
+        uses: actions/upload-artifact@v4
+        with:
+          name: sart
+          path: /tmp/sart.tar
+  bgp-e2e-test:
+    name: BGP End-to-End Test
+    needs: build-image
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.go-version }}
+      - name: Download sart container image
+        uses: actions/download-artifact@v4
+        with:
+          name: sart
+          path: /tmp
+      - name: Load sart container image
+        run: |
+          docker load --input /tmp/sart.tar
+          docker image ls -a
+      - name: Setup Tools
+        working-directory: e2e
+        run: make setup
+      - name: Run E2E Test
+        working-directory: e2e
+        run: make bgp-e2e
+  kubernetes-e2e-test:
+    name: Kubernetes End-to-End Test
+    needs: build-image
+    strategy:
+      matrix:
+        # kindest node version
+        kubernetes-version: ["1.28.6", "1.29.2"]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.go-version }}
+      - name: Download sart container image
+        uses: actions/download-artifact@v4
+        with:
+          name: sart
+          path: /tmp
+      - name: Load sartd container image
+        run: |
+          docker load --input /tmp/sart.tar
+          docker image ls -a
+      - name: Setup Tools
+        working-directory: e2e
+        run: |-
+          make setup
+          make -C ../ setup-grpc
+      - name: Start Kind Cluster
+        working-directory: e2e
+        run: make kubernetes KUBERNETES_VERSION=${{ matrix.kubernetes-version }}
+      - name: Generate Certificates
+        run: make certs
+      - name: Generate CRD
+        run: make crd
+      - name: Install sart
+        working-directory: e2e
+        run: make install-sart
+      - name: Run E2E Test
+        working-directory: e2e
+        run: make kubernetes-e2e
+      - name: Clean up Kind Cluster
+        working-directory: e2e
+        run: make kubernetes-down
+        if: always()
+  cni-e2e-test:
+    name: CNI End-to-End Test
+    needs: build-image
+    strategy:
+      matrix:
+        # kindest node version
+        kubernetes-version: ["1.28.6", "1.29.2"]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.go-version }}
+      - name: Download sart container image
+        uses: actions/download-artifact@v4
+        with:
+          name: sart
+          path: /tmp
+      - name: Load sart container image
+        run: |
+          docker load --input /tmp/sart.tar
+          docker image ls -a
+      - name: Setup Tools
+        working-directory: e2e
+        run: |-
+          make setup
+          make -C ../ setup-grpc
+      - name: Start Kind Cluster
+        working-directory: e2e
+        run: make kubernetes MODE=cni COMPACT=true KUBERNETES_VERSION=${{ matrix.kubernetes-version }}
+        env:
+          MODE: cni
+          KUBERNETES_VERSION: ${{ matrix.kubernetes-version }}
+      - name: Generate Certificates
+        run: make certs
+      - name: Generate CRD
+        run: make crd
+      - name: Install sart
+        working-directory: e2e
+        run: make install-sart MODE=cni
+        env:
+          MODE: cni
+      - name: Run E2E Test
+        working-directory: e2e
+        run: make cni-e2e
+      - name: Clean up Kind Cluster
+        working-directory: e2e
+        run: make kubernetes-down MODE=cni COMPACT=true
+        if: always()

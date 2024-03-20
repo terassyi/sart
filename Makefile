@@ -3,8 +3,8 @@ CARGO := cargo
 IMAGE_VERSION := dev
 PROJECT := github.com/terassyi/sart
 
-KIND_VERSION := 0.20.0
-KUBERNETES_VERSION := 1.28.0
+KIND_VERSION := 0.22.0
+KUBERNETES_VERSION := 1.29.2
 KUSTOMIZE_VERSION := 5.2.1
 
 BINDIR := $(abspath $(PWD)/bin)
@@ -103,7 +103,7 @@ clean: clean-crd clean-certs
 	rm sart/target/debug/sart || true
 
 
-MANIFESTS_DIR := $(PWD)/manifests
+MANIFESTS_DIR := $(PWD)/manifests/base
 CRD_DIR := $(MANIFESTS_DIR)/crd
 CERT_DIR := $(MANIFESTS_DIR)/certs
 
@@ -123,7 +123,7 @@ $(CRD_DIR)/sart.yaml:
 	cd sartd; $(CARGO) run --bin crdgen > $(CRD_DIR)/sart.yaml
 
 .PHONY: certs
-certs: $(CERT_DIR)/tls.cert $(CERT_DIR)/tls.key manifests/webhook/admission_webhook_patch.yaml
+certs: $(CERT_DIR)/tls.cert $(CERT_DIR)/tls.key manifests/base/webhook/admission_webhook_patch.yaml
 
 .PHONY: clean-certs
 clean-certs:
@@ -134,7 +134,7 @@ $(CERT_DIR)/tls.cert:
 	mkdir -p $(CERT_DIR)
 	cd sartd; $(CARGO) run --bin certgen -- --out-dir $(CERT_DIR)
 
-manifests/webhook/admission_webhook_patch.yaml: $(CERT_DIR)/tls.cert manifests/webhook/admission_webhook_patch.yaml.tmpl
+manifests/base/webhook/admission_webhook_patch.yaml: $(CERT_DIR)/tls.cert manifests/base/webhook/admission_webhook_patch.yaml.tmpl
 	sed "s/%CACERT%/$$(base64 -w0 < $<)/g" $@.tmpl > $@
 
 .PHONY: fmt

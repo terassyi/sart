@@ -4,24 +4,29 @@ use serde::{Deserialize, Serialize};
 
 use sartd_cert::constants::*;
 
-use super::error::{ConfigError, Error};
+use crate::config::{Mode, Tls};
 
+use super::{
+    cni::server::CNI_SERVER_ENDPOINT,
+    error::{ConfigError, Error},
+};
+
+pub const DEFAULT_HTTP_PORT: u32 = 8000;
+pub const DEFAULT_HTTPS_PORT: u32 = 9443;
 pub const DEFAULT_ENDPOINT: &str = "0.0.0.0:5002";
 pub const DEFAULT_PEER_STATE_WATCHER_ENDPOINT: &str = "0.0.0.0:5003";
 pub const DEFAULT_REQUEUE_INTERVAL: u64 = 30 * 60;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
+    pub http_port: u32,
+    pub https_port: u32,
     pub endpoint: String,
     pub tls: Tls,
     pub requeue_interval: u64,
     pub peer_state_watcher: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct Tls {
-    pub cert: String,
-    pub key: String,
+    pub mode: Mode,
+    pub cni_endpoint: Option<String>,
 }
 
 impl Config {
@@ -34,6 +39,8 @@ impl Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            http_port: DEFAULT_HTTP_PORT,
+            https_port: DEFAULT_HTTPS_PORT,
             endpoint: DEFAULT_ENDPOINT.to_string(),
             tls: Tls {
                 cert: DEFAULT_TLS_CERT.to_string(),
@@ -41,6 +48,8 @@ impl Default for Config {
             },
             requeue_interval: DEFAULT_REQUEUE_INTERVAL,
             peer_state_watcher: DEFAULT_PEER_STATE_WATCHER_ENDPOINT.to_string(),
+            mode: Mode::default(),
+            cni_endpoint: Some(CNI_SERVER_ENDPOINT.to_string()),
         }
     }
 }

@@ -4,6 +4,8 @@ use thiserror::Error;
 pub enum Error {
     #[error("system error")]
     System,
+    #[error("Got empty message")]
+    GotEmptyMessage,
     #[error("message header error")]
     MessageHeader(#[from] MessageHeaderError),
     #[error("OPEN message error")]
@@ -174,12 +176,16 @@ pub enum ControlError {
 pub enum PeerError {
     #[error("connection is not established")]
     ConnectionNotEstablished,
+    #[error("Connection is not found")]
+    ConnectionNotFound,
     #[error("failed to send message")]
     FailedToSendMessage,
     #[error("peer is down")]
     Down,
     #[error("duplicate connection")]
     DuplicateConnection,
+    #[error("Connections must be one or two")]
+    TooManyConnections,
 }
 
 #[derive(Debug, Error)]

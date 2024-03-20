@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: client
+  namespace: test
+spec:
+  containers:
+  - name: client
+    image: ghcr.io/terassyi/test-server:0.1.2

@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sart-controller
+  namespace: system
+  labels:
+    app.kubernetes.io/name: sart-controller
+spec:
+  selector:
+    matchLabels:
+      control-plane: sart-controller
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        control-plane: sart-controller
+    spec:
+      securityContext:
+        runAsNonRoot: false
+      containers:
+        - name: controller
+          command:
+            - sartd
+          args:
+            - controller
+          image: sart:dev
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - "ALL"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          # TODO(user): Configure the resources accordingly based on the project requirements.
+          # More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+          resources:
+            limits:
+              cpu: 100m
+              memory: 1Gi
+            requests:
+              cpu: 10m
+              memory: 128Mi
+          volumeMounts:
+          - mountPath: /etc/sartd/cert
+            name: cert
+            readOnly: true
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: control-plane
+                    operator: In
+                    values:
+                    - sart-controller
+              topologyKey: "kubernetes.io/hostname"
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              control-plane: sart-controller
+      volumes:
+      - name: cert
+        secret:
+          defaultMode: 420
+          secretName: sart-webhook-server-cert
+      serviceAccountName: sart
+      terminationGracePeriodSeconds: 10

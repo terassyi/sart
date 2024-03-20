@@ -4,6 +4,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 pub const ADDRESS_BLOCK_FINALIZER: &str = "addressblock.sart.terassyi.net/finalizer";
+pub const ADDRESS_BLOCK_NODE_LABEL: &str = "addressblock.sart.terassyi.net/node";
 
 #[derive(CustomResource, Debug, Serialize, Deserialize, Default, Clone, JsonSchema)]
 #[kube(

@@ -1,0 +1,32 @@
+name: unit test
+on: [push]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  unit-test:
+    name: Unit Test
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Build Dependencies
+        run: make setup-grpc
+      - name: Fmt
+        run: make fmt
+      - name: Run Unit Test
+        run: make unit-test
+  integration-test:
+    name: Integration Test
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Build Dependencies
+        run: make setup-grpc
+      - name: Generate CRD manifests
+        run: make crd
+      - name: Install Kubernetes Dependencies
+        run: |-
+          make -C e2e setup
+      - name: Run Integration Test
+        run: make integration-test

@@ -1,0 +1,21 @@
+apiVersion: sart.terassyi.net/v1alpha2
+kind: AddressPool
+metadata:
+  name: default-pod-pool
+spec:
+  cidr: 10.1.0.0/24
+  type: pod
+  allocType: bit
+  blockSize: 29
+  autoAssign: true
+---
+apiVersion: sart.terassyi.net/v1alpha2
+kind: AddressPool
+metadata:
+  name: non-default-pod-pool
+spec:
+  cidr: 10.10.0.0/29
+  type: pod
+  allocType: bit
+  blockSize: 32
+  autoAssign: false

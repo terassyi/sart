@@ -123,7 +123,7 @@ impl Block {
 
 #[derive(Debug, Clone)]
 pub struct AllocationInfo {
-    // We can allocate multiple addresses from one block to a service
+    // We can allocate multiple addresses from one block to a service or pod
     pub blocks: HashMap<String, Vec<IpAddr>>,
 }
 

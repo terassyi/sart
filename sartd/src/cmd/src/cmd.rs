@@ -130,6 +130,9 @@ pub fn run() {
                 Some(file) => sartd_kubernetes::agent::config::Config::load(&file).unwrap(),
             };
 
+            config.http_port = a.http_port;
+            config.https_port = a.https_port;
+
             if !a.endpoint.is_empty() {
                 config.endpoint = a.endpoint;
             }
@@ -143,6 +146,8 @@ pub fn run() {
             if let Some(p) = a.peer_state_watcher {
                 config.peer_state_watcher = p;
             }
+            config.mode = a.mode;
+            config.cni_endpoint = Some(a.cni_endpoint.clone());
 
             sartd_kubernetes::agent::server::start(config, trace_conf);
         }
@@ -158,6 +163,9 @@ pub fn run() {
                 Some(file) => sartd_kubernetes::controller::config::Config::load(&file).unwrap(),
             };
 
+            config.http_port = c.http_port;
+            config.https_port = c.https_port;
+
             if !c.endpoint.is_empty() {
                 config.endpoint = c.endpoint;
             }
@@ -168,6 +176,8 @@ pub fn run() {
             if let Some(key) = c.tls_key {
                 config.tls.key = key;
             }
+
+            config.mode = c.mode;
 
             sartd_kubernetes::controller::server::start(config, trace_conf);
         }

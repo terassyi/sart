@@ -20,7 +20,7 @@ use crate::{
     context::{error_policy, ContextWith, Ctx, State},
     controller::error::Error,
     crd::address_pool::{ADDRESS_POOL_ANNOTATION, LOADBALANCER_ADDRESS_ANNOTATION},
-    util::{get_diff, get_namespace},
+    util::{diff, get_namespace},
 };
 use sartd_ipam::manager::{AllocatorSet, Block};
 
@@ -638,7 +638,7 @@ fn merge_marked_allocation(
     actual_allocation: HashMap<String, Vec<MarkedAllocation>>,
     desired_allocation: HashMap<String, Vec<MarkedAllocation>>,
 ) -> HashMap<String, Vec<MarkedAllocation>> {
-    let (added, shared, removed) = get_diff(
+    let (added, shared, removed) = diff::<String>(
         &actual_allocation.keys().cloned().collect::<Vec<String>>(),
         &desired_allocation.keys().cloned().collect::<Vec<String>>(),
     );
@@ -941,12 +941,12 @@ mod tests {
             (vec!["b".to_string()], vec!["c".to_string()], vec!["a".to_string(), "d".to_string()]),
         ),
     )]
-    fn works_get_diff(
+    fn works_diff(
         prev: Vec<String>,
         now: Vec<String>,
         expected: (Vec<String>, Vec<String>, Vec<String>),
     ) {
-        let (added, shared, removed) = get_diff(&prev, &now);
+        let (added, shared, removed) = diff::<String>(&prev, &now);
         assert_eq!(added, expected.0);
         assert_eq!(shared, expected.1);
         assert_eq!(removed, expected.2);

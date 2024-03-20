@@ -1,0 +1,19 @@
+apiVersion: sart.terassyi.net/v1alpha2
+kind: BGPPeerTemplate
+metadata:
+  name: bgppeertemplate-spine0
+spec:
+  asn: 65001
+  addr: 9.9.9.9
+  groups:
+    - to-spine0
+---
+apiVersion: sart.terassyi.net/v1alpha2
+kind: BGPPeerTemplate
+metadata:
+  name: bgppeertemplate-spine1
+spec:
+  asn: 65002
+  addr: 7.7.7.7
+  groups:
+    - to-spine1

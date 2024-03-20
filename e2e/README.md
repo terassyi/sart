@@ -46,7 +46,7 @@ This is the topology for kubernetes e2e test.
 
 ![kubernetes.drawio.svg](./img/kubernetes.drawio.svg)
 
-We confirm that following points in this test.
+This tests confirm that following points.
 
 - Establish BGP peers via Kubernetes custom resources.
 - Assign external ip addresses to LoadBalancer services.
@@ -58,6 +58,36 @@ We confirm that following points in this test.
   - externalTrafficPolicy=Local
   - externalTrafficPolicy=Cluster
   - Change the externalTrafficPolicy
+- Restart
+  - sartd-agent
+  - sartd-bgp
+  - sart-controller
+
+## CNI
+
+To set up a CNI e2e test environment, we need following commands.
+
+```console
+$ make kubernetes MODE=cni
+$ make install-sart MODE=cni
+```
+
+After that, we can run the test.
+
+```console
+$ make cni-e2e
+```
+
+The following figure shows the topology for CNI e2e test.
+
+![kubernetes-cni.drawio.svg](./img/kubernetes-cni.drawio.svg)
+
+This test confirm that following points.
+
+- Establish BGP peers via Kubernetes custom resources.
+- Assign an IP address to pods from the auto assignable pool
+- Assign an IP address to pods from the non auto assignable pool
+- Connectivity of pods in the cluster
 - Restart
   - sartd-agent
   - sartd-bgp

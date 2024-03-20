@@ -6,7 +6,7 @@ use kube::{
         response::StatusSummary,
         Status,
     },
-    Api, Client,
+    Api, Client, ResourceExt,
 };
 
 use crate::crd::address_pool::{AddressPool, MAX_BLOCK_SIZE};
@@ -58,11 +58,11 @@ pub async fn handle_validation(
             let address_pool_api = Api::<AddressPool>::all(client);
             match address_pool_api.list(&ListParams::default()).await {
                 Ok(ap_list) => {
-                    if ap_list
-                        .items
-                        .iter()
-                        .any(|p| p.spec.auto_assign.unwrap_or(false))
-                    {
+                    if ap_list.items.iter().any(|p| {
+                        p.spec.auto_assign.unwrap_or(false)
+                            && p.spec.r#type.eq(&ap.spec.r#type)
+                            && p.name_any().ne(&ap.name_any())
+                    }) {
                         tracing::warn!("Auto assignable AddressPool already exists.");
                         resp.allowed = false;
                         resp.result = Status {
