@@ -1,10 +1,20 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 
-use kube::{api::{DeleteParams, ListParams}, Api, Client, ResourceExt};
+use kube::{
+    api::{DeleteParams, ListParams},
+    Api, Client, ResourceExt,
+};
 
 use sartd_ipam::manager::AllocatorSet;
 
-use crate::{agent::reconciler::node_bgp::ENV_HOSTNAME, crd::address_block::{AddressBlock, ADDRESS_BLOCK_NODE_LABEL}};
+use crate::{
+    agent::reconciler::node_bgp::ENV_HOSTNAME,
+    crd::address_block::{AddressBlock, ADDRESS_BLOCK_NODE_LABEL},
+};
 
 pub struct GarbageCollector {
     interval: Duration,
@@ -48,7 +58,8 @@ impl GarbageCollector {
             let address_block_api = Api::<AddressBlock>::all(self.client.clone());
 
             // let label_selector = form
-            let list_params = ListParams::default().labels(&format!("{}={}", ADDRESS_BLOCK_NODE_LABEL, self.node));
+            let list_params = ListParams::default()
+                .labels(&format!("{}={}", ADDRESS_BLOCK_NODE_LABEL, self.node));
             let block_list = match address_block_api.list(&list_params).await {
                 Ok(list) => list,
                 Err(e) => {
@@ -56,6 +67,9 @@ impl GarbageCollector {
                     continue;
                 }
             };
+
+            let mut unused = HashMap::new();
+            let mut used = HashSet::new();
 
             {
                 let alloc_set = self.allocator.clone();
@@ -69,16 +83,22 @@ impl GarbageCollector {
                                 match self.blocks.get_mut(&block.name) {
                                     Some(status) => {
                                         if GarbageCollectorMarker::Unused.eq(status) {
-                                            *status = GarbageCollectorMarker::Deleted;
+                                            unused.insert(
+                                                block.name.clone(),
+                                                GarbageCollectorMarker::Deleted,
+                                            );
                                             tracing::info!(
                                                 block = block.name,
                                                 gc_mark =? GarbageCollectorMarker::Deleted,
                                                 "Update GC marker",
                                             );
                                         }
-                                    },
+                                    }
                                     None => {
-                                        self.blocks.insert(block.name.clone(), GarbageCollectorMarker::Unused);
+                                        unused.insert(
+                                            block.name.clone(),
+                                            GarbageCollectorMarker::Unused,
+                                        );
                                         tracing::info!(
                                             block = block.name,
                                             gc_mark =? GarbageCollectorMarker::Unused,
@@ -86,30 +106,30 @@ impl GarbageCollector {
                                         );
                                     }
                                 }
+                            } else {
+                                used.insert(block.name.clone());
                             }
-                        },
-                        None => {
-                            match self.blocks.get_mut(&ab.name_any()) {
-                                Some(status) => {
-                                    if GarbageCollectorMarker::Unused.eq(status) {
-                                        *status = GarbageCollectorMarker::Deleted;
-                                        tracing::info!(
-                                            block = ab.name_any(),
-                                            gc_mark =? GarbageCollectorMarker::Deleted,
-                                            "Update GC marker",
-                                        );
-                                    }
-                                },
-                                None => {
-                                    self.blocks.insert(ab.name_any(), GarbageCollectorMarker::Unused);
+                        }
+                        None => match self.blocks.get_mut(&ab.name_any()) {
+                            Some(status) => {
+                                if GarbageCollectorMarker::Unused.eq(status) {
+                                    unused.insert(ab.name_any(), GarbageCollectorMarker::Deleted);
                                     tracing::info!(
                                         block = ab.name_any(),
-                                        gc_mark =? GarbageCollectorMarker::Unused,
-                                        "Add GC marker",
+                                        gc_mark =? GarbageCollectorMarker::Deleted,
+                                        "Update GC marker",
                                     );
                                 }
                             }
-                        }
+                            None => {
+                                unused.insert(ab.name_any(), GarbageCollectorMarker::Unused);
+                                tracing::info!(
+                                    block = ab.name_any(),
+                                    gc_mark =? GarbageCollectorMarker::Unused,
+                                    "Add GC marker",
+                                );
+                            }
+                        },
                     }
                 }
 
@@ -118,17 +138,19 @@ impl GarbageCollector {
                         match self.blocks.get_mut(block_name) {
                             Some(status) => {
                                 if GarbageCollectorMarker::Unused.eq(status) {
-                                    *status = GarbageCollectorMarker::Deleted;
+                                    unused.insert(
+                                        block_name.clone(),
+                                        GarbageCollectorMarker::Deleted,
+                                    );
+                                    tracing::info!(
+                                        block = block_name,
+                                        gc_mark =? GarbageCollectorMarker::Deleted,
+                                        "Update GC marker",
+                                    );
                                 }
-                                tracing::info!(
-                                    block = block_name,
-                                    gc_mark =? GarbageCollectorMarker::Deleted,
-                                    "Update GC marker",
-                                );
                             }
                             None => {
-                                self.blocks
-                                    .insert(block_name.clone(), GarbageCollectorMarker::Unused);
+                                unused.insert(block_name.clone(), GarbageCollectorMarker::Unused);
                                 tracing::info!(
                                     block = block_name,
                                     gc_mark =? GarbageCollectorMarker::Unused,
@@ -136,8 +158,18 @@ impl GarbageCollector {
                                 );
                             }
                         }
+                    } else {
+                        used.insert(block_name.clone());
                     }
                 }
+            }
+
+            for (k, v) in unused.iter() {
+                self.blocks.insert(k.clone(), *v);
+            }
+
+            for k in used.iter() {
+                self.blocks.remove(k);
             }
 
             let mut deleted_keys = Vec::new();

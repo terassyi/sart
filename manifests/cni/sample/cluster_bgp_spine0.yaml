@@ -1,7 +1,7 @@
 apiVersion: sart.terassyi.net/v1alpha2
 kind: ClusterBGP
 metadata:
-  name: clusterbgp-a
+  name: clusterbgp-spine0
 spec:
   nodeSelector:
     bgp: a

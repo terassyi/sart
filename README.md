@@ -46,7 +46,7 @@ $ cd e2e
 $ make setup
 $ make kubernetes MODE=cni
 $ make install-sart MODE=cni
-$ make kubernetes-e2e MODE=cni
+$ make cni-e2e MODE=cni
 ```
 
 After running e2e test, we can find pods are running.
