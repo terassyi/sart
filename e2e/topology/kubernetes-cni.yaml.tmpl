@@ -15,6 +15,7 @@ topology:
         - ip addr add 5.5.5.5/32 dev dummy0 scope global
         - ip link set up dev dummy0
         - ip route add 6.6.6.6/32 via 192.168.0.2 dev net2
+        - ip route add 172.18.0.0/16 nexthop via 169.252.1.1 dev net0 weight 1 nexthop via 169.252.2.1 dev net1 weight 1
         - sysctl -w net.ipv4.fib_multipath_hash_policy=1
         - sysctl -p
         # Boiler plate to make FRR work
@@ -50,6 +51,7 @@ topology:
         - ip route add {{ .Worker }}/32 dev net1
         - ip route add {{ .Worker2 }}/32 dev net2
         - ip route add {{ .Worker3 }}/32 dev net3
+        - ip route add 192.168.0.0/24 via 169.252.1.0 dev net4
         - ip link add dummy0 type dummy
         - ip addr add 9.9.9.9/32 dev dummy0
         - ip link set up dev dummy0
@@ -101,6 +103,7 @@ topology:
         - ip route add {{ .Worker }}/32 dev net1
         - ip route add {{ .Worker2 }}/32 dev net2
         - ip route add {{ .Worker3 }}/32 dev net3
+        - ip route add 192.168.0.0/24 via 169.252.2.0 dev net4
         - sysctl -w net.ipv4.fib_multipath_hash_policy=1
         - sysctl -p
         # Boiler plate to make FRR work
@@ -148,8 +151,7 @@ topology:
         - ip route add {{ .Worker }}/32 src {{ .ControlPlane }} nexthop via 169.254.1.1 weight 1 nexthop via 169.253.1.1 weight 1
         - ip route add {{ .Worker2 }}/32 src {{ .ControlPlane }} nexthop via 169.254.1.1 weight 1 nexthop via 169.253.1.1 weight 1
         - ip route add {{ .Worker3 }}/32 src {{ .ControlPlane }} nexthop via 169.254.1.1 weight 1 nexthop via 169.253.1.1 weight 1
-        - ip route add 192.168.0.0/24 via 169.254.1.1 dev net0
-        - ip route add 192.168.1.0/24 via 169.253.1.1 dev net1
+        - ip route add 192.168.0.0/24 nexthop via 169.254.1.1 dev net0 weight 1 nexthop via 169.253.1.1 dev net1 weight 1
         - ip route add 6.6.6.6/32 via 169.254.1.1 dev net0
         - ip route add 9.9.9.9/32 via 169.254.1.1 dev net0
         - ip route add 7.7.7.7/32 via 169.253.1.1 dev net1
@@ -168,8 +170,7 @@ topology:
         - ip route add {{ .ControlPlane }}/32 src {{ .Worker }} nexthop via 169.254.2.1 weight 1 nexthop via 169.253.2.1 weight 1
         - ip route add {{ .Worker2 }}/32 src {{ .Worker }} nexthop via 169.254.2.1 weight 1 nexthop via 169.253.2.1 weight 1
         - ip route add {{ .Worker3 }}/32 src {{ .Worker }} nexthop via 169.254.2.1 weight 1 nexthop via 169.253.2.1 weight 1
-        - ip route add 192.168.0.0/24 via 169.254.2.1 dev net0
-        - ip route add 192.168.1.0/24 via 169.253.2.1 dev net1
+        - ip route add 192.168.0.0/24 nexthop via 169.254.2.1 dev net0 weight 1 nexthop via 169.253.2.1 dev net1 weight 1
         - ip route add 6.6.6.6/32 via 169.254.2.1 dev net0
         - ip route add 9.9.9.9/32 via 169.254.2.1 dev net0
         - ip route add 7.7.7.7/32 via 169.253.2.1 dev net1
@@ -188,8 +189,7 @@ topology:
         - ip route add {{ .ControlPlane }}/32 src {{ .Worker2 }} nexthop via 169.254.3.1 weight 1 nexthop via 169.253.3.1 weight 1
         - ip route add {{ .Worker }}/32 src {{ .Worker2 }} nexthop via 169.254.3.1 weight 1 nexthop via 169.253.3.1 weight 1
         - ip route add {{ .Worker3 }}/32 src {{ .Worker2 }} nexthop via 169.254.3.1 weight 1 nexthop via 169.253.3.1 weight 1
-        - ip route add 192.168.0.0/24 via 169.254.3.1 dev net0
-        - ip route add 192.168.1.0/24 via 169.253.3.1 dev net1
+        - ip route add 192.168.0.0/24 nexthop via 169.254.3.1 dev net0 weight 1 nexthop via 169.253.3.1 dev net1 weight 1
         - ip route add 6.6.6.6/32 via 169.254.3.1 dev net0
         - ip route add 9.9.9.9/32 via 169.254.3.1 dev net0
         - ip route add 7.7.7.7/32 via 169.253.3.1 dev net1
@@ -208,8 +208,7 @@ topology:
         - ip route add {{ .ControlPlane }}/32 src {{ .Worker3 }} nexthop via 169.254.4.1 weight 1 nexthop via 169.253.4.1 weight 1
         - ip route add {{ .Worker }}/32 src {{ .Worker3 }} nexthop via 169.254.4.1 weight 1 nexthop via 169.253.4.1 weight 1
         - ip route add {{ .Worker2 }}/32 src {{ .Worker3 }} nexthop via 169.254.4.1 weight 1 nexthop via 169.253.4.1 weight 1
-        - ip route add 192.168.0.0/24 via 169.254.4.1 dev net0
-        - ip route add 192.168.1.0/24 via 169.253.4.1 dev net1
+        - ip route add 192.168.0.0/24 nexthop via 169.254.4.1 dev net0 weight 1 nexthop via 169.253.4.1 dev net1 weight 1
         - ip route add 6.6.6.6/32 via 169.254.4.1 dev net0
         - ip route add 9.9.9.9/32 via 169.254.4.1 dev net0
         - ip route add 7.7.7.7/32 via 169.253.4.1 dev net1
@@ -218,7 +217,8 @@ topology:
       image: nicolaka/netshoot:latest
       exec:
         - ip addr add 192.168.0.2/24 dev net0 scope global
-        - ip route change default dev net0
+        - ip route add 10.0.1.0/24 via 192.168.0.1 dev net0
+        - ip route add 10.0.100.0/24 via 192.168.0.1 dev net0
         - sysctl -w net.ipv4.fib_multipath_hash_policy=1
         - sysctl -p
   links:

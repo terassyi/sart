@@ -28,7 +28,7 @@ pub struct AddressPoolSpec {
     pub cidr: String,
     pub r#type: AddressType,
     pub alloc_type: Option<AllocationType>,
-    pub block_size: u32,
+    pub block_size: Option<u32>,
     pub auto_assign: Option<bool>, // default false
 }
 

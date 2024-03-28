@@ -1,6 +1,6 @@
 resources:
-  - cluster_bgp_a.yaml
-  - cluster_bgp_b.yaml
+  - cluster_bgp_spine0.yaml
+  - cluster_bgp_spine1.yaml
   - peer_template.yaml
   - bgp_peer.yaml
   - namespace.yaml
