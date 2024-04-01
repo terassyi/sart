@@ -150,7 +150,8 @@ async fn reconcile_pod_pool(
         .cidr
         .parse()
         .map_err(|e: AddrParseError| Error::InvalidParameter(e.to_string()))?;
-    let block_size = 1 << (cidr.max_prefix_len() as u32 - ap.spec.block_size);
+    let block_prefix_len = ap.spec.block_size.unwrap_or(cidr.prefix_len() as u32);
+    let block_size = 1 << (cidr.max_prefix_len() as u32 - block_prefix_len);
     let pool_size: u128 = 1 << (cidr.max_prefix_len() - cidr.prefix_len());
     tracing::info!(
         block = block_size,
@@ -349,7 +350,8 @@ async fn reconcile_pod_pool(
                 }
             };
 
-            let block_cidr = match get_block_cidr(&cidr, ap.spec.block_size, head) {
+            let block_prefix_len = ap.spec.block_size.unwrap_or(cidr.prefix_len() as u32);
+            let block_cidr = match get_block_cidr(&cidr, block_prefix_len, head) {
                 Ok(cidr) => cidr,
                 Err(e) => {
                     tracing::error!(name=ap.name_any(), request=req, error=?e, "Failed to get block CIDR");

@@ -141,16 +141,6 @@ async fn run(a: Agent, trace_config: TraceConfig) {
         tokio::spawn(async move {
             cni::server::run(&cni_endpoint, cni_server).await;
         });
-
-        tracing::info!("Start Garbage collector");
-        let mut garbage_collector = gc::GarbageCollector::new(
-            Duration::from_secs(60),
-            kube_client.clone(),
-            allocator_set.clone(),
-        );
-        tokio::spawn(async move {
-            garbage_collector.run().await;
-        });
     }
 
     server.run().await.unwrap()

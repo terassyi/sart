@@ -4,6 +4,7 @@ use std::{
     path::Path,
     str::FromStr,
     sync::Arc,
+    time::Duration,
 };
 
 use bytes::Bytes;
@@ -43,6 +44,7 @@ use crate::{
 
 use super::{
     error::Error,
+    gc::{self, GarbageCollector},
     pod::{PodAllocation, PodInfo},
 };
 
@@ -85,6 +87,11 @@ impl CNIServer {
     async fn recover(&mut self) -> Result<(), Error> {
         let inner = self.inner.lock().await;
         inner.recover().await
+    }
+
+    async fn garbage_collector(&self, gc_interval: Duration) -> GarbageCollector {
+        let inner = self.inner.lock().await;
+        inner.garbage_collector(gc_interval)
     }
 }
 
@@ -555,6 +562,10 @@ impl CNIServerInner {
         Ok(())
     }
 
+    fn garbage_collector(&self, gc_interval: Duration) -> GarbageCollector {
+        gc::GarbageCollector::new(gc_interval, self.client.clone(), self.allocator.clone())
+    }
+
     async fn get_pool(&self, pod_info: &PodInfo, pod: &Pod) -> Result<String, Error> {
         let namespace_api = Api::<Namespace>::all(self.client.clone());
         let address_pool_api = Api::<AddressPool>::all(self.client.clone());
@@ -731,6 +742,13 @@ pub async fn run(endpoint: &str, mut server: CNIServer) {
     }
 
     server.recover().await.unwrap();
+
+    let mut garbage_collector = server.garbage_collector(Duration::from_secs(60)).await;
+
+    tracing::info!("Start Garbage collector");
+    tokio::spawn(async move {
+        garbage_collector.run().await;
+    });
 
     if endpoint.contains(".sock") {
         // use UNIX Domain Socket

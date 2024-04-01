@@ -83,7 +83,7 @@ async fn reconcile(
     let adv_api = Api::<BGPAdvertisement>::namespaced(ctx.client().clone(), &namespace);
     let mut create_adv = false;
     let mut need_update_adv = false;
-    let mut need_gc = false;
+    // let mut need_gc = false;
 
     if let Some(adv) = adv_api.get_opt(&ab.name_any()).await.map_err(Error::Kube)? {
         match adv.status.as_ref() {
@@ -108,14 +108,14 @@ async fn reconcile(
             .lock()
             .map_err(|_| Error::FailedToGetLock)?;
         match alloc_set.blocks.get(&ab.name_any()) {
-            Some(block) => {
+            Some(_block) => {
                 tracing::info!(name = ab.name_any(), "Address block already exists");
 
                 // GC empty block
-                if block.allocator.is_empty() {
-                    tracing::info!(name = ab.name_any(), "Block is empty");
-                    need_gc = true;
-                }
+                // if block.allocator.is_empty() {
+                //     tracing::info!(name = ab.name_any(), "Block is empty");
+                //     need_gc = true;
+                // }
 
                 match ab.spec.auto_assign {
                     true => {
@@ -179,13 +179,13 @@ async fn reconcile(
         }
     }
 
-    if need_gc {
-        tracing::info!(name = ab.name_any(), "Delete empty AddressBlock");
-        api.delete(&ab.name_any(), &DeleteParams::default())
-            .await
-            .map_err(Error::Kube)?;
-        return Ok(Action::await_change());
-    }
+    // if need_gc {
+    //     tracing::info!(name = ab.name_any(), "Delete empty AddressBlock");
+    //     api.delete(&ab.name_any(), &DeleteParams::default())
+    //         .await
+    //         .map_err(Error::Kube)?;
+    //     return Ok(Action::await_change());
+    // }
 
     if create_adv {
         let adv = BGPAdvertisement {

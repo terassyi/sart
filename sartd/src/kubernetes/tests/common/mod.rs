@@ -38,6 +38,8 @@ pub fn setup_kind() {
     let out = binding.output().expect("failed to create kind cluster");
     output_result(out);
 
+    std::env::set_var("HOSTNAME", "sart-integration-control-plane");
+
     let out = std::process::Command::new(KUBECTL_BIN)
         .args(["label", "nodes", "--overwrite", KIND_NODE_CP, "bgp=a"])
         .output()

@@ -1,4 +1,7 @@
+use std::str::FromStr;
+
 use actix_web::{http, web, HttpRequest, HttpResponse, Responder};
+use ipnet::IpNet;
 use kube::{
     api::ListParams,
     core::{
@@ -38,7 +41,22 @@ pub async fn handle_validation(
     let mut resp = AdmissionResponse::from(&admission_req);
 
     if let Some(ap) = admission_req.object {
-        if ap.spec.block_size > MAX_BLOCK_SIZE {
+        let cidr = match IpNet::from_str(&ap.spec.cidr) {
+            Ok(cidr) => cidr,
+            Err(e) => {
+                resp.allowed = false;
+                resp.result = Status {
+                    status: Some(StatusSummary::Failure),
+                    code: http::StatusCode::FORBIDDEN.as_u16(),
+                    message: "Forbidden by validating webhook".to_string(),
+                    reason: format!("Got invalid CIDR"),
+                    details: None,
+                };
+                return HttpResponse::Ok().json(resp.into_review());
+            }
+        };
+        let block_size = ap.spec.block_size.unwrap_or(cidr.prefix_len() as u32);
+        if block_size > MAX_BLOCK_SIZE {
             resp.allowed = false;
             resp.result = Status {
                 status: Some(StatusSummary::Failure),

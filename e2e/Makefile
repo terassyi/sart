@@ -6,6 +6,7 @@ BINDIR := $(abspath $(PWD)/bin)
 MANIFESTDIR := $(abspath $(PWD)/../manifests/base)
 LB_MANIFESTDIR := $(abspath $(PWD)/../manifests/lb)
 CNI_MANIFESTDIR := $(abspath $(PWD)/../manifests/cni)
+DUAL_MANIFESTDIR := $(abspath $(PWD)/../manifests/dual)
 TOPOLOGYDIR := $(abspath $(PWD)/topology)
 
 KIND := $(BINDIR)/kind
@@ -124,18 +125,22 @@ endif
 
 .PHONY: install-sart
 install-sart: $(MANIFESTDIR)/crd/sart.yaml
-ifeq ($(MODE),lb)
-	$(KUSTOMIZE) build $(LB_MANIFESTDIR) | $(KUBECTL) apply -f -
-else
+ifeq ($(MODE),cni)
 	$(KUSTOMIZE) build $(CNI_MANIFESTDIR) | $(KUBECTL) apply -f -
+else
+ifeq ($(MODE),dual)
+	$(KUSTOMIZE) build $(DUAL_MANIFESTDIR) | $(KUBECTL) apply -f -
+else
+	$(KUSTOMIZE) build $(LB_MANIFESTDIR) | $(KUBECTL) apply -f -
+endif
 endif
 
 .PHONY: sample
 sample:
-ifeq ($(MODE), lb)
-	$(KUSTOMIZE) build $(MANIFESTDIR)/sample | $(KUBECTL) apply -f -
-else
+ifeq ($(MODE), cni)
 	$(KUSTOMIZE) build $(CNI_MANIFESTDIR)/sample | $(KUBECTL) apply -f -
+else
+	$(KUSTOMIZE) build $(LB_MANIFESTDIR)/sample | $(KUBECTL) apply -f -
 endif
 
 
