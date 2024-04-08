@@ -2,9 +2,9 @@ use std::{collections::HashMap, net::IpAddr, str::FromStr};
 
 use futures::TryStreamExt;
 
-use ipnet::{IpAdd, IpNet};
+use ipnet::IpNet;
 use netlink_packet_route::{
-    link::{self, LinkAttribute},
+    link::LinkAttribute,
     route::{RouteAddress, RouteAttribute, RouteProtocol, RouteScope},
     rule::RuleAction,
 };

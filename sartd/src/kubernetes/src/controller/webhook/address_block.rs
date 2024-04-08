@@ -18,7 +18,6 @@ pub async fn handle_mutation(
     req: HttpRequest,
     body: web::Json<AdmissionReview<AddressBlock>>,
 ) -> impl Responder {
-    tracing::info!(method=?req.method(), uri=?req.uri(),"call mutating webhook for AddressBlock");
 
     if let Some(content_type) = req.head().headers.get("content-type") {
         if content_type != "application/json" {

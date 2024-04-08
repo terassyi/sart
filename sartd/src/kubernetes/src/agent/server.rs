@@ -1,6 +1,5 @@
 use std::net::IpAddr;
 use std::sync::Arc;
-use std::time::Duration;
 
 use actix_web::{
     get, middleware, web::Data, App, HttpRequest, HttpResponse, HttpServer, Responder,
@@ -14,9 +13,7 @@ use sartd_ipam::manager::AllocatorSet;
 use sartd_trace::init::{prepare_tracing, TraceConfig};
 use tokio::sync::mpsc::unbounded_channel;
 
-use crate::agent::cni::server::{CNIServer, CNI_ROUTE_TABLE_ID};
-use crate::agent::cni::{self, gc};
-use crate::agent::reconciler::address_block::PodAllocator;
+use crate::agent::{cni::{self, server::{CNIServer, CNI_ROUTE_TABLE_ID}}, reconciler::address_block::PodAllocator};
 use crate::config::Mode;
 use crate::context::State;
 use crate::crd::address_block::AddressBlock;

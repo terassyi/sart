@@ -114,6 +114,9 @@ pub enum Error {
     #[error("BlockRequest not performed")]
     BlockRequestNotPerformed,
 
+    #[error("BlockRequest not completed")]
+    BlockRequestNotCompleted,
+
     #[error("Invalid address type")]
     InvalidAddressType,
 
@@ -122,6 +125,12 @@ pub enum Error {
 
     #[error("Invalid pool")]
     InvalidPool,
+
+    #[error("AddressBlock index is not set")]
+    AddressBlockIndexNotSet,
+
+    #[error("Address pool is not empty")]
+    AddressPoolNotEmpty,
 }
 
 #[derive(Debug, Error)]

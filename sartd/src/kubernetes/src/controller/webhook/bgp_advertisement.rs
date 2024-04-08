@@ -12,7 +12,6 @@ pub async fn handle_validation(
     req: HttpRequest,
     body: web::Json<AdmissionReview<BGPAdvertisement>>,
 ) -> impl Responder {
-    tracing::info!(method=?req.method(), uri=?req.uri(), "call validating webhook for BGPAdvertisement");
 
     if let Some(content_type) = req.head().headers.get("content-type") {
         if content_type != "application/json" {

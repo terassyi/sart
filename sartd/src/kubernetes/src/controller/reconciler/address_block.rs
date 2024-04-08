@@ -3,33 +3,37 @@ use std::{str::FromStr, sync::Arc};
 use futures::StreamExt;
 use ipnet::IpNet;
 use kube::{
-    api::ListParams,
-    runtime::{
+    api::ListParams, runtime::{
         controller::{Action, Controller},
         finalizer::{finalizer, Event},
         watcher::Config,
-    },
-    Api, Client, ResourceExt,
+    }, Api, Client, ResourceExt
 };
 
-use sartd_ipam::manager::{AllocatorSet, Block};
+use sartd_ipam::manager::{AllocatorSet, Block, BlockAllocator};
 
 use crate::{
     context::{error_policy, ContextWith, Ctx, State},
     controller::error::Error,
-    crd::{address_block::{AddressBlock, ADDRESS_BLOCK_FINALIZER}, address_pool::AddressType},
+    crd::{address_block::{AddressBlock, ADDRESS_BLOCK_FINALIZER_CONTROLLER}, address_pool::AddressType},
 };
+
+#[derive(Debug, Clone)]
+pub struct ControllerAddressBlockContext {
+    pub allocator_set: Arc<AllocatorSet>,
+    pub block_allocator: Arc<BlockAllocator>,
+}
 
 #[tracing::instrument(skip_all, fields(trace_id))]
 pub async fn reconciler(
     ab: Arc<AddressBlock>,
-    ctx: Arc<ContextWith<Arc<AllocatorSet>>>,
+    ctx: Arc<ContextWith<ControllerAddressBlockContext>>,
 ) -> Result<Action, Error> {
     let address_blocks = Api::<AddressBlock>::all(ctx.client().clone());
 
     finalizer(
         &address_blocks,
-        ADDRESS_BLOCK_FINALIZER,
+        ADDRESS_BLOCK_FINALIZER_CONTROLLER,
         ab,
         |event| async {
             match event {
@@ -44,9 +48,31 @@ pub async fn reconciler(
 
 #[tracing::instrument(skip_all)]
 async fn reconcile(
+    api: &Api<AddressBlock>,
+    ab: &AddressBlock,
+    ctx: Arc<ContextWith<ControllerAddressBlockContext>>,
+) -> Result<Action, Error> {
+    match ab.spec.r#type {
+        AddressType::Pod => reconcile_pod(api, ab, ctx).await,
+        AddressType::Service => reconcile_service(api, ab, ctx).await
+    }
+}
+
+#[tracing::instrument(skip_all)]
+async fn reconcile_pod(
+    _api: &Api<AddressBlock>,
+    _ab: &AddressBlock,
+    _ctx: Arc<ContextWith<ControllerAddressBlockContext>>,
+) -> Result<Action, Error> {
+    Ok(Action::await_change())
+}
+
+
+#[tracing::instrument(skip_all)]
+async fn reconcile_service(
     _api: &Api<AddressBlock>,
     ab: &AddressBlock,
-    ctx: Arc<ContextWith<Arc<AllocatorSet>>>,
+    ctx: Arc<ContextWith<ControllerAddressBlockContext>>,
 ) -> Result<Action, Error> {
     // only handling lb address block here
     if ab.spec.r#type.ne(&AddressType::Service) {
@@ -54,7 +80,7 @@ async fn reconcile(
     }
     tracing::info!(name = ab.name_any(), "Reconcile AddressBlock");
 
-    let component = ctx.component.clone();
+    let component = ctx.component.allocator_set.clone();
     let mut alloc_set = component.inner.lock().map_err(|_| Error::FailedToGetLock)?;
 
     let cidr = IpNet::from_str(&ab.spec.cidr).map_err(|_| Error::InvalidCIDR)?;
@@ -118,13 +144,48 @@ async fn reconcile(
 
 #[tracing::instrument(skip_all)]
 async fn cleanup(
+    api: &Api<AddressBlock>,
+    ab: &AddressBlock,
+    ctx: Arc<ContextWith<ControllerAddressBlockContext>>,
+) -> Result<Action, Error> {
+    match ab.spec.r#type {
+        AddressType::Pod => cleanup_pod(api, ab, ctx).await,
+        AddressType::Service => cleanup_service(api, ab, ctx).await,
+    }
+}
+
+#[tracing::instrument(skip_all)]
+async fn cleanup_pod(
     _api: &Api<AddressBlock>,
     ab: &AddressBlock,
-    ctx: Arc<ContextWith<Arc<AllocatorSet>>>,
+    ctx: Arc<ContextWith<ControllerAddressBlockContext>>,
+) -> Result<Action, Error> {
+
+    let index = match &ab.status {
+        Some(status) => status.index,
+        None => return Err(Error::AddressBlockIndexNotSet)
+    };
+
+    {
+        let tmp = ctx.component.block_allocator.clone();
+        let mut block_allocator = tmp.inner.lock().map_err(|_| Error::FailedToGetLock)?;
+        if let Some(pool) = block_allocator.get_mut(&ab.spec.pool_ref) {
+            tracing::info!(pool=ab.spec.pool_ref, cidr=?pool.cidr, block_size=pool.block_size,"Remove the pool from the block allocator");
+            pool.release(index).map_err(Error::Ipam)?;
+        }
+    }
+    Ok(Action::await_change())
+}
+
+#[tracing::instrument(skip_all)]
+async fn cleanup_service(
+    _api: &Api<AddressBlock>,
+    ab: &AddressBlock,
+    ctx: Arc<ContextWith<ControllerAddressBlockContext>>,
 ) -> Result<Action, Error> {
     tracing::info!(name = ab.name_any(), "clean up AddressBlock");
 
-    let component = ctx.component.clone();
+    let component = ctx.component.allocator_set.clone();
     let mut alloc_set = component.inner.lock().map_err(|_| Error::FailedToGetLock)?;
 
     if let Some(auto) = alloc_set.auto_assign.as_ref() {
@@ -154,7 +215,7 @@ async fn cleanup(
     Ok(Action::await_change())
 }
 
-pub async fn run(state: State, interval: u64, allocator_set: Arc<AllocatorSet>) {
+pub async fn run(state: State, interval: u64, ctx: ControllerAddressBlockContext) {
     let client = Client::try_default()
         .await
         .expect("Failed to create kube client");
@@ -172,8 +233,8 @@ pub async fn run(state: State, interval: u64, allocator_set: Arc<AllocatorSet>) 
         .shutdown_on_signal()
         .run(
             reconciler,
-            error_policy::<AddressBlock, Error, ContextWith<Arc<AllocatorSet>>>,
-            state.to_context_with::<Arc<AllocatorSet>>(client, interval, allocator_set),
+            error_policy::<AddressBlock, Error, ContextWith<ControllerAddressBlockContext>>,
+            state.to_context_with::<ControllerAddressBlockContext>(client, interval, ctx),
         )
         .filter_map(|x| async move { std::result::Result::ok(x) })
         .for_each(|_| futures::future::ready(()))
@@ -186,11 +247,11 @@ mod tests {
 
     use ipnet::IpNet;
     use kube::{core::ObjectMeta, Api};
-    use sartd_ipam::manager::{AllocatorSet, Block};
+    use sartd_ipam::manager::{AllocatorSet, Block, BlockAllocator};
 
     use crate::{
         context::{ContextWith, Ctx},
-        controller::error::Error,
+        controller::{error::Error, reconciler::address_block::ControllerAddressBlockContext},
         crd::address_block::{AddressBlock, AddressBlockSpec},
         fixture::reconciler::{timeout_after_1s, ApiServerVerifier},
     };
@@ -219,7 +280,12 @@ mod tests {
     #[tokio::test]
     async fn create_address_block() {
         let alloc_set = Arc::new(AllocatorSet::default());
-        let (testctx, fakeserver, _) = ContextWith::test(alloc_set.clone());
+        let block_allocator = Arc::new(BlockAllocator::default());
+        let ab_ctx = ControllerAddressBlockContext {
+            allocator_set: alloc_set.clone(),
+            block_allocator: block_allocator.clone(),
+        };
+        let (testctx, fakeserver, _) = ContextWith::test(ab_ctx);
         let ab = AddressBlock {
             metadata: ObjectMeta {
                 name: Some("test-block".to_string()),
@@ -251,7 +317,12 @@ mod tests {
     #[tokio::test]
     async fn update_address_block_to_auto_assign() {
         let alloc_set = Arc::new(AllocatorSet::default());
-        let (testctx, fakeserver, _) = ContextWith::test(alloc_set.clone());
+        let block_allocator = Arc::new(BlockAllocator::default());
+        let ab_ctx = ControllerAddressBlockContext {
+            allocator_set: alloc_set.clone(),
+            block_allocator: block_allocator.clone(),
+        };
+        let (testctx, fakeserver, _) = ContextWith::test(ab_ctx);
         let ab = AddressBlock {
             metadata: ObjectMeta {
                 name: Some("test-block".to_string()),
@@ -299,7 +370,12 @@ mod tests {
                 alloc_set_inner.auto_assign
             );
         }
-        let (testctx, fakeserver, _) = ContextWith::test(alloc_set.clone());
+        let block_allocator = Arc::new(BlockAllocator::default());
+        let ab_ctx = ControllerAddressBlockContext {
+            allocator_set: alloc_set.clone(),
+            block_allocator: block_allocator.clone(),
+        };
+        let (testctx, fakeserver, _) = ContextWith::test(ab_ctx);
         let ab = AddressBlock {
             metadata: ObjectMeta {
                 name: Some("test-block".to_string()),
@@ -366,7 +442,12 @@ mod tests {
                 alloc_set_inner.auto_assign
             );
         }
-        let (testctx, fakeserver, _) = ContextWith::test(alloc_set.clone());
+        let block_allocator = Arc::new(BlockAllocator::default());
+        let ab_ctx = ControllerAddressBlockContext {
+            allocator_set: alloc_set.clone(),
+            block_allocator: block_allocator.clone(),
+        };
+        let (testctx, fakeserver, _) = ContextWith::test(ab_ctx);
         let ab = AddressBlock {
             metadata: ObjectMeta {
                 name: Some("test-block".to_string()),

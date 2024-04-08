@@ -22,7 +22,7 @@ spec:
     spec:
       containers:
         - name: app
-          image: nginx:latest
+          image: ghcr.io/terassyi/test-server:0.1.2
           ports:
             - containerPort: 80
 ---
@@ -43,7 +43,7 @@ spec:
     spec:
       containers:
         - name: app
-          image: nginx:latest
+          image: ghcr.io/terassyi/test-server:0.1.2
           ports:
             - containerPort: 80
 ---
@@ -64,7 +64,7 @@ spec:
     spec:
       containers:
         - name: app
-          image: nginx:latest
+          image: ghcr.io/terassyi/test-server:0.1.2
           ports:
             - containerPort: 80
 ---
@@ -83,7 +83,7 @@ spec:
   ports:
     - name: http
       port: 80
-      targetPort: 80
+      targetPort: 8080
 ---
 # LoadBalancer Service
 apiVersion: v1
@@ -101,7 +101,7 @@ spec:
   ports:
     - name: http
       port: 80
-      targetPort: 80
+      targetPort: 8080
 ---
 # LoadBalancer Service
 apiVersion: v1
@@ -120,7 +120,7 @@ spec:
   ports:
     - name: http
       port: 80
-      targetPort: 80
+      targetPort: 8080
 ---
 apiVersion: v1
 kind: Pod

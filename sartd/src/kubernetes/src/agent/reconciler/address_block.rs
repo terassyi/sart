@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, str::FromStr, sync::Arc, time::Duration};
 use futures::StreamExt;
 use ipnet::IpNet;
 use kube::{
-    api::{DeleteParams, ListParams, PostParams},
+    api::{DeleteParams, ListParams, PatchParams, PostParams},
     core::ObjectMeta,
     runtime::{
         controller::Action,
@@ -20,7 +20,7 @@ use crate::{
     agent::{error::Error, reconciler::node_bgp::ENV_HOSTNAME},
     context::{error_policy, ContextWith, Ctx, State},
     crd::{
-        address_block::{AddressBlock, ADDRESS_BLOCK_FINALIZER, ADDRESS_BLOCK_NODE_LABEL},
+        address_block::{AddressBlock, ADDRESS_BLOCK_FINALIZER_AGENT, ADDRESS_BLOCK_NODE_LABEL},
         address_pool::{AddressType, ADDRESS_POOL_ANNOTATION},
         bgp_advertisement::{
             AdvertiseStatus, BGPAdvertisement, BGPAdvertisementSpec, BGPAdvertisementStatus,
@@ -48,7 +48,7 @@ pub async fn reconciler(
     let address_blocks = Api::<AddressBlock>::all(ctx.client().clone());
     finalizer(
         &address_blocks,
-        ADDRESS_BLOCK_FINALIZER,
+        ADDRESS_BLOCK_FINALIZER_AGENT,
         ab,
         |event| async {
             match event {
@@ -63,7 +63,7 @@ pub async fn reconciler(
 
 #[tracing::instrument(skip_all)]
 async fn reconcile(
-    api: &Api<AddressBlock>,
+    _api: &Api<AddressBlock>,
     ab: &AddressBlock,
     ctx: Arc<ContextWith<Arc<PodAllocator>>>,
 ) -> Result<Action, Error> {
@@ -110,12 +110,6 @@ async fn reconcile(
         match alloc_set.blocks.get(&ab.name_any()) {
             Some(_block) => {
                 tracing::info!(name = ab.name_any(), "Address block already exists");
-
-                // GC empty block
-                // if block.allocator.is_empty() {
-                //     tracing::info!(name = ab.name_any(), "Block is empty");
-                //     need_gc = true;
-                // }
 
                 match ab.spec.auto_assign {
                     true => {
@@ -178,14 +172,6 @@ async fn reconcile(
             }
         }
     }
-
-    // if need_gc {
-    //     tracing::info!(name = ab.name_any(), "Delete empty AddressBlock");
-    //     api.delete(&ab.name_any(), &DeleteParams::default())
-    //         .await
-    //         .map_err(Error::Kube)?;
-    //     return Ok(Action::await_change());
-    // }
 
     if create_adv {
         let adv = BGPAdvertisement {

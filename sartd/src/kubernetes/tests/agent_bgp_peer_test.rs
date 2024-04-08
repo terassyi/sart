@@ -26,12 +26,12 @@ mod common;
 #[tokio::test]
 #[ignore = "use kind cluster"]
 async fn integration_test_agent_bgp_peer() {
-    dbg!("Creating a kind cluster");
+    tracing::info!("Creating a kind cluster");
     setup_kind();
 
     test_trace().await;
 
-    dbg!("Starting the mock bgp server api server");
+    tracing::info!("Starting the mock bgp server api server");
     let inner = Arc::new(Mutex::new(MockBgpApiServerInner::new_with(
         65000,
         "172.0.0.1",
@@ -41,11 +41,11 @@ async fn integration_test_agent_bgp_peer() {
         sartd_mock::bgp::run_with(cloned_inner, 5000).await;
     });
 
-    dbg!("Getting kube client");
+    tracing::info!("Getting kube client");
     let client = Client::try_default().await.unwrap();
     let ctx = State::default().to_context(client.clone(), 30);
 
-    dbg!("Preraring NodeBGP resource");
+    tracing::info!("Preraring NodeBGP resource");
     let nb = test_node_bgp();
     let nb_api = Api::<NodeBGP>::all(ctx.client.clone());
     let ssapply = PatchParams::apply("ctrltest");
@@ -61,7 +61,7 @@ async fn integration_test_agent_bgp_peer() {
 
     let bp_patch = Patch::Apply(bp.clone());
 
-    dbg!("Creating the BGPPeer resource");
+    tracing::info!("Creating the BGPPeer resource");
     bp_api
         .patch(&bp.name_any(), &ssapply, &bp_patch)
         .await
@@ -69,12 +69,12 @@ async fn integration_test_agent_bgp_peer() {
 
     let applied_bp = bp_api.get(&bp.name_any()).await.unwrap();
 
-    dbg!("Reconciling the resource");
+    tracing::info!("Reconciling the resource");
     agent::reconciler::bgp_peer::reconciler(Arc::new(applied_bp.clone()), ctx.clone())
         .await
         .unwrap();
 
-    dbg!("Checking a peer is stored into mock server");
+    tracing::info!("Checking a peer is stored into mock server");
     {
         let mut mock = inner.lock().unwrap();
         let mut peer = mock
@@ -82,18 +82,18 @@ async fn integration_test_agent_bgp_peer() {
             .get_mut(&Ipv4Addr::from_str("172.0.0.1").unwrap());
         assert!(peer.is_some());
 
-        dbg!("Changing the peer state");
+        tracing::info!("Changing the peer state");
         peer.as_mut()
             .unwrap()
             .set_state(sartd_proto::sart::peer::State::Established);
     }
 
-    dbg!("Reconciling the resource again");
+    tracing::info!("Reconciling the resource again");
     agent::reconciler::bgp_peer::reconciler(Arc::new(applied_bp.clone()), ctx.clone())
         .await
         .unwrap();
 
-    dbg!("Checking the peer status");
+    tracing::info!("Checking the peer status");
     let applied_bp = bp_api.get(&bp.name_any()).await.unwrap();
     assert_eq!(
         BGPPeerConditionStatus::Established,
@@ -109,7 +109,7 @@ async fn integration_test_agent_bgp_peer() {
             .status
     );
 
-    dbg!("Cleaning up BGPPeer");
+    tracing::info!("Cleaning up BGPPeer");
     bp_api
         .delete(&bp.name_any(), &DeleteParams::default())
         .await
@@ -117,18 +117,18 @@ async fn integration_test_agent_bgp_peer() {
 
     let deleted_bp = bp_api.get(&bp.name_any()).await.unwrap();
 
-    dbg!("Reconciling BGPPeer");
+    tracing::info!("Reconciling BGPPeer");
     agent::reconciler::bgp_peer::reconciler(Arc::new(deleted_bp.clone()), ctx.clone())
         .await
         .unwrap();
 
-    dbg!("Checking the peer is deleted");
+    tracing::info!("Checking the peer is deleted");
     {
         let mock = inner.lock().unwrap();
         let peer = mock.peers.get(&Ipv4Addr::from_str("172.0.0.1").unwrap());
         assert!(peer.is_none());
     }
 
-    dbg!("Cleaning up a kind cluster");
+    tracing::info!("Cleaning up a kind cluster");
     cleanup_kind();
 }

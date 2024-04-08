@@ -6,9 +6,9 @@ pub const BLOCK_REQUEST_FINALIZER: &str = "blockrequest.sart.terassyi.net/finali
 
 #[derive(CustomResource, Debug, Serialize, Deserialize, Default, Clone, JsonSchema)]
 #[kube(
-	group = "sart.terassyi.net",
-	version = "v1alpha2",
-	kind = "BlockRequest"
+    group = "sart.terassyi.net",
+    version = "v1alpha2",
+    kind = "BlockRequest"
 )]
 #[kube(status = "BlockRequestStatus")]
 #[kube(
@@ -17,9 +17,10 @@ pub const BLOCK_REQUEST_FINALIZER: &str = "blockrequest.sart.terassyi.net/finali
 )]
 #[serde(rename_all = "camelCase")]
 pub struct BlockRequestSpec {
-	pub pool: String,
-	pub node: String,
+    pub pool: String,
+    pub node: String,
 }
 
-#[derive(Deserialize, Serialize, Clone, Default, Debug, JsonSchema)]
-pub struct BlockRequestStatus {}
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum BlockRequestStatus {}

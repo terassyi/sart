@@ -23,12 +23,12 @@ mod common;
 #[tokio::test]
 #[ignore = "use kind cluster"]
 async fn integration_test_cluster_bgp_asn() {
-    dbg!("Setting up a kind cluster");
+    tracing::info!("Setting up a kind cluster");
     setup_kind();
 
     test_trace().await;
 
-    dbg!("Getting kube client");
+    tracing::info!("Getting kube client");
     let client = Client::try_default().await.unwrap();
     let ctx = State::default().to_context(client.clone(), 30);
 
@@ -37,7 +37,7 @@ async fn integration_test_cluster_bgp_asn() {
     let ssapply = PatchParams::apply("ctrltest");
     let cb_patch = Patch::Apply(cb.clone());
 
-    dbg!("Creating the ClusterBGP resource");
+    tracing::info!("Creating the ClusterBGP resource");
     cb_api
         .patch(&cb.name_any(), &ssapply, &cb_patch)
         .await
@@ -56,12 +56,12 @@ async fn integration_test_cluster_bgp_asn() {
     let applied_cb = cb_api.get(&cb.name_any()).await.unwrap();
 
     // do reconcile
-    dbg!("Reconciling the resource when creating");
+    tracing::info!("Reconciling the resource when creating");
     controller::reconciler::cluster_bgp::reconciler(Arc::new(applied_cb.clone()), ctx.clone())
         .await
         .unwrap();
 
-    dbg!("Getting NodeBGP resources created by reconciling ClusterBGP");
+    tracing::info!("Getting NodeBGP resources created by reconciling ClusterBGP");
     let node_api = Api::<Node>::all(ctx.client.clone());
     let nb_api = Api::<NodeBGP>::all(ctx.client.clone());
     let node_list = node_api.list(&ListParams::default()).await.unwrap();
@@ -72,15 +72,15 @@ async fn integration_test_cluster_bgp_asn() {
         }
     }
 
-    dbg!("Cleaning up a kind cluster");
+    tracing::info!("Cleaning up a kind cluster");
     cleanup_kind();
 
     // Re create kind cluster for the other scenario
 
-    dbg!("Setting up a kind cluster");
+    tracing::info!("Setting up a kind cluster");
     setup_kind();
 
-    dbg!("Getting kube client");
+    tracing::info!("Getting kube client");
     let client = Client::try_default().await.unwrap();
     let ctx = State::default().to_context(client.clone(), 30);
 
@@ -94,7 +94,7 @@ async fn integration_test_cluster_bgp_asn() {
     let ssapply = PatchParams::apply("ctrltest");
     let cb_patch = Patch::Apply(cb.clone());
 
-    dbg!("Creating the ClusterBGP resource");
+    tracing::info!("Creating the ClusterBGP resource");
     cb_api
         .patch(&cb.name_any(), &ssapply, &cb_patch)
         .await
@@ -113,12 +113,12 @@ async fn integration_test_cluster_bgp_asn() {
     let applied_cb = cb_api.get(&cb.name_any()).await.unwrap();
 
     // do reconcile
-    dbg!("Reconciling the resouce when creating");
+    tracing::info!("Reconciling the resouce when creating");
     controller::reconciler::cluster_bgp::reconciler(Arc::new(applied_cb.clone()), ctx.clone())
         .await
         .unwrap();
 
-    dbg!("Getting NodeBGP resources created by reconciling ClusterBGP");
+    tracing::info!("Getting NodeBGP resources created by reconciling ClusterBGP");
     let node_api = Api::<Node>::all(ctx.client.clone());
     let nb_api = Api::<NodeBGP>::all(ctx.client.clone());
     let node_list = node_api.list(&ListParams::default()).await.unwrap();
@@ -130,6 +130,6 @@ async fn integration_test_cluster_bgp_asn() {
         }
     }
 
-    dbg!("Cleaning up a kind cluster");
+    tracing::info!("Cleaning up a kind cluster");
     cleanup_kind();
 }

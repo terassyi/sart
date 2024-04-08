@@ -19,12 +19,12 @@ mod common;
 #[tokio::test]
 #[ignore = "use kind cluster"]
 async fn integration_test_controller_bgp_advertisement() {
-    dbg!("Creating a kind cluster");
+    tracing::info!("Creating a kind cluster");
     setup_kind();
 
     test_trace().await;
 
-    dbg!("Getting kube client");
+    tracing::info!("Getting kube client");
     let client = Client::try_default().await.unwrap();
     let ctx = State::default().to_context(client.clone(), 30);
 
@@ -41,7 +41,7 @@ async fn integration_test_controller_bgp_advertisement() {
 
     let ns = get_namespace(&ba).unwrap();
 
-    dbg!("Creating a BGPAdvertisement resource");
+    tracing::info!("Creating a BGPAdvertisement resource");
     let ba_api = Api::<BGPAdvertisement>::namespaced(ctx.client.clone(), &ns);
     let ssapply = PatchParams::apply("ctrltest");
     let ba_patch = Patch::Apply(ba.clone());
@@ -52,7 +52,7 @@ async fn integration_test_controller_bgp_advertisement() {
 
     let applied_ba = ba_api.get(&ba.name_any()).await.unwrap();
 
-    dbg!("Reconciling BGPAdvertisement");
+    tracing::info!("Reconciling BGPAdvertisement");
     controller::reconciler::bgp_advertisement::reconciler(
         Arc::new(applied_ba.clone()),
         ctx.clone(),
@@ -60,7 +60,7 @@ async fn integration_test_controller_bgp_advertisement() {
     .await
     .unwrap();
 
-    dbg!("updating BGPAdvertisement status");
+    tracing::info!("updating BGPAdvertisement status");
     let mut ba_advertised = ba.clone();
     ba_advertised.status = Some(BGPAdvertisementStatus {
         peers: Some(BTreeMap::from([
@@ -79,7 +79,7 @@ async fn integration_test_controller_bgp_advertisement() {
 
     let applied_ba_advertised = ba_api.get(&ba_advertised.name_any()).await.unwrap();
 
-    dbg!("Deleting BGPAdvertisement");
+    tracing::info!("Deleting BGPAdvertisement");
     ba_api
         .delete(&applied_ba_advertised.name_any(), &DeleteParams::default())
         .await
@@ -87,10 +87,10 @@ async fn integration_test_controller_bgp_advertisement() {
 
     let ba_deleted = ba_api.get(&applied_ba_advertised.name_any()).await.unwrap();
 
-    dbg!("Checking delettion timestamp");
+    tracing::info!("Checking delettion timestamp");
     assert!(ba_deleted.metadata.deletion_timestamp.is_some());
 
-    dbg!("Failing to cleanup BGPAdvertisement");
+    tracing::info!("Failing to cleanup BGPAdvertisement");
     let _err = controller::reconciler::bgp_advertisement::reconciler(
         Arc::new(ba_deleted.clone()),
         ctx.clone(),
@@ -98,7 +98,7 @@ async fn integration_test_controller_bgp_advertisement() {
     .await
     .unwrap_err();
 
-    dbg!("Checking the status is moved to Withdraw");
+    tracing::info!("Checking the status is moved to Withdraw");
     let ba_deleted_withdraw = ba_api.get(&ba_deleted.name_any()).await.unwrap();
     for (_name, status) in ba_deleted_withdraw
         .status
@@ -112,7 +112,7 @@ async fn integration_test_controller_bgp_advertisement() {
         assert_eq!(AdvertiseStatus::Withdraw, *status);
     }
 
-    dbg!("Updating status to withdrawn");
+    tracing::info!("Updating status to withdrawn");
     let mut ba_deleted_withdrawn = ba_deleted_withdraw.clone();
     ba_deleted_withdrawn.status = None;
     let ba_deleted_withdrawn_patch = Patch::Merge(ba_deleted_withdrawn.clone());
@@ -125,7 +125,7 @@ async fn integration_test_controller_bgp_advertisement() {
         .await
         .unwrap();
 
-    dbg!("Cleaning up BGPAdvertisement");
+    tracing::info!("Cleaning up BGPAdvertisement");
     controller::reconciler::bgp_advertisement::reconciler(
         Arc::new(ba_deleted_withdrawn),
         ctx.clone(),
@@ -133,6 +133,6 @@ async fn integration_test_controller_bgp_advertisement() {
     .await
     .unwrap();
 
-    dbg!("Cleaning up a kind cluster");
+    tracing::info!("Cleaning up a kind cluster");
     cleanup_kind();
 }
