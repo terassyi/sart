@@ -14,15 +14,15 @@ rustflags = ["-C", "link-arg=-fuse-ld=mold"]
 [dependencies]
 thiserror = "1.0.38"
 clap = { version = "4.1.6", features = ["derive"] }
-tonic = "0.10.2"
+tonic = "0.11.0"
 prost = "0.12.3"
 prost-types = "0.12.3"
-tokio = { version = "=1.35.1", features = ["full"] }
+tokio = { version = "=1.37.0", features = ["full"] }
 serde = { version = "1.0.93", features = ["derive"] }
 serde_json = "1.0.93"
 tabled = "0.15.0"
 assert-json-diff = "2.0.2"
 
 [build-dependencies]
-tonic-build = { version = "0.10.2", features = ["prost"] }
+tonic-build = { version = "0.11.0", features = ["prost"] }
 prost-build = { version = "0.12.3" }
