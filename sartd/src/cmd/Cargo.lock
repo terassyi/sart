@@ -2096,8 +2096,9 @@ dependencies = [
 
 [[package]]
 name = "rscni"
-version = "0.0.3"
-source = "git+https://github.com/terassyi/rscni?branch=fix-error-result#e51f1a49d3047f26a45a40f7e56fcbbaa106b2a4"
+version = "0.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "87b1b458ac1db7570f6d084f19291a38e240928abd34565830889fef0b72d7d5"
 dependencies = [
  "serde",
  "serde_json",
