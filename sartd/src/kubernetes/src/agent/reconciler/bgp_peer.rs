@@ -1,9 +1,9 @@
-use std::{net::IpAddr, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use futures::StreamExt;
 use k8s_openapi::api::discovery::v1::EndpointSlice;
 use kube::{
-    api::{ListParams, PostParams},
+    api::{ListParams, Patch, PatchParams, PostParams},
     runtime::{
         controller::Action,
         finalizer::{finalizer, Event},
@@ -74,6 +74,8 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
 
     let mut established = false;
     let mut reset = false;
+
+    let ssapply = PatchParams::apply("agent-bgppeer");
 
     // create or update peer and its status
     match speaker_client
@@ -182,12 +184,9 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
                     addr = bp.spec.addr,
                     "Update BGPPeer status"
                 );
+                let patch = Patch::Merge(&new_bp);
                 if let Err(e) = api
-                    .replace_status(
-                        &bp.name_any(),
-                        &PostParams::default(),
-                        serde_json::to_vec(&new_bp).map_err(Error::Serialization)?,
-                    )
+                    .patch_status(&bp.name_any(), &ssapply, &patch)
                     .await
                     .map_err(Error::Kube)
                 {
@@ -309,12 +308,9 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
                                 &get_namespace::<BGPAdvertisement>(ba)
                                     .map_err(Error::KubeLibrary)?,
                             );
+                            let patch = Patch::Merge(&ba);
                             ns_ba_api
-                                .replace_status(
-                                    &ba.name_any(),
-                                    &PostParams::default(),
-                                    serde_json::to_vec(&ba).map_err(Error::Serialization)?,
-                                )
+                                .patch_status(&ba.name_any(), &ssapply, &patch)
                                 .await
                                 .map_err(Error::Kube)?;
                         }

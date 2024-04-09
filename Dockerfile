@@ -4,11 +4,6 @@ ARG RUST_VERSION=1.76.0
 
 FROM --platform=$BUILDPLATFORM rust:${RUST_VERSION} as builder
 
-WORKDIR /home
-COPY ./sartd /home/sartd
-COPY ./sart /home/sart
-COPY ./sartcni /home/sartcni
-COPY ./proto /home/proto
 
 RUN apt update -y && \
 	apt install -y protobuf-compiler libprotobuf-dev clang llvm mold gcc-multilib
@@ -29,6 +24,12 @@ RUN case "$TARGETPLATFORM" in \
 	esac
 
 RUN rustup target add $(cat /rust_target.txt)
+
+WORKDIR /home
+COPY ./sartd /home/sartd
+COPY ./sart /home/sart
+COPY ./sartcni /home/sartcni
+COPY ./proto /home/proto
 
 RUN cd sartd; cargo build --release --target $(cat /rust_target.txt) && \
 	cp /home/sartd/target/$(cat /rust_target.txt)/release/sartd /usr/local/bin/sartd && \

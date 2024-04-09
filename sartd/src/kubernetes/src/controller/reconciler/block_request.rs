@@ -1,8 +1,14 @@
-use std::sync::Arc;
+use std::{
+    collections::BTreeMap,
+    net::{Ipv4Addr, Ipv6Addr},
+    str::FromStr,
+    sync::Arc,
+};
 
 use futures::StreamExt;
+use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 use kube::{
-    api::{ListParams, Patch, PostParams},
+    api::{ListParams, ObjectMeta, Patch, PatchParams, PostParams},
     runtime::{
         controller::Action,
         finalizer::{finalizer, Event},
@@ -11,18 +17,23 @@ use kube::{
     },
     Api, Client, ResourceExt,
 };
+use sartd_ipam::manager::BlockAllocator;
 
 use crate::{
-    context::{error_policy, Context, Ctx, State},
+    context::{error_policy, ContextWith, Ctx, State},
     controller::error::Error,
     crd::{
-        address_pool::{AddressPool, AddressPoolStatus, AddressType},
+        address_block::{AddressBlock, AddressBlockSpec, AddressBlockStatus},
+        address_pool::{AddressPool, AddressType, ADDRESS_POOL_ANNOTATION},
         block_request::{BlockRequest, BLOCK_REQUEST_FINALIZER},
     },
 };
 
 #[tracing::instrument(skip_all, fields(trace_id))]
-pub async fn reconciler(br: Arc<BlockRequest>, ctx: Arc<Context>) -> Result<Action, Error> {
+pub async fn reconciler(
+    br: Arc<BlockRequest>,
+    ctx: Arc<ContextWith<Arc<BlockAllocator>>>,
+) -> Result<Action, Error> {
     let block_request_api = Api::<BlockRequest>::all(ctx.client().clone());
 
     finalizer(
@@ -44,52 +55,106 @@ pub async fn reconciler(br: Arc<BlockRequest>, ctx: Arc<Context>) -> Result<Acti
 async fn reconcile(
     _api: &Api<BlockRequest>,
     br: &BlockRequest,
-    ctx: Arc<Context>,
+    ctx: Arc<ContextWith<Arc<BlockAllocator>>>,
 ) -> Result<Action, Error> {
     tracing::info!(name = br.name_any(), "Reconcile BlockRequest");
 
-    let address_pool_api = Api::<AddressPool>::all(ctx.client.clone());
+    let address_pool_api = Api::<AddressPool>::all(ctx.client().clone());
+    let address_block_api = Api::<AddressBlock>::all(ctx.client().clone());
+    let ssapply = PatchParams::apply("agent-blockrequest");
 
-    let mut pool = address_pool_api
+    let ap = address_pool_api
         .get(&br.spec.pool)
         .await
         .map_err(Error::Kube)?;
 
-    if pool.spec.r#type.ne(&AddressType::Pod) {
+    if ap.spec.r#type.ne(&AddressType::Pod) {
         return Err(Error::InvalidAddressType);
     }
 
-    match pool.status.as_mut() {
-        Some(status) => match status.requested.as_mut() {
-            Some(requested) => {
-                if requested.iter().any(|r| r.eq(&br.name_any())) {
-                    tracing::warn!(name = br.name_any(), "Same BlockRequest already exists");
-                    return Err(Error::BlockRequestAlreadyExists);
-                }
-                requested.push(br.name_any());
-            }
-            None => {
-                status.requested = Some(vec![br.name_any()]);
-            }
-        },
-        None => {
-            pool.status = Some(AddressPoolStatus {
-                requested: Some(vec![br.name_any()]),
-                allocated: None,
-                released: None,
-            });
-        }
+    if br.spec.pool.ne(&ap.name_any()) {
+        tracing::error!(
+            name = ap.name_any(),
+            target = br.spec.pool,
+            "Request is not for this pool"
+        );
     }
 
-    // If failing to update the status here, sometimes the controller may create an useless block.
-    address_pool_api
-        .replace_status(
-            &pool.name_any(),
-            &PostParams::default(),
-            serde_json::to_vec(&pool).map_err(Error::Serialization)?,
-        )
+    let ap_cidr = IpNet::from_str(&ap.spec.cidr).map_err(|_| Error::InvalidCIDR)?;
+
+    let block_prefix_len = ap.spec.block_size.unwrap_or(ap_cidr.prefix_len() as u32);
+    let block_size = 2 ^ (block_prefix_len - ap_cidr.prefix_len() as u32);
+    let (block_index, ab_name) = {
+        let tmp = ctx.component.clone();
+        let mut block_allocator = tmp.inner.lock().map_err(|_| Error::FailedToGetLock)?;
+        if let Some(pool) = block_allocator.get_mut(&ap.name_any()) {
+            let count = pool.counter;
+            let ab_name = format!("{}-{count}", ap.name_any());
+            let block_index = pool.allocate(&ab_name).map_err(Error::Ipam)?;
+            (block_index, ab_name)
+        } else {
+            return Err(Error::InvalidPool);
+        }
+    };
+    let block_cidr = match get_block_cidr(
+        &ap_cidr,
+        block_prefix_len,
+        block_index * (block_size + 1) as u128,
+    ) {
+        Ok(cidr) => cidr,
+        Err(e) => {
+            tracing::error!(name=ap.name_any(), request=br.name_any(), error=?e, "Failed to get block CIDR");
+            return Err(e);
+        }
+    };
+    tracing::info!(
+        name = ap.name_any(),
+        block = ab_name,
+        request = br.name_any(),
+        index = block_index,
+        "Create new AddressBlock by a request"
+    );
+    let ab = AddressBlock {
+        metadata: ObjectMeta {
+            labels: Some(BTreeMap::from([(
+                ADDRESS_POOL_ANNOTATION.to_string(),
+                ap.name_any(),
+            )])),
+            name: Some(ab_name.clone()),
+            ..Default::default()
+        },
+        spec: AddressBlockSpec {
+            cidr: block_cidr.to_string(),
+            r#type: AddressType::Pod,
+            pool_ref: ap.name_any(),
+            node_ref: Some(br.spec.node.clone()),
+            auto_assign: ap.spec.auto_assign.unwrap_or(false),
+        },
+        status: Some(AddressBlockStatus {
+            index: block_index as u32,
+        }),
+    };
+
+    match address_block_api
+        .get_opt(&ab.name_any())
         .await
-        .map_err(Error::Kube)?;
+        .map_err(Error::Kube)?
+    {
+        Some(_) => {
+            // already exists
+        }
+        None => {
+            if let Err(e) = address_block_api.create(&PostParams::default(), &ab).await {
+                tracing::error!(name=ap.name_any(), block=ab_name, request=br.name_any(), error=?e, "Failed to create AddressBlock");
+                return Err(Error::Kube(e));
+            }
+            let ab_patch = Patch::Merge(&ab);
+            address_block_api
+                .patch_status(&ab.name_any(), &ssapply, &ab_patch)
+                .await
+                .map_err(Error::Kube)?;
+        }
+    }
 
     Ok(Action::await_change())
 }
@@ -98,30 +163,13 @@ async fn reconcile(
 async fn cleanup(
     _api: &Api<BlockRequest>,
     br: &BlockRequest,
-    ctx: Arc<Context>,
+    _ctx: Arc<ContextWith<Arc<BlockAllocator>>>,
 ) -> Result<Action, Error> {
     tracing::info!(name = br.name_any(), "clean up BlockRequest");
-
-    let address_pool_api = Api::<AddressPool>::all(ctx.client.clone());
-
-    let pool = address_pool_api
-        .get(&br.spec.pool)
-        .await
-        .map_err(Error::Kube)?;
-
-    if let Some(status) = pool.status.as_ref() {
-        if let Some(requested) = status.requested.as_ref() {
-            if requested.iter().any(|r| r.eq(&br.name_any())) {
-                tracing::warn!(name = br.name_any(), "BlockRequest isn't performed yet.");
-                return Err(Error::BlockRequestNotPerformed);
-            }
-        }
-    }
-
     Ok(Action::await_change())
 }
 
-pub async fn run(state: State, interval: u64) {
+pub async fn run(state: State, interval: u64, block_allocator: Arc<BlockAllocator>) {
     let client = Client::try_default()
         .await
         .expect("Failed to create kube client");
@@ -142,10 +190,37 @@ pub async fn run(state: State, interval: u64) {
         .shutdown_on_signal()
         .run(
             reconciler,
-            error_policy::<BlockRequest, Error, Context>,
-            state.to_context(client, interval),
+            error_policy::<BlockRequest, Error, ContextWith<Arc<BlockAllocator>>>,
+            state.to_context_with(client, interval, block_allocator),
         )
         .filter_map(|x| async move { std::result::Result::ok(x) })
         .for_each(|_| futures::future::ready(()))
         .await;
+}
+
+fn get_block_cidr(cidr: &IpNet, block_size: u32, head: u128) -> Result<IpNet, Error> {
+    match cidr {
+        IpNet::V4(cidr) => {
+            let start = cidr.network();
+            let a = u32::from(cidr.addr());
+
+            let n = u32::from(start) + (head as u32);
+
+            let block_start = Ipv4Addr::from(if a > n { a } else { n });
+            Ok(IpNet::V4(
+                Ipv4Net::new(block_start, block_size as u8).map_err(|_| Error::InvalidCIDR)?,
+            ))
+        }
+        IpNet::V6(cidr) => {
+            let start = cidr.network();
+            let a = u128::from(cidr.addr());
+
+            let n = u128::from(start) + head;
+
+            let block_start = Ipv6Addr::from(if a > n { a } else { n });
+            Ok(IpNet::V6(
+                Ipv6Net::new(block_start, block_size as u8).map_err(|_| Error::InvalidCIDR)?,
+            ))
+        }
+    }
 }

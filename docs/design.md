@@ -6,7 +6,7 @@ Sart is Kubernetes network load-balancer and CNI plugin for Kubernetes using BGP
 This project is inspired by [Metallb](https://github.com/metallb/metallb) and [Coil](https://github.com/cybozu-go/coil).
 
 > [!WARNING]
-> CNI feature is not implemented yet.
+> This project is under experimental.
 
 ## Programs
 

@@ -26,15 +26,15 @@ mod common;
 #[tokio::test]
 #[ignore = "use kind cluster"]
 async fn integration_test_agent_bgp_advertisement() {
-    dbg!("Creating a kind cluster");
+    tracing::info!("Creating a kind cluster");
     setup_kind();
 
     test_trace().await;
 
-    dbg!("Setting env value");
+    tracing::info!("Setting env value");
     std::env::set_var(ENV_HOSTNAME, KIND_NODE_CP);
 
-    dbg!("Starting the mock bgp server api server");
+    tracing::info!("Starting the mock bgp server api server");
     let inner = Arc::new(Mutex::new(MockBgpApiServerInner::new_with(
         65000,
         "172.0.0.1",
@@ -44,11 +44,11 @@ async fn integration_test_agent_bgp_advertisement() {
         sartd_mock::bgp::run_with(cloned_inner, 5000).await;
     });
 
-    dbg!("Getting kube client");
+    tracing::info!("Getting kube client");
     let client = Client::try_default().await.unwrap();
     let ctx = State::default().to_context(client.clone(), 30);
 
-    dbg!("Creating NodeBGP");
+    tracing::info!("Creating NodeBGP");
     let nb = test_node_bgp();
     let nb_api = Api::<NodeBGP>::all(ctx.client.clone());
     let nb_patch = Patch::Apply(nb.clone());
@@ -60,7 +60,7 @@ async fn integration_test_agent_bgp_advertisement() {
         .await
         .unwrap();
 
-    dbg!("Creating BGPPeer");
+    tracing::info!("Creating BGPPeer");
     let mut bp = test_bgp_peer();
     bp.status = Some(BGPPeerStatus {
         backoff: 0,
@@ -96,13 +96,13 @@ async fn integration_test_agent_bgp_advertisement() {
         .await
         .unwrap();
 
-    dbg!("Reconciling BGPAdvertisement");
+    tracing::info!("Reconciling BGPAdvertisement");
     let applied_ba = ba_api.get(&ba.name_any()).await.unwrap();
     agent::reconciler::bgp_advertisement::reconciler(Arc::new(applied_ba.clone()), ctx.clone())
         .await
         .unwrap();
 
-    dbg!("Checking the status");
+    tracing::info!("Checking the status");
     let applied_ba = ba_api.get(&ba.name_any()).await.unwrap();
     assert_eq!(
         &AdvertiseStatus::Advertised,
@@ -117,7 +117,7 @@ async fn integration_test_agent_bgp_advertisement() {
             .unwrap()
     );
 
-    dbg!("Checking the path exists");
+    tracing::info!("Checking the path exists");
     {
         let mock = inner.lock().unwrap();
         assert_eq!(1, mock.paths.len());
@@ -141,23 +141,23 @@ async fn integration_test_agent_bgp_advertisement() {
         .await
         .unwrap();
 
-    dbg!("Reconciling BGPAdvertisement");
+    tracing::info!("Reconciling BGPAdvertisement");
     let deleted_ba = ba_api.get(&ba.name_any()).await.unwrap();
     agent::reconciler::bgp_advertisement::reconciler(Arc::new(deleted_ba.clone()), ctx.clone())
         .await
         .unwrap();
 
-    dbg!("Checking the path doesn't exist");
+    tracing::info!("Checking the path doesn't exist");
     {
         let mock = inner.lock().unwrap();
         assert_eq!(0, mock.paths.len());
     }
 
-    dbg!("Checking the status");
+    tracing::info!("Checking the status");
     let applied_ba = ba_api.get(&ba.name_any()).await.unwrap();
     let status = applied_ba.status.as_ref().unwrap().peers.as_ref().unwrap();
     assert!(status.get("test-peer1").is_none());
 
-    dbg!("Cleaning up a kind cluster");
+    tracing::info!("Cleaning up a kind cluster");
     cleanup_kind();
 }

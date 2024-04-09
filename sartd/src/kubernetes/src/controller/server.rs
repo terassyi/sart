@@ -1,28 +1,27 @@
-use std::sync::Arc;
+use std::{collections::HashMap, str::FromStr, sync::Arc};
 
 use actix_web::{
     get, middleware, post,
     web::{self, Data},
     App, HttpRequest, HttpResponse, HttpServer, Responder,
 };
+use ipnet::IpNet;
 use k8s_openapi::api::core::v1::Service;
-use kube::core::admission::AdmissionReview;
+use kube::{api::ListParams, core::admission::AdmissionReview, Api, Client, ResourceExt};
 use prometheus::{Encoder, TextEncoder};
 use rustls::ServerConfig;
 use sartd_cert::util::{load_certificates_from_pem, load_private_key_from_file};
-use sartd_ipam::manager::AllocatorSet;
+use sartd_ipam::manager::{AllocatorSet, BlockAllocator, Pool};
 use sartd_trace::init::{prepare_tracing, TraceConfig};
 
 use crate::{
-    config::Mode,
-    context::State,
-    crd::{
+    config::Mode, context::State, controller::reconciler::address_block::ControllerAddressBlockContext, crd::{
         address_block::AddressBlock, address_pool::AddressPool,
         bgp_advertisement::BGPAdvertisement, bgp_peer::BGPPeer,
-    },
+    }
 };
 
-use super::{reconciler, webhook};
+use super::{error::Error, reconciler, webhook};
 
 use super::config::Config;
 
@@ -98,17 +97,39 @@ async fn run(c: Controller, trace_config: TraceConfig) {
         reconciler::cluster_bgp::run(cluster_bgp_state, c.requeue_interval).await;
     });
 
+    let client = Client::try_default()
+        .await
+        .expect("Failed to get kube client");
+    let address_block_api = Api::<AddressBlock>::all(client.clone());
+    let address_pool_api = Api::<AddressPool>::all(client.clone());
+    let block_allocator = Arc::new(
+        recover_or_create(&address_pool_api, &address_block_api)
+            .await
+            .unwrap(),
+    );
+
     tracing::info!("Start AddressPool reconciler");
     let address_pool_state = state.clone();
+    let block_allocator_cloned = block_allocator.clone();
     tokio::spawn(async move {
-        reconciler::address_pool::run(address_pool_state, c.requeue_interval).await;
+        reconciler::address_pool::run(
+            address_pool_state,
+            c.requeue_interval,
+            block_allocator_cloned,
+        )
+        .await;
     });
 
     tracing::info!("Start AddressBlock reconciler");
     let address_block_state = state.clone();
     let ab_allocator_set = allocator_set.clone();
+    let ab_block_allocator = block_allocator.clone();
+    let ab_ctx = ControllerAddressBlockContext{
+        allocator_set: ab_allocator_set,
+        block_allocator: ab_block_allocator,
+    };
     tokio::spawn(async move {
-        reconciler::address_block::run(address_block_state, c.requeue_interval, ab_allocator_set)
+        reconciler::address_block::run(address_block_state, c.requeue_interval, ab_ctx)
             .await;
     });
 
@@ -116,7 +137,12 @@ async fn run(c: Controller, trace_config: TraceConfig) {
         tracing::info!("Start BlockRequest reconciler");
         let block_request_state = state.clone();
         tokio::spawn(async move {
-            reconciler::block_request::run(block_request_state, c.requeue_interval).await;
+            reconciler::block_request::run(
+                block_request_state,
+                c.requeue_interval,
+                block_allocator.clone(),
+            )
+            .await;
         });
     }
 
@@ -244,4 +270,76 @@ async fn address_block_mutating_webhook(
     body: web::Json<AdmissionReview<AddressBlock>>,
 ) -> impl Responder {
     webhook::address_block::handle_mutation(req, body).await
+}
+
+async fn recover_or_create(
+    address_pool_api: &Api<AddressPool>,
+    address_block_api: &Api<AddressBlock>,
+) -> Result<BlockAllocator, Error> {
+    let ap_list = address_pool_api
+        .list(&ListParams::default())
+        .await
+        .map_err(Error::Kube)?;
+    let ab_list = address_block_api
+        .list(&ListParams::default())
+        .await
+        .map_err(Error::Kube)?;
+
+    let mut pool_map = ap_list
+        .iter()
+        .map(|ap| {
+            let cidr = IpNet::from_str(&ap.spec.cidr)
+                .map_err(|_| Error::InvalidCIDR)
+                .unwrap(); // I want to return error in map()...
+            let block_size = ap.spec.block_size.unwrap_or(cidr.prefix_len() as u32);
+            (ap.name_any(), Pool::new(&cidr, block_size))
+        })
+        .collect::<HashMap<String, Pool>>();
+
+    let mut pool_counter = HashMap::<String, u32>::new();
+    for ab in ab_list.iter() {
+        let ab_name = ab.name_any();
+        let ab_name_splitted = ab_name.split('-');
+        let c = ab_name_splitted.last();
+        let c_num: u32 = match c {
+            Some(c) => match c.parse() {
+                Ok(c_n) => c_n,
+                Err(_) => continue,
+            },
+            None => {
+                continue;
+            }
+        };
+
+        let pool_name = ab.spec.pool_ref.as_str();
+
+        match pool_counter.get_mut(pool_name) {
+            Some(c_max) => {
+                if *c_max < c_num {
+                    *c_max = c_num;
+                }
+            }
+            None => {
+                pool_counter.insert(pool_name.to_string(), c_num);
+            }
+        }
+
+        if let Some(pool) = pool_map.get_mut(pool_name) {
+            let block_index = match &ab.status {
+                Some(status) => status.index,
+                None => return Err(Error::AddressBlockIndexNotSet),
+            };
+            pool.allocate_with(block_index as u128, &ab.name_any())
+                .map_err(Error::Ipam)?;
+        }
+    }
+
+    // update pool counter
+    for (pool_name, count) in pool_counter.iter() {
+        if let Some(pool) = pool_map.get_mut(pool_name) {
+            pool.counter = *count;
+        }
+    }
+
+    Ok(BlockAllocator::new(pool_map))
 }

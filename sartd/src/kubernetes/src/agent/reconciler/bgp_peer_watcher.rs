@@ -1,6 +1,6 @@
 use k8s_openapi::api::discovery::v1::EndpointSlice;
 use kube::{
-    api::{ListParams, PostParams},
+    api::{ListParams, Patch, PatchParams, PostParams},
     Api, Client, ResourceExt,
 };
 use sartd_proto::sart::{
@@ -167,8 +167,11 @@ impl BgpExporterApi for BGPPeerStateWatcher {
                     Err(e) => return Err(Status::internal(e.to_string())),
                 };
                 let ns_eps_api = Api::<EndpointSlice>::namespaced(client.clone(), &ns);
+                let eps_name = eps.name_any();
+                let ssapply = PatchParams::apply("agent-peerwatcher");
+                let patch = Patch::Merge(eps);
                 if let Err(e) = ns_eps_api
-                    .replace(&eps.name_any(), &PostParams::default(), eps)
+                    .patch(&eps_name, &ssapply, &patch)
                     .await
                     .map_err(Error::Kube)
                 {

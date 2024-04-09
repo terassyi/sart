@@ -23,15 +23,15 @@ mod common;
 #[tokio::test]
 #[ignore = "use kind cluster"]
 async fn integration_test_address_block() {
-    dbg!("Creating a kind cluster");
+    tracing::info!("Creating a kind cluster");
     setup_kind();
 
     test_trace().await;
 
-    dbg!("Getting kube client");
+    tracing::info!("Getting kube client");
     let client = Client::try_default().await.unwrap();
 
-    dbg!("Preparing components");
+    tracing::info!("Preparing components");
     let allocator_set = Arc::new(AllocatorSet::new());
     let (sender, mut receiver) = unbounded_channel::<AddressBlock>();
     let pod_allocator = Arc::new(PodAllocator {
@@ -41,7 +41,7 @@ async fn integration_test_address_block() {
 
     let ctx = State::default().to_context_with(client.clone(), 30, pod_allocator.clone());
 
-    dbg!("Creating an AddressBlock resource");
+    tracing::info!("Creating an AddressBlock resource");
     let ab = test_address_block_pod();
     let ab_api = Api::<AddressBlock>::all(ctx.client().clone());
     let ssapply = PatchParams::apply("ctrltest");
@@ -53,16 +53,16 @@ async fn integration_test_address_block() {
 
     let applied_ab = ab_api.get(&ab.name_any()).await.unwrap();
 
-    dbg!("Reconciling AddressBlock");
+    tracing::info!("Reconciling AddressBlock");
     agent::reconciler::address_block::reconciler(Arc::new(applied_ab.clone()), ctx.clone())
         .await
         .unwrap();
 
-    dbg!("Receiving the notification");
+    tracing::info!("Receiving the notification");
     let received_ab = receiver.recv().await.unwrap();
     assert_eq!(received_ab.name_any(), ab.name_any());
 
-    dbg!("Checking the block is registered in pod_allocator");
+    tracing::info!("Checking the block is registered in pod_allocator");
     {
         let pod_allocator = pod_allocator.clone();
         let alloc_set_inner = pod_allocator.allocator.inner.lock().unwrap();
@@ -73,12 +73,12 @@ async fn integration_test_address_block() {
         );
     }
 
-    dbg!("Checking a BGPAdvertisement is created");
+    tracing::info!("Checking a BGPAdvertisement is created");
     let ba_api = Api::<BGPAdvertisement>::namespaced(client.clone(), "kube-system");
     let ba_opt = ba_api.get_opt(&applied_ab.name_any()).await.unwrap();
     assert!(ba_opt.is_some());
 
-    dbg!("Creating another AddressBlock");
+    tracing::info!("Creating another AddressBlock");
     let ab_another = test_address_block_pod2();
     let ab_patch_another = Patch::Apply(ab_another.clone());
     ab_api
@@ -88,16 +88,16 @@ async fn integration_test_address_block() {
 
     let applied_ab_another = ab_api.get(&ab_another.name_any()).await.unwrap();
 
-    dbg!("Reconciling AddressBlock");
+    tracing::info!("Reconciling AddressBlock");
     agent::reconciler::address_block::reconciler(Arc::new(applied_ab_another.clone()), ctx.clone())
         .await
         .unwrap();
 
-    dbg!("Receiving the notification");
+    tracing::info!("Receiving the notification");
     let received_ab = receiver.recv().await.unwrap();
     assert_eq!(received_ab.name_any(), ab_another.name_any());
 
-    dbg!("Checking the block is registered in pod_allocator");
+    tracing::info!("Checking the block is registered in pod_allocator");
     {
         let pod_allocator = pod_allocator.clone();
         let alloc_set_inner = pod_allocator.allocator.inner.lock().unwrap();
@@ -108,7 +108,7 @@ async fn integration_test_address_block() {
         );
     }
 
-    dbg!("Checking a BGPAdvertisement is created");
+    tracing::info!("Checking a BGPAdvertisement is created");
     let ba_api = Api::<BGPAdvertisement>::namespaced(client.clone(), "kube-system");
     let ba_opt = ba_api
         .get_opt(&applied_ab_another.name_any())
@@ -117,7 +117,7 @@ async fn integration_test_address_block() {
     assert!(ba_opt.is_some());
 
     let dummy_addr = IpAddr::from_str("10.0.0.1").unwrap();
-    dbg!("Inserting dummy allocation");
+    tracing::info!("Inserting dummy allocation");
     {
         let pod_allocator = pod_allocator.clone();
         let mut alloc_set_inner = pod_allocator.allocator.inner.lock().unwrap();
@@ -125,7 +125,7 @@ async fn integration_test_address_block() {
         block.allocator.allocate(&dummy_addr, false).unwrap();
     }
 
-    dbg!("Deleting AddressBlock");
+    tracing::info!("Deleting AddressBlock");
     ab_api
         .delete(&ab.name_any(), &DeleteParams::default())
         .await
@@ -133,16 +133,16 @@ async fn integration_test_address_block() {
 
     let ab_deleted = ab_api.get(&ab.name_any()).await.unwrap();
 
-    dbg!("Checking the deletion timestamp");
+    tracing::info!("Checking the deletion timestamp");
     assert!(ab_deleted.metadata.deletion_timestamp.is_some());
 
-    dbg!("Failing to clean up AddressBlock");
+    tracing::info!("Failing to clean up AddressBlock");
     let _err =
         agent::reconciler::address_block::reconciler(Arc::new(ab_deleted.clone()), ctx.clone())
             .await
             .unwrap_err();
 
-    dbg!("Removing dummy allocation");
+    tracing::info!("Removing dummy allocation");
     {
         let pod_allocator = pod_allocator.clone();
         let mut alloc_set_inner = pod_allocator.allocator.inner.lock().unwrap();
@@ -150,12 +150,12 @@ async fn integration_test_address_block() {
         block.allocator.release(&dummy_addr).unwrap();
     }
 
-    dbg!("Cleaning up AddressBlock");
+    tracing::info!("Cleaning up AddressBlock");
     agent::reconciler::address_block::reconciler(Arc::new(ab_deleted.clone()), ctx.clone())
         .await
         .unwrap();
 
-    dbg!("Checking block is deleted");
+    tracing::info!("Checking block is deleted");
     {
         let pod_allocator = pod_allocator.clone();
         let alloc_set_inner = pod_allocator.allocator.inner.lock().unwrap();
@@ -163,11 +163,11 @@ async fn integration_test_address_block() {
         assert!(res.is_none());
     }
 
-    dbg!("Checking a BGPAdvertisement is deleted");
+    tracing::info!("Checking a BGPAdvertisement is deleted");
     let ba_api = Api::<BGPAdvertisement>::namespaced(client.clone(), "kube-system");
     let ba_opt = ba_api.get_opt(&ab_deleted.name_any()).await.unwrap();
     assert!(ba_opt.is_none());
 
-    dbg!("Cleaning up a kind cluster");
+    tracing::info!("Cleaning up a kind cluster");
     cleanup_kind();
 }

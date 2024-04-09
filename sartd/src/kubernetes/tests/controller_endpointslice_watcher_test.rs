@@ -30,12 +30,12 @@ mod common;
 #[tokio::test]
 #[ignore = "use kind cluster"]
 async fn integration_test_endpointslice_watcher() {
-    dbg!("Setting up a kind cluster");
+    tracing::info!("Setting up a kind cluster");
     setup_kind();
 
     test_trace().await;
 
-    dbg!("Getting kube client");
+    tracing::info!("Getting kube client");
     let client = Client::try_default().await.unwrap();
     let ctx = State::default().to_context(client.clone(), 30);
 
@@ -44,7 +44,7 @@ async fn integration_test_endpointslice_watcher() {
     let ssapply = PatchParams::apply("ctrltest");
     let ns = get_namespace(&eps).unwrap();
 
-    dbg!("Preparing needed resources");
+    tracing::info!("Preparing needed resources");
     prepare(&ctx, &ssapply, &ns).await;
 
     let eps_api = Api::<EndpointSlice>::namespaced(ctx.client.clone(), &ns);
@@ -57,7 +57,7 @@ async fn integration_test_endpointslice_watcher() {
 
     let applied_eps = eps_api.get(&eps.name_any()).await.unwrap();
 
-    dbg!("Reconciling EndpointSlice");
+    tracing::info!("Reconciling EndpointSlice");
     controller::reconciler::endpointslice_watcher::reconciler(
         Arc::new(applied_eps.clone()),
         ctx.clone(),
@@ -65,14 +65,14 @@ async fn integration_test_endpointslice_watcher() {
     .await
     .unwrap();
 
-    dbg!("Getting BGPAdvertisement");
+    tracing::info!("Getting BGPAdvertisement");
     let ba_api = Api::<BGPAdvertisement>::namespaced(ctx.client.clone(), &ns);
     let bas = ba_api.list(&ListParams::default()).await.unwrap();
     assert_eq!(1, bas.items.len());
 
     let ba = bas.items[0].clone();
 
-    dbg!("Reconciling EndpointSlice again because of requeue");
+    tracing::info!("Reconciling EndpointSlice again because of requeue");
     controller::reconciler::endpointslice_watcher::reconciler(
         Arc::new(applied_eps.clone()),
         ctx.clone(),
@@ -80,12 +80,12 @@ async fn integration_test_endpointslice_watcher() {
     .await
     .unwrap();
 
-    dbg!("Checking the BGPAdvertisement's status");
+    tracing::info!("Checking the BGPAdvertisement's status");
     let ba = ba_api.get(&ba.name_any()).await.unwrap();
     // exptected externalTrafficPolicy is Cluster, so the advertisement must have all peers for targets.
     assert_eq!(4, ba.status.as_ref().unwrap().peers.as_ref().unwrap().len());
 
-    dbg!("Changing externalTrafficPolicy");
+    tracing::info!("Changing externalTrafficPolicy");
     // for notifying externalTrafficPolicy's change to endpointsliece_watcher,
     // update an annoation when owning LoadBalancer's externalTrafficPolicy is changed.
     let mut svc = test_svc();
@@ -111,7 +111,7 @@ async fn integration_test_endpointslice_watcher() {
 
     let applied_eps = eps_api.get(&eps_with_local.name_any()).await.unwrap();
 
-    dbg!("Reconciling EndpointSlice");
+    tracing::info!("Reconciling EndpointSlice");
     controller::reconciler::endpointslice_watcher::reconciler(
         Arc::new(applied_eps.clone()),
         ctx.clone(),
@@ -119,7 +119,7 @@ async fn integration_test_endpointslice_watcher() {
     .await
     .unwrap();
 
-    dbg!("Checking the BGPAdvertisement's status");
+    tracing::info!("Checking the BGPAdvertisement's status");
     let ba = ba_api.get(&ba.name_any()).await.unwrap();
     // expected externalTrafficPolicy is Cluster, so the advertisement must have all peers for targets.
     assert_eq!(4, ba.status.as_ref().unwrap().peers.as_ref().unwrap().len());
@@ -144,7 +144,7 @@ async fn integration_test_endpointslice_watcher() {
         .unwrap();
     assert_eq!(AdvertiseStatus::Withdraw, *a);
 
-    dbg!("Updating endpoints");
+    tracing::info!("Updating endpoints");
     let mut eps_update = eps_with_local.clone();
     let new_ep = vec![
         Endpoint {
@@ -188,7 +188,7 @@ async fn integration_test_endpointslice_watcher() {
 
     let applied_eps = eps_api.get(&eps_update.name_any()).await.unwrap();
 
-    dbg!("Reconciling EndpointSlice");
+    tracing::info!("Reconciling EndpointSlice");
     controller::reconciler::endpointslice_watcher::reconciler(
         Arc::new(applied_eps.clone()),
         ctx.clone(),
@@ -196,7 +196,7 @@ async fn integration_test_endpointslice_watcher() {
     .await
     .unwrap();
 
-    dbg!("Checking the BGPAdvertisement's status");
+    tracing::info!("Checking the BGPAdvertisement's status");
     let ba = ba_api.get(&ba.name_any()).await.unwrap();
     // expected externalTrafficPolicy is Cluster, so the advertisement must have all peers for targets.
     assert_eq!(4, ba.status.as_ref().unwrap().peers.as_ref().unwrap().len());
@@ -231,13 +231,13 @@ async fn integration_test_endpointslice_watcher() {
         .unwrap();
     assert_eq!(AdvertiseStatus::NotAdvertised, *a);
 
-    dbg!("Deleting EndpointSlice");
+    tracing::info!("Deleting EndpointSlice");
     eps_api
         .delete(&eps_update.name_any(), &DeleteParams::default())
         .await
         .unwrap();
 
-    dbg!("Cleaning up EndpointSlice");
+    tracing::info!("Cleaning up EndpointSlice");
     let deleted_eps = eps_api.get(&eps_update.name_any()).await.unwrap();
     controller::reconciler::endpointslice_watcher::reconciler(
         Arc::new(deleted_eps.clone()),
@@ -246,7 +246,7 @@ async fn integration_test_endpointslice_watcher() {
     .await
     .unwrap();
 
-    dbg!("Cleaning up a kind cluster");
+    tracing::info!("Cleaning up a kind cluster");
     cleanup_kind();
 }
 

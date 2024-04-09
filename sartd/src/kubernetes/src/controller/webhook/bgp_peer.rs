@@ -21,8 +21,6 @@ pub async fn handle_validation(
     req: HttpRequest,
     body: web::Json<AdmissionReview<BGPPeer>>,
 ) -> impl Responder {
-    tracing::info!(method=?req.method(), uri=?req.uri(),"call validating webhook for BGPPeer");
-
     if let Some(content_type) = req.head().headers.get("content-type") {
         if content_type != "application/json" {
             let msg = format!("invalid content-type: {:?}", content_type);
@@ -58,7 +56,6 @@ pub async fn handle_validation(
                 return HttpResponse::Forbidden().json(resp);
             }
         }
-        tracing::info!(name = admission_req.name, "new object");
         resp.allowed = true;
         resp.result = Status {
             status: Some(StatusSummary::Success),
@@ -69,11 +66,6 @@ pub async fn handle_validation(
         };
         return HttpResponse::Ok().json(resp.into_review());
     }
-
-    tracing::info!(
-        name = admission_req.name,
-        "incoming request tries to update existing object"
-    );
 
     let old = admission_req.old_object.unwrap();
 

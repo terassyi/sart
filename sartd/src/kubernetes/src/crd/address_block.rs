@@ -3,7 +3,8 @@ pub use kube::CustomResource;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-pub const ADDRESS_BLOCK_FINALIZER: &str = "addressblock.sart.terassyi.net/finalizer";
+pub const ADDRESS_BLOCK_FINALIZER_CONTROLLER: &str = "controller.addressblock.sart.terassyi.net/finalizer";
+pub const ADDRESS_BLOCK_FINALIZER_AGENT: &str = "agent.addressblock.sart.terassyi.net/finalizer";
 pub const ADDRESS_BLOCK_NODE_LABEL: &str = "addressblock.sart.terassyi.net/node";
 
 #[derive(CustomResource, Debug, Serialize, Deserialize, Default, Clone, JsonSchema)]
@@ -30,4 +31,6 @@ pub struct AddressBlockSpec {
 }
 
 #[derive(Deserialize, Serialize, Clone, Default, Debug, JsonSchema)]
-pub struct AddressBlockStatus {}
+pub struct AddressBlockStatus {
+    pub index: u32,
+}

@@ -188,6 +188,14 @@ impl CNIServerInner {
                 );
                 // let created_br = self.receiver.blocking_recv();
                 let created_br = self.receiver.recv().await.ok_or(Error::ReceiveNotify)?;
+                tracing::info!(
+                    name = pod_info.name,
+                    namespace = pod_info.namespace,
+                    container_id = pod_info.container_id,
+                    cmd = "ADD",
+                    "Got the signal of address block creation"
+                );
+
                 block_request_api
                     .delete(&br.name_any(), &DeleteParams::default())
                     .await

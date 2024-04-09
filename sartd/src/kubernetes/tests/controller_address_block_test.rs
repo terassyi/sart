@@ -4,10 +4,10 @@ use kube::{
     api::{DeleteParams, Patch, PatchParams},
     Api, Client, ResourceExt,
 };
-use sartd_ipam::manager::AllocatorSet;
+use sartd_ipam::manager::{AllocatorSet, BlockAllocator};
 use sartd_kubernetes::{
     context::{Ctx, State},
-    controller,
+    controller::{self, reconciler::address_block::ControllerAddressBlockContext},
     crd::address_block::AddressBlock,
     fixture::{
         reconciler::{test_address_block_lb, test_address_block_lb_non_default},
@@ -22,22 +22,27 @@ mod common;
 #[tokio::test]
 #[ignore = "use kind cluster"]
 async fn integration_test_address_block() {
-    dbg!("Creating a kind cluster");
+    tracing::info!("Creating a kind cluster");
     setup_kind();
 
     test_trace().await;
 
-    dbg!("Getting kube client");
+    tracing::info!("Getting kube client");
     let client = Client::try_default().await.unwrap();
 
     let allocator_set = Arc::new(AllocatorSet::new());
-    let ctx = State::default().to_context_with::<Arc<AllocatorSet>>(
+    let block_allocator = Arc::new(BlockAllocator::default());
+    let ab_ctx = ControllerAddressBlockContext{
+        allocator_set: allocator_set.clone(),
+        block_allocator: block_allocator.clone(),
+    };
+    let ctx = State::default().to_context_with::<ControllerAddressBlockContext>(
         client.clone(),
         30,
-        allocator_set.clone(),
+        ab_ctx,
     );
 
-    dbg!("Creating an AddressBlock resource");
+    tracing::info!("Creating an AddressBlock resource");
     let ab = test_address_block_lb();
     let ab_api = Api::<AddressBlock>::all(ctx.client().clone());
     let ssapply = PatchParams::apply("ctrltest");
@@ -49,12 +54,12 @@ async fn integration_test_address_block() {
 
     let applied_ab = ab_api.get(&ab.name_any()).await.unwrap();
 
-    dbg!("Reconciling AddressBlock");
+    tracing::info!("Reconciling AddressBlock");
     controller::reconciler::address_block::reconciler(Arc::new(applied_ab.clone()), ctx.clone())
         .await
         .unwrap();
 
-    dbg!("Checking the block is registered in allocator set");
+    tracing::info!("Checking the block is registered in allocator set");
     {
         let alloc_set = allocator_set.clone();
         let alloc_set_inner = alloc_set.inner.lock().unwrap();
@@ -62,7 +67,7 @@ async fn integration_test_address_block() {
         assert_eq!(Some(applied_ab.name_any()), alloc_set_inner.auto_assign);
     }
 
-    dbg!("Creating another AddressBlock");
+    tracing::info!("Creating another AddressBlock");
     let ab_another = test_address_block_lb_non_default();
     let ab_patch_another = Patch::Apply(ab_another.clone());
     ab_api
@@ -72,7 +77,7 @@ async fn integration_test_address_block() {
 
     let applied_ab_another = ab_api.get(&ab_another.name_any()).await.unwrap();
 
-    dbg!("Reconciling AddressBlock");
+    tracing::info!("Reconciling AddressBlock");
     controller::reconciler::address_block::reconciler(
         Arc::new(applied_ab_another.clone()),
         ctx.clone(),
@@ -80,7 +85,7 @@ async fn integration_test_address_block() {
     .await
     .unwrap();
 
-    dbg!("Chencking the block is registered in allocator set");
+    tracing::info!("Chencking the block is registered in allocator set");
     {
         let alloc_set = allocator_set.clone();
         let alloc_set_inner = alloc_set.inner.lock().unwrap();
@@ -88,7 +93,7 @@ async fn integration_test_address_block() {
         assert_eq!(Some(applied_ab.name_any()), alloc_set_inner.auto_assign);
     }
 
-    dbg!("Patching to change auto assign");
+    tracing::info!("Patching to change auto assign");
     let mut ab_another_auto_assign = ab_another.clone();
     ab_another_auto_assign.spec.auto_assign = true;
     let ab_patch_another_auto_assign = Patch::Apply(ab_another_auto_assign.clone());
@@ -106,7 +111,7 @@ async fn integration_test_address_block() {
         .await
         .unwrap();
 
-    dbg!("Failing to reconcile AddressBlock");
+    tracing::info!("Failing to reconcile AddressBlock");
     let _err = controller::reconciler::address_block::reconciler(
         Arc::new(applied_ab_another_auto_assign.clone()),
         ctx.clone(),
@@ -114,7 +119,7 @@ async fn integration_test_address_block() {
     .await
     .unwrap_err();
 
-    dbg!("Making disable auto assign");
+    tracing::info!("Making disable auto assign");
     let mut ab_disable_auto_assign = ab.clone();
     ab_disable_auto_assign.spec.auto_assign = false;
     let ab_patch_disable_auto_assign = Patch::Apply(ab_disable_auto_assign.clone());
@@ -132,7 +137,7 @@ async fn integration_test_address_block() {
         .await
         .unwrap();
 
-    dbg!("Reconciling AddressBlock");
+    tracing::info!("Reconciling AddressBlock");
     controller::reconciler::address_block::reconciler(
         Arc::new(applied_ab_disable_auto_assign),
         ctx.clone(),
@@ -140,20 +145,20 @@ async fn integration_test_address_block() {
     .await
     .unwrap();
 
-    dbg!("Chencking the block's auto assign is disabled");
+    tracing::info!("Chencking the block's auto assign is disabled");
     {
         let alloc_set = allocator_set.clone();
         let alloc_set_inner = alloc_set.inner.lock().unwrap();
         assert_eq!(None, alloc_set_inner.auto_assign);
     }
 
-    dbg!("Changing the block to auto assignable");
+    tracing::info!("Changing the block to auto assignable");
     let applied_ab_another_auto_assign = ab_api
         .get(&ab_another_auto_assign.name_any())
         .await
         .unwrap();
 
-    dbg!("Reconciling AddressBlock");
+    tracing::info!("Reconciling AddressBlock");
     controller::reconciler::address_block::reconciler(
         Arc::new(applied_ab_another_auto_assign.clone()),
         ctx.clone(),
@@ -161,7 +166,7 @@ async fn integration_test_address_block() {
     .await
     .unwrap();
 
-    dbg!("Chencking auto assign is set");
+    tracing::info!("Chencking auto assign is set");
     {
         let alloc_set = allocator_set.clone();
         let alloc_set_inner = alloc_set.inner.lock().unwrap();
@@ -172,7 +177,7 @@ async fn integration_test_address_block() {
     }
 
     let dummy_addr = IpAddr::from_str("10.0.0.1").unwrap();
-    dbg!("Inserting dummy allocation");
+    tracing::info!("Inserting dummy allocation");
     {
         let alloc_set = allocator_set.clone();
         let mut alloc_set_inner = alloc_set.inner.lock().unwrap();
@@ -180,7 +185,7 @@ async fn integration_test_address_block() {
         block.allocator.allocate(&dummy_addr, false).unwrap();
     }
 
-    dbg!("Deleting AddressBlock");
+    tracing::info!("Deleting AddressBlock");
     ab_api
         .delete(&ab.name_any(), &DeleteParams::default())
         .await
@@ -188,10 +193,10 @@ async fn integration_test_address_block() {
 
     let ab_deleted = ab_api.get(&ab.name_any()).await.unwrap();
 
-    dbg!("Checking the deletion timestamp");
+    tracing::info!("Checking the deletion timestamp");
     assert!(ab_deleted.metadata.deletion_timestamp.is_some());
 
-    dbg!("Failing to clean up AddressBlock");
+    tracing::info!("Failing to clean up AddressBlock");
     let _err = controller::reconciler::address_block::reconciler(
         Arc::new(ab_deleted.clone()),
         ctx.clone(),
@@ -199,7 +204,7 @@ async fn integration_test_address_block() {
     .await
     .unwrap_err();
 
-    dbg!("Removing dummy allocation");
+    tracing::info!("Removing dummy allocation");
     {
         let alloc_set = allocator_set.clone();
         let mut alloc_set_inner = alloc_set.inner.lock().unwrap();
@@ -207,12 +212,12 @@ async fn integration_test_address_block() {
         block.allocator.release(&dummy_addr).unwrap();
     }
 
-    dbg!("Cleaning up AddressBlock");
+    tracing::info!("Cleaning up AddressBlock");
     controller::reconciler::address_block::reconciler(Arc::new(ab_deleted.clone()), ctx.clone())
         .await
         .unwrap();
 
-    dbg!("Checking block is deleted");
+    tracing::info!("Checking block is deleted");
     {
         let alloc_set = allocator_set.clone();
         let alloc_set_inner = alloc_set.inner.lock().unwrap();
@@ -220,6 +225,6 @@ async fn integration_test_address_block() {
         assert!(res.is_none());
     }
 
-    dbg!("Cleaning up a kind cluster");
+    tracing::info!("Cleaning up a kind cluster");
     cleanup_kind();
 }

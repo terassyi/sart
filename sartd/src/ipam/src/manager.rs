@@ -1,11 +1,13 @@
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     net::IpAddr,
     sync::{Arc, Mutex},
     vec,
 };
 
 use ipnet::IpNet;
+
+use crate::bitset::BitSet;
 
 use super::{
     allocator::{Allocator, AllocatorMethod},
@@ -156,5 +158,92 @@ impl AllocationInfo {
 
     pub fn get(&self, block: &str) -> Option<&Vec<IpAddr>> {
         self.blocks.get(block)
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct BlockAllocator {
+    pub inner: Arc<Mutex<BlockAllocatorInner>>,
+}
+
+impl BlockAllocator {
+    pub fn new(pool_map: HashMap<String, Pool>) -> BlockAllocator {
+        BlockAllocator {
+            inner: Arc::new(Mutex::new(BlockAllocatorInner { pools: pool_map })),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct BlockAllocatorInner {
+    pools: HashMap<String, Pool>,
+}
+
+impl BlockAllocatorInner {
+    pub fn insert(&mut self, name: &str, pool: Pool) {
+        self.pools.insert(name.to_string(), pool);
+    }
+
+    pub fn get(&self, name: &str) -> Option<&Pool> {
+        self.pools.get(name)
+    }
+
+    pub fn get_mut(&mut self, name: &str) -> Option<&mut Pool> {
+        self.pools.get_mut(name)
+    }
+
+    pub fn release(&mut self, name: &str) {
+        self.pools.remove(name);
+    }
+}
+
+#[derive(Debug)]
+pub struct Pool {
+    pub cidr: IpNet,
+    pub size: u32,
+    pub block_size: u32,
+    pub allocator: BitSet,
+    pub blocks: BTreeMap<String, u32>,
+    pub counter: u32,
+}
+
+impl Pool {
+    pub fn new(cidr: &IpNet, block_size: u32) -> Pool {
+        let prefix_len = cidr.prefix_len();
+        let bitset_size = 2u128.pow(block_size - (prefix_len as u32));
+        Pool {
+            cidr: *cidr,
+            size: prefix_len as u32,
+            block_size,
+            allocator: BitSet::new(bitset_size),
+            blocks: BTreeMap::new(),
+            counter: 0,
+        }
+    }
+
+    pub fn allocate(&mut self, name: &str) -> Result<u128, Error> {
+        let index = self.allocator.set_next().map_err(Error::BitSet)?;
+        self.blocks.insert(name.to_string(), index as u32);
+        self.counter += 1;
+        Ok(index)
+    }
+
+    // for recovering allocations
+    pub fn allocate_with(&mut self, index: u128, name: &str) -> Result<u128, Error> {
+        let index = self.allocator.set(index, true).map_err(Error::BitSet)?;
+        self.blocks.insert(name.to_string(), index as u32);
+        Ok(index)
+    }
+
+    pub fn release(&mut self, index: u32) -> Result<(), Error> {
+        self.allocator
+            .set(index as u128, false)
+            .map_err(Error::BitSet)?;
+        let mut name = String::new();
+        if let Some((n, _)) = self.blocks.iter_mut().find(|(_, i)| index == **i) {
+            name = n.to_string();
+        }
+        self.blocks.remove(&name);
+        Ok(())
     }
 }
