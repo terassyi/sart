@@ -2254,7 +2254,7 @@ checksum = "1ad4cc8da4ef723ed60bced201181d83791ad433213d8c24efffda1eec85d741"
 
 [[package]]
 name = "sartd"
-version = "0.0.6"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2270,7 +2270,7 @@ dependencies = [
 
 [[package]]
 name = "sartd-bgp"
-version = "0.0.6"
+version = "0.1.0"
 dependencies = [
  "byteorder",
  "bytes",
@@ -2296,7 +2296,7 @@ dependencies = [
 
 [[package]]
 name = "sartd-cert"
-version = "0.0.6"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2308,7 +2308,7 @@ dependencies = [
 
 [[package]]
 name = "sartd-cmd"
-version = "0.0.6"
+version = "0.1.0"
 dependencies = [
  "clap",
  "sartd-bgp",
@@ -2319,7 +2319,7 @@ dependencies = [
 
 [[package]]
 name = "sartd-fib"
-version = "0.0.6"
+version = "0.1.0"
 dependencies = [
  "futures",
  "ipnet",
@@ -2340,7 +2340,7 @@ dependencies = [
 
 [[package]]
 name = "sartd-ipam"
-version = "0.0.6"
+version = "0.1.0"
 dependencies = [
  "ipnet",
  "rstest",
@@ -2349,7 +2349,7 @@ dependencies = [
 
 [[package]]
 name = "sartd-kubernetes"
-version = "0.0.6"
+version = "0.1.0"
 dependencies = [
  "actix-web",
  "assert-json-diff",
@@ -2391,7 +2391,7 @@ dependencies = [
 
 [[package]]
 name = "sartd-mock"
-version = "0.0.6"
+version = "0.1.0"
 dependencies = [
  "sartd-proto",
  "tonic",
@@ -2399,7 +2399,7 @@ dependencies = [
 
 [[package]]
 name = "sartd-proto"
-version = "0.0.6"
+version = "0.1.0"
 dependencies = [
  "prost",
  "prost-types",
@@ -2409,7 +2409,7 @@ dependencies = [
 
 [[package]]
 name = "sartd-trace"
-version = "0.0.6"
+version = "0.1.0"
 dependencies = [
  "k8s-openapi",
  "kube",
@@ -2423,7 +2423,7 @@ dependencies = [
 
 [[package]]
 name = "sartd-util"
-version = "0.0.6"
+version = "0.1.0"
 dependencies = [
  "prost",
  "prost-types",
