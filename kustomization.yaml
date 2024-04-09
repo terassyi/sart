@@ -3,4 +3,4 @@ resources:
 images:
   - name: sart:dev
     newName: ghcr.io/terassyi/sart
-    newTag: 0.0.6
+    newTag: 0.1.0
