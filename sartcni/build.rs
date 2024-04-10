@@ -2,10 +2,8 @@ use std::env;
 use std::path::PathBuf;
 
 fn main() {
-    built::write_built_file().expect("failed to write build information");
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-    println!("{:?}", std::env::current_dir());
     let dir = std::fs::read_dir("../proto").unwrap();
     let mut files: Vec<PathBuf> = Vec::new();
     for p in dir.into_iter() {
