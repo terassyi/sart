@@ -7,15 +7,9 @@ edition = "2021"
 
 [dependencies]
 assert-json-diff = "2.0.2"
-built = { version = "0.7.1", features = [
-	"git2",
-	"semver",
-	"dependency-tree",
-	"chrono",
-] }
 bytes = "1.5.0"
 ipnet = "2.9.0"
-rstest = "0.18.2"
+rstest = "0.19.0"
 serde = { version = "1.0.195", features = ["derive"] }
 serde_json = "1.0.111"
 thiserror = "1.0.56"

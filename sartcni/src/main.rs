@@ -9,10 +9,6 @@ mod mock;
 mod proto;
 mod version;
 
-pub mod built_info {
-    include!(concat!(env!("OUT_DIR"), "/built.rs"));
-}
-
 #[tokio::main]
 async fn main() {
     let version_info = PluginInfo::new(
@@ -33,9 +29,6 @@ async fn main() {
 
 fn get_about_info() -> String {
     format!(
-        "Sart CNI plugin {} {} {}",
-        built_info::PKG_VERSION,
-        built_info::RUSTC_VERSION,
-        built_info::TARGET
+        "Sart CNI plugin",
     )
 }
