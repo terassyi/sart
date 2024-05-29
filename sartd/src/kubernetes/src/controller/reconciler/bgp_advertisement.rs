@@ -11,6 +11,7 @@ use kube::{
     },
     Api, Client, ResourceExt,
 };
+use tracing::{field, Span};
 
 use crate::{
     context::{error_policy, Context, State},
@@ -45,13 +46,6 @@ async fn reconcile(
     ba: &BGPAdvertisement,
     _ctx: Arc<Context>,
 ) -> Result<Action, Error> {
-    let ns = get_namespace::<BGPAdvertisement>(ba).map_err(Error::KubeLibrary)?;
-    tracing::info!(
-        name = ba.name_any(),
-        namespace = ns,
-        "Reconcile BGPAdvertisement"
-    );
-
     Ok(Action::await_change())
 }
 
@@ -61,12 +55,10 @@ async fn cleanup(
     ba: &BGPAdvertisement,
     _ctx: Arc<Context>,
 ) -> Result<Action, Error> {
+    let trace_id = sartd_trace::telemetry::get_trace_id();
+    Span::current().record("trace_id", &field::display(&trace_id));
+
     let ns = get_namespace::<BGPAdvertisement>(ba).map_err(Error::KubeLibrary)?;
-    tracing::info!(
-        name = ba.name_any(),
-        namespace = ns,
-        "Cleanup BGPAdvertisement"
-    );
 
     let mut new_ba = ba.clone();
     let mut need_update = false;
@@ -79,7 +71,7 @@ async fn cleanup(
             tracing::info!(
                 name = ba.name_any(),
                 namespace = ns,
-                "Successfully delete BGPAdvertisement"
+                "successfully delete BGPAdvertisement"
             );
             return Ok(Action::await_change());
         }
@@ -93,7 +85,7 @@ async fn cleanup(
         tracing::info!(
             name = ba.name_any(),
             namespace = ns,
-            "Successfully delete BGPAdvertisement"
+            "successfully delete BGPAdvertisement"
         );
         return Ok(Action::await_change());
     }
@@ -110,7 +102,7 @@ async fn cleanup(
         tracing::info!(
             name = &ba.name_any(),
             namespace = ns,
-            "Submit withdraw request"
+            "submit withdraw request"
         );
     }
 

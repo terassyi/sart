@@ -11,6 +11,7 @@ use kube::{
     },
     Api, Client, ResourceExt,
 };
+use tracing::{field, Span};
 
 use crate::{
     agent::{bgp::speaker, error::Error},
@@ -43,9 +44,10 @@ pub async fn reconciler(nb: Arc<NodeBGP>, ctx: Arc<Context>) -> Result<Action, E
     .map_err(|e| Error::Finalizer(Box::new(e)))
 }
 
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(skip_all, fields(trace_id))]
 async fn reconcile(api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Result<Action, Error> {
-    tracing::info!(name = nb.name_any(), "Reconcile NodeBGP");
+    let trace_id = sartd_trace::telemetry::get_trace_id();
+    Span::current().record("trace_id", &field::display(&trace_id));
 
     // NodeBGP.spec.asn and routerId should be immutable
 
@@ -81,7 +83,7 @@ async fn reconcile(api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Resul
                     name = nb.name_any(),
                     asn = nb.spec.asn,
                     router_id = nb.spec.router_id,
-                    "Backoff BGP advertisement"
+                    "backoff BGP advertisement"
                 );
                 backoff_advertisements(nb, &ctx.client.clone()).await?;
                 return Err(e);
@@ -107,14 +109,14 @@ async fn reconcile(api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Resul
                     name = nb.name_any(),
                     asn = nb.spec.asn,
                     router_id = nb.spec.router_id,
-                    "Backoff NodeBGP"
+                    "backoff NodeBGP"
                 );
                 backoff_advertisements(nb, &ctx.client.clone()).await?;
                 tracing::warn!(
                     name = nb.name_any(),
                     asn = nb.spec.asn,
                     router_id = nb.spec.router_id,
-                    "Backoff BGP advertisement"
+                    "backoff BGP advertisement"
                 );
             }
             return Err(Error::GotgPRC(e));
@@ -129,8 +131,7 @@ async fn reconcile(api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Resul
             name = nb.name_any(),
             asn = nb.spec.asn,
             router_id = nb.spec.router_id,
-            multipath =? nb.spec.speaker.multipath,
-            "Configure local BGP settings"
+            "configure local BGP settings"
         );
         speaker_client
             .set_as(sartd_proto::sart::SetAsRequest { asn: nb.spec.asn })
@@ -180,6 +181,12 @@ async fn reconcile(api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Resul
             backoff_advertisements(nb, &ctx.client.clone()).await?;
             new_status.backoff += 1;
         }
+        tracing::info!(
+            name = nb.name_any(),
+            asn = nb.spec.asn,
+            router_id = nb.spec.router_id,
+            "update NodeBGP status"
+        );
         // update status
         let mut new_nb = nb.clone();
         new_nb.status = Some(new_status);
@@ -219,7 +226,7 @@ async fn reconcile(api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Resul
                         tracing::info!(
                             name = nb.name_any(),
                             peer = bp.name_any(),
-                            "Increment peer's backoff count"
+                            "increment peer's backoff count"
                         );
                         bgp_peer_api
                             .replace_status(
@@ -244,7 +251,7 @@ async fn reconcile(api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Resul
             name = nb.name_any(),
             asn = nb.spec.asn,
             router_id = nb.spec.router_id,
-            "Local BGP settings are already configured"
+            "local BGP settings are already configured"
         );
 
         // patch status
@@ -254,7 +261,7 @@ async fn reconcile(api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Resul
             reason: NodeBGPConditionReason::Configured,
         }
     } else {
-        tracing::warn!("Local BGP speaker configuration and NodeBGP are mismatched");
+        tracing::warn!("local BGP speaker configuration and NodeBGP are mismatched");
         NodeBGPCondition {
             status: NodeBGPConditionStatus::Unavailable,
             reason: NodeBGPConditionReason::InvalidConfiguration,
@@ -293,7 +300,7 @@ async fn reconcile(api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Resul
             name = nb.name_any(),
             asn = nb.spec.asn,
             router_id = nb.spec.router_id,
-            "Update NodeBGP status"
+            "update NodeBGP status"
         );
         // update status
         new_nb.status = Some(new_status);
@@ -345,7 +352,7 @@ async fn reconcile(api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Resul
             }
             if !errors.is_empty() {
                 for e in errors.iter() {
-                    tracing::error!(error=?e, "Failed to reconcile BGPPeer associated with NodeBGP");
+                    tracing::error!(error=?e, "failed to reconcile BGPPeer associated with NodeBGP");
                 }
                 // returns ok but, this should retry to reconcile
                 return Ok(Action::requeue(Duration::from_secs(10)));
@@ -356,9 +363,10 @@ async fn reconcile(api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Resul
     Ok(Action::requeue(Duration::from_secs(60)))
 }
 
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(skip_all, fields(trace_id))]
 async fn cleanup(_api: &Api<NodeBGP>, nb: &NodeBGP, _ctx: Arc<Context>) -> Result<Action, Error> {
-    tracing::info!(name = nb.name_any(), "Cleanup NodeBGP");
+    let trace_id = sartd_trace::telemetry::get_trace_id();
+    Span::current().record("trace_id", &field::display(&trace_id));
 
     let timeout = nb.spec.speaker.timeout.unwrap_or(DEFAULT_SPEAKER_TIMEOUT);
     let mut speaker_client =

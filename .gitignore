@@ -6,9 +6,9 @@
 *.bin
 /bin
 /e2e/bin
-*/*.pem
-*/*.cert
-*/*.key
+**/*.pem
+**/*.cert
+**/*.key
 logs*
 **/target
 sart.yaml
@@ -16,6 +16,7 @@ sart.yaml
 **/e2e.test
 e2e/topology/.*.yaml.bak
 e2e/topology/kubernetes-cni*.yaml
+e2e/topology/kubernetes-cni-compact.yaml
 e2e/clab-sart
 
 manifests/base/certs/*

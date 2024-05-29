@@ -52,11 +52,9 @@ impl ApiServer {
 #[tonic::async_trait]
 impl BgpApi for ApiServer {
     async fn health(&self, _req: Request<HealthRequest>) -> Result<Response<()>, Status> {
-        tracing::info!("start health checking");
         let guard_tx = self.tx.lock().await;
         guard_tx.send(ControlEvent::Health).await.unwrap();
         self.signal.notified().await;
-        tracing::info!("health checking");
         Ok(Response::new(()))
     }
 

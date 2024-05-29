@@ -152,7 +152,6 @@ impl Peer {
         };
         let exporter = match exporter {
             Some(path) => {
-                tracing::info!("Try to connect to BGP exporter");
                 match sartd_proto::sart::bgp_exporter_api_client::BgpExporterApiClient::connect(
                     format!("http://{}", path),
                 )
@@ -249,8 +248,6 @@ impl Peer {
         // handle event
 
         let (msg_event_tx, mut msg_event_rx) = unbounded_channel::<BgpMessageEvent>();
-
-        tracing::debug!("handling the peer event");
 
         let (conn_close_tx, mut conn_close_rx) = channel::<u16>(2);
 

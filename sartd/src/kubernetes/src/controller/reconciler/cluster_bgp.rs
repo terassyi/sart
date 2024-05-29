@@ -12,6 +12,7 @@ use kube::{
     },
     Api, Client, ResourceExt,
 };
+use tracing::{field, Span};
 
 use crate::{
     context::{error_policy, Context, State},
@@ -43,8 +44,11 @@ pub async fn reconciler(cb: Arc<ClusterBGP>, ctx: Arc<Context>) -> Result<Action
 }
 
 // reconcile() is called when a resource is applied or updated
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(skip_all, fields(trace_id))]
 async fn reconcile(cb: &ClusterBGP, ctx: Arc<Context>) -> Result<Action, Error> {
+    let trace_id = sartd_trace::telemetry::get_trace_id();
+    Span::current().record("trace_id", &field::display(&trace_id));
+
     tracing::info!(name = cb.name_any(), "reconcile ClusterBGP");
 
     let mut need_requeue = false;
@@ -64,17 +68,12 @@ async fn reconcile(cb: &ClusterBGP, ctx: Arc<Context>) -> Result<Action, Error> 
         None => Vec::new(),
     };
 
-    tracing::info!(name = cb.name_any(), actual=?actual_nodes, "actual nodes");
-
     let matched_nodes = nodes.list(&list_params).await.map_err(Error::Kube)?;
     let matched_node_names = matched_nodes
         .iter()
         .map(|n| n.name_any())
         .collect::<Vec<String>>();
 
-    tracing::info!(name = cb.name_any(), matched=?matched_node_names, "matched nodes");
-
-    // let (added, remain, removed) = get_diff(&actual_nodes, &matched_node_names);
     let (added, remain, removed) = diff::<String>(&actual_nodes, &matched_node_names);
 
     let node_bgps = Api::<NodeBGP>::all(ctx.client.clone());
@@ -122,7 +121,6 @@ async fn reconcile(cb: &ClusterBGP, ctx: Arc<Context>) -> Result<Action, Error> 
 
                 let peer_templ_api = Api::<BGPPeerTemplate>::all(ctx.client.clone());
                 let peers = get_peers(cb, &new_nb, &peer_templ_api).await?;
-                tracing::info!(nb=nb.name_any(), label=?new_nb.labels(),"NodeBGP label");
                 match new_nb.spec.peers.as_mut() {
                     Some(nb_peers) => {
                         for peer in peers.iter() {
@@ -138,14 +136,14 @@ async fn reconcile(cb: &ClusterBGP, ctx: Arc<Context>) -> Result<Action, Error> 
                     }
                 }
                 if need_spec_update {
-                    tracing::info!(node_bgp=nb.name_any(),asn=nb.spec.asn,router_id=?nb.spec.router_id,"Update existing NodeBGP's spec.peers");
+                    tracing::info!(node_bgp=nb.name_any(),asn=nb.spec.asn,router_id=?nb.spec.router_id,"update existing NodeBGP's spec.peers");
                     node_bgps
                         .replace(&nb.name_any(), &PostParams::default(), &new_nb)
                         .await
                         .map_err(Error::Kube)?;
                 }
                 if need_status_update {
-                    tracing::info!(node_bgp=nb.name_any(),asn=nb.spec.asn,router_id=?nb.spec.router_id,"Update existing NodeBGP's status");
+                    tracing::info!(node_bgp=nb.name_any(),asn=nb.spec.asn,router_id=?nb.spec.router_id,"update existing NodeBGP's status");
                     node_bgps
                         .replace_status(
                             &nb.name_any(),
@@ -181,7 +179,7 @@ async fn reconcile(cb: &ClusterBGP, ctx: Arc<Context>) -> Result<Action, Error> 
 
                 nb.spec.peers = Some(peers);
 
-                tracing::info!(node_bgp=node.name_any(),asn=asn,router_id=?router_id,"Create new NodeBGP resource");
+                tracing::info!(node_bgp=node.name_any(),asn=asn,router_id=?router_id,"create new NodeBGP resource");
                 node_bgps
                     .create(&PostParams::default(), &nb)
                     .await
@@ -220,7 +218,7 @@ async fn reconcile(cb: &ClusterBGP, ctx: Arc<Context>) -> Result<Action, Error> 
             }
 
             if need_spec_update {
-                tracing::info!(node_bgp=nb.name_any(),asn=nb.spec.asn,router_id=?nb.spec.router_id,"Update existing NodeBGP's spec.peers");
+                tracing::info!(node_bgp=nb.name_any(),asn=nb.spec.asn,router_id=?nb.spec.router_id,"update existing NodeBGP's spec.peers");
                 node_bgps
                     .replace(&nb.name_any(), &PostParams::default(), &new_nb)
                     .await
@@ -261,7 +259,6 @@ async fn reconcile(cb: &ClusterBGP, ctx: Arc<Context>) -> Result<Action, Error> 
             }
         };
 
-        tracing::info!(name = cb.name_any(), "Update ClusterBGP Status");
         cluster_bgp_api
             .replace_status(
                 &cb.name_any(),
@@ -280,10 +277,8 @@ async fn reconcile(cb: &ClusterBGP, ctx: Arc<Context>) -> Result<Action, Error> 
 }
 
 // cleanup() is called when a resource is deleted
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(skip_all, fields(trace_id))]
 async fn cleanup(cb: &ClusterBGP, _ctx: Arc<Context>) -> Result<Action, Error> {
-    tracing::info!(name = cb.name_any(), "clean up ClusterBGP");
-
     Ok(Action::await_change())
 }
 

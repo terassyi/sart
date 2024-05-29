@@ -19,6 +19,7 @@ use kube::{
     },
     Api, Client, ResourceExt,
 };
+use tracing::{field, Span};
 
 use crate::{
     context::{error_policy, Context, Ctx, State},
@@ -66,11 +67,14 @@ pub async fn reconciler(eps: Arc<EndpointSlice>, ctx: Arc<Context>) -> Result<Ac
 
 #[tracing::instrument(skip_all, fields(trace_id))]
 async fn reconcile(eps: &EndpointSlice, ctx: Arc<Context>) -> Result<Action, Error> {
+    let trace_id = sartd_trace::telemetry::get_trace_id();
+    Span::current().record("trace_id", &field::display(&trace_id));
+
     let ns = get_namespace::<EndpointSlice>(eps).map_err(Error::KubeLibrary)?;
     tracing::info!(
         name = eps.name_any(),
         namespace = ns,
-        "Reconcile Endpointslice"
+        "reconcile Endpointslice"
     );
 
     let svc_name = match get_svc_name_from_eps(eps) {
@@ -83,7 +87,7 @@ async fn reconcile(eps: &EndpointSlice, ctx: Arc<Context>) -> Result<Action, Err
         None => {
             tracing::warn!(
                 name = svc_name,
-                "The Service resource associated with EndpointSlice is not found"
+                "the Service resource associated with EndpointSlice is not found"
             );
             return Ok(Action::await_change());
         }
@@ -99,7 +103,7 @@ async fn reconcile(eps: &EndpointSlice, ctx: Arc<Context>) -> Result<Action, Err
             tracing::warn!(
                 name = svc.name_any(),
                 namespace = ns,
-                "LoadBalancer address is not allocated yet. Reconcile after 10 seconds"
+                "loadBalancer address is not allocated yet. Reconcile after 10 seconds"
             );
             return Ok(Action::requeue(Duration::from_secs(10)));
         }
@@ -138,7 +142,7 @@ async fn reconcile(eps: &EndpointSlice, ctx: Arc<Context>) -> Result<Action, Err
                     tracing::warn!(
                         name = svc.name_any(),
                         namespace = ns,
-                        "LoadBalancer address is changed"
+                        "the load balancer address is changed"
                     );
                     new_adv.spec.cidr = cidr.to_string();
                     let mut new_target_peers: BTreeMap<String, AdvertiseStatus> = BTreeMap::new();
@@ -220,7 +224,7 @@ async fn reconcile(eps: &EndpointSlice, ctx: Arc<Context>) -> Result<Action, Err
                     name = adv.name_any(),
                     namespace = ns,
                     status = ?adv.status,
-                    "Create BGPAdvertisement"
+                    "create BGPAdvertisement"
                 );
 
                 bgp_advertisements
@@ -250,12 +254,6 @@ async fn reconcile(eps: &EndpointSlice, ctx: Arc<Context>) -> Result<Action, Err
 #[tracing::instrument(skip_all, fields(trace_id))]
 async fn cleanup(eps: &EndpointSlice, _ctx: Arc<Context>) -> Result<Action, Error> {
     let ns = get_namespace::<EndpointSlice>(eps).map_err(Error::KubeLibrary)?;
-
-    tracing::info!(
-        name = eps.name_any(),
-        namespace = ns,
-        "Cleanup Endpointslice"
-    );
 
     Ok(Action::await_change())
 }

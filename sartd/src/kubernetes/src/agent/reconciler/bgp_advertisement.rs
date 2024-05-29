@@ -6,6 +6,7 @@ use kube::{
     runtime::{controller::Action, watcher::Config, Controller},
     Api, Client, ResourceExt,
 };
+use tracing::{field, Span};
 
 use crate::{
     agent::{bgp::speaker, error::Error},
@@ -20,7 +21,7 @@ use crate::{
 
 use super::node_bgp::{DEFAULT_SPEAKER_TIMEOUT, ENV_HOSTNAME};
 
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(skip_all, fields(trace_id))]
 pub async fn run(state: State, interval: u64) {
     let client = Client::try_default()
         .await
@@ -59,12 +60,6 @@ pub async fn reconciler(ba: Arc<BGPAdvertisement>, ctx: Arc<Context>) -> Result<
 
     let bgp_advertisements = Api::<BGPAdvertisement>::namespaced(ctx.client.clone(), &ns);
 
-    tracing::info!(
-        name = ba.name_any(),
-        namespace = ns,
-        "Reconcile BGPAdvertisement"
-    );
-
     reconcile(&bgp_advertisements, &ba, ctx).await
 }
 
@@ -74,6 +69,9 @@ async fn reconcile(
     ba: &BGPAdvertisement,
     ctx: Arc<Context>,
 ) -> Result<Action, Error> {
+    let trace_id = sartd_trace::telemetry::get_trace_id();
+    Span::current().record("trace_id", &field::display(&trace_id));
+
     let node_bgps = Api::<NodeBGP>::all(ctx.client.clone());
     let node_name = std::env::var(ENV_HOSTNAME).map_err(Error::Var)?;
 
@@ -136,7 +134,6 @@ async fn reconcile(
                                 })
                                 .await
                                 .map_err(Error::GotgPRC)?;
-                            tracing::info!(name = ba.name_any(), namespace = ba.namespace(), status=?adv_status, response=?res,"Add path response");
 
                             *adv_status = AdvertiseStatus::Advertised;
                             need_update = true;
@@ -150,7 +147,6 @@ async fn reconcile(
                                 })
                                 .await
                                 .map_err(Error::GotgPRC)?;
-                            tracing::info!(name = ba.name_any(), namespace = ba.namespace(), status=?adv_status ,response=?res,"Add path response");
                         }
                         AdvertiseStatus::Withdraw => {
                             let res = speaker_client
@@ -160,7 +156,6 @@ async fn reconcile(
                                 })
                                 .await
                                 .map_err(Error::GotgPRC)?;
-                            tracing::info!(name = ba.name_any(), namespace = ba.namespace(), status=?adv_status, response=?res,"Delete path response");
 
                             peers.remove(&p.name);
                             need_update = true;
@@ -182,7 +177,7 @@ async fn reconcile(
             tracing::info!(
                 name = ba.name_any(),
                 namespace = ba.namespace(),
-                "Update BGPAdvertisement"
+                "update BGPAdvertisement"
             );
             return Ok(Action::requeue(Duration::from_secs(60)));
         }

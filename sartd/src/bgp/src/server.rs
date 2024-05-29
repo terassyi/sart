@@ -228,7 +228,6 @@ impl Bgp {
 
     #[tracing::instrument(skip(self, event))]
     async fn handle_event(&mut self, event: ControlEvent) -> Result<(), Error> {
-        tracing::info!(event=%event, "Handle control event");
         match event {
             ControlEvent::Health => {}
             ControlEvent::GetBgpInfo => self.get_bgp_info().await?,
@@ -370,7 +369,7 @@ impl Bgp {
                 }
             }
         }
-        tracing::info!("set local asn");
+        tracing::info!(asn = asn, "set local asn");
         self.rib_event_tx
             .send(RibEvent::SetAsn(asn))
             .await
@@ -388,7 +387,7 @@ impl Bgp {
             return Ok(());
         }
         config.router_id = router_id;
-        tracing::info!("set local router_id");
+        tracing::info!(router_id =? router_id, "set local router_id");
         self.rib_event_tx
             .send(RibEvent::SetRouterId(router_id))
             .await
