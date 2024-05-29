@@ -19,6 +19,7 @@ use kube::{
     Api, Client, ResourceExt,
 };
 use sartd_ipam::manager::{BlockAllocator, Pool};
+use tracing::{field, Span};
 
 use crate::{
     context::{error_policy, ContextWith, Ctx, State},
@@ -50,13 +51,14 @@ pub async fn reconciler(
     .map_err(|e| Error::Finalizer(Box::new(e)))
 }
 
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(skip_all, fields(trace_id))]
 async fn reconcile(
     api: &Api<AddressPool>,
     ap: &AddressPool,
     ctx: Arc<ContextWith<Arc<BlockAllocator>>>,
 ) -> Result<Action, Error> {
-    tracing::info!(name = ap.name_any(), "reconcile AddressPool");
+    let trace_id = sartd_trace::telemetry::get_trace_id();
+    Span::current().record("trace_id", &field::display(&trace_id));
 
     match ap.spec.r#type {
         AddressType::Service => reconcile_service_pool(api, ap, ctx).await,
@@ -64,7 +66,7 @@ async fn reconcile(
     }
 }
 
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(skip_all, fields(trace_id))]
 async fn reconcile_service_pool(
     api: &Api<AddressPool>,
     ap: &AddressPool,
@@ -81,7 +83,7 @@ async fn reconcile_service_pool(
         .map_err(Error::Kube)?
     {
         Some(ab) => {
-            tracing::warn!(name = ab.name_any(), "AddressBlock already exists");
+            tracing::warn!(name = ab.name_any(), "address block already exists");
         }
         None => {
             let ab = AddressBlock {
@@ -146,7 +148,7 @@ async fn reconcile_pod_pool(
     Ok(Action::await_change())
 }
 
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(skip_all, fields(trace_id))]
 async fn cleanup(
     _api: &Api<AddressPool>,
     ap: &AddressPool,

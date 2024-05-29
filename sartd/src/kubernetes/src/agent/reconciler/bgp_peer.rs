@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use futures::StreamExt;
 use k8s_openapi::api::discovery::v1::EndpointSlice;
 use kube::{
-    api::{ListParams, Patch, PatchParams, PostParams},
+    api::{ListParams, PostParams, Patch, PatchParams},
     runtime::{
         controller::Action,
         finalizer::{finalizer, Event},
@@ -12,6 +12,7 @@ use kube::{
     },
     Api, Client, ResourceExt,
 };
+use tracing::{field, Span};
 
 use crate::{
     agent::{bgp::speaker, error::Error},
@@ -46,7 +47,8 @@ pub async fn reconciler(bp: Arc<BGPPeer>, ctx: Arc<Context>) -> Result<Action, E
 
 #[tracing::instrument(skip_all, fields(trace_id))]
 async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Result<Action, Error> {
-    tracing::info!(name = bp.name_any(), "Reconcile BGPPeer");
+    let trace_id = sartd_trace::telemetry::get_trace_id();
+    Span::current().record("trace_id", &field::display(&trace_id));
 
     let timeout = match bp.spec.speaker.timeout {
         Some(t) => t,
@@ -64,7 +66,7 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
     if info.asn == 0 {
         tracing::warn!(
             node_bgp = bp.spec.node_bgp_ref,
-            "Local BGP speaker is not configured"
+            "local BGP speaker is not configured"
         );
         return Ok(Action::requeue(Duration::from_secs(1)));
     }
@@ -88,6 +90,11 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
             let mut need_status_update = false;
             match &peer.get_ref().peer {
                 Some(peer) => {
+                    tracing::info!(
+                        asn = bp.spec.asn,
+                        addr = bp.spec.addr,
+                        "peer already exists"
+                    );
                     // update status
                     match new_bp.status.as_mut() {
                         Some(status) => match status.conditions.as_mut() {
@@ -104,7 +111,7 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
                                             addr = bp.spec.addr,
                                             old_state = ?cond.status,
                                             new_state = ?new_state,
-                                            "Peer state is changed"
+                                            "peer state is changed"
                                         );
                                         conditions.push(BGPPeerCondition {
                                             status: BGPPeerConditionStatus::try_from(status as i32)
@@ -140,7 +147,7 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
                                     asn = bp.spec.asn,
                                     addr = bp.spec.addr,
                                     state = ?state,
-                                    "Peer state is initialized"
+                                    "peer state is initialized"
                                 );
                                 status.conditions = Some(vec![BGPPeerCondition {
                                     status: state,
@@ -157,7 +164,7 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
                                 asn = bp.spec.asn,
                                 addr = bp.spec.addr,
                                 state = ?state,
-                                "Peer state is initialized"
+                                "peer state is initialized"
                             );
                             new_bp.status = Some(BGPPeerStatus {
                                 backoff: 0,
@@ -182,7 +189,7 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
                     name = bp.name_any(),
                     asn = bp.spec.asn,
                     addr = bp.spec.addr,
-                    "Update BGPPeer status"
+                    "update BGPPeer status"
                 );
                 let patch = Patch::Merge(&new_bp);
                 if let Err(e) = api
@@ -203,7 +210,7 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
             tracing::info!(
                 asn = bp.spec.asn,
                 addr = bp.spec.addr,
-                "Peer doesn't exist yet"
+                "peer doesn't exist yet"
             );
 
             speaker_client
@@ -263,7 +270,7 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
             name = bp.name_any(),
             asn = bp.spec.asn,
             addr = bp.spec.addr,
-            "Reflect the newly established peer to existing BGPAdvertisements"
+            "reflect the newly established peer to existing BGPAdvertisements"
         );
         let eps_api = Api::<EndpointSlice>::all(ctx.client.clone());
         let mut eps_list = eps_api
@@ -290,7 +297,7 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
             name = bp.name_any(),
             asn = bp.spec.asn,
             addr = bp.spec.addr,
-            "Reset BGPAdvertisements"
+            "reset BGPAdvertisements"
         );
         let ba_api = Api::<BGPAdvertisement>::all(ctx.client.clone());
         let mut ba_list = ba_api
@@ -325,7 +332,8 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
 
 #[tracing::instrument(skip_all, fields(trace_id))]
 async fn cleanup(_api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Result<Action, Error> {
-    tracing::info!(name = bp.name_any(), "Cleanup BGPPeer");
+    let trace_id = sartd_trace::telemetry::get_trace_id();
+    Span::current().record("trace_id", &field::display(&trace_id));
 
     let timeout = match bp.spec.speaker.timeout {
         Some(t) => t,
@@ -342,7 +350,7 @@ async fn cleanup(_api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Result
         .await
     {
         Ok(_peer) => {
-            tracing::info!(name = bp.name_any(), addr = bp.spec.addr, "Delete peer");
+            tracing::info!(name = bp.name_any(), addr = bp.spec.addr, "delete peer");
             speaker_client
                 .delete_peer(sartd_proto::sart::DeletePeerRequest {
                     addr: bp.spec.addr.clone(),
@@ -377,7 +385,7 @@ async fn cleanup(_api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Result
         name = bp.name_any(),
         asn = bp.spec.asn,
         addr = bp.spec.addr,
-        "Clean up the peer from BGPAdvertisements"
+        "clean up the peer from BGPAdvertisements"
     );
     let ba_api = Api::<BGPAdvertisement>::all(ctx.client.clone());
     let mut ba_list = ba_api

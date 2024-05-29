@@ -15,6 +15,7 @@ use kube::{
     },
     Api, Client, ResourceExt,
 };
+use tracing::{field, Span};
 
 use crate::{
     context::{error_policy, ContextWith, Ctx, State},
@@ -57,9 +58,11 @@ async fn reconcile(
     svc: &Service,
     ctx: Arc<ContextWith<Arc<AllocatorSet>>>,
 ) -> Result<Action, Error> {
+    let trace_id = sartd_trace::telemetry::get_trace_id();
+    Span::current().record("trace_id", &field::display(&trace_id));
     let ns = get_namespace::<Service>(svc).map_err(Error::KubeLibrary)?;
 
-    tracing::info!(name = svc.name_any(), namespace = ns, "Reconcile Service");
+    tracing::info!(name = svc.name_any(), namespace = ns, "reconcile Service");
 
     if !is_loadbalancer(svc) {
         // If Service is not LoadBalancer and it has allocated load balancer addresses, release these.
@@ -70,7 +73,6 @@ async fn reconcile(
         // we check its annotation.
         // And if it has, we have to release its addresses.
         let releasable_addrs = get_releasable_addrs(svc);
-        tracing::info!(name = svc.name_any(), namespace = ns, releasable=?releasable_addrs, "not LoadBalancer");
         if let Some(addrs) = releasable_addrs {
             let released = {
                 let c = ctx.component.clone();
@@ -219,7 +221,11 @@ async fn reconcile(
     if actual_addrs.eq(&remained) {
         return Ok(Action::await_change());
     }
-    tracing::info!(name = svc.name_any(), namespace = ns, remained=?remained, released=?removed, "Update allocation.");
+    tracing::info!(
+        name = svc.name_any(),
+        namespace = ns,
+        "update the allocation"
+    );
 
     let new_svc = update_svc_lb_addrs(svc, &remained);
     api.replace_status(
@@ -234,7 +240,7 @@ async fn reconcile(
         name = svc.name_any(),
         namespace = ns,
         lb_addrs=?remained,
-        "Update service status by the allocation lb address"
+        "update service status by the allocation lb address"
     );
 
     let new_allocated_addrs = get_allocated_lb_addrs(&new_svc)
@@ -276,8 +282,11 @@ async fn cleanup(
     svc: &Service,
     ctx: Arc<ContextWith<Arc<AllocatorSet>>>,
 ) -> Result<Action, Error> {
+    let trace_id = sartd_trace::telemetry::get_trace_id();
+    Span::current().record("trace_id", &field::display(&trace_id));
+
     let ns = get_namespace::<Service>(svc).map_err(Error::KubeLibrary)?;
-    tracing::info!(name = svc.name_any(), namespace = ns, "Cleanup Service");
+    tracing::info!(name = svc.name_any(), namespace = ns, "cleanup Service");
 
     let allocated_addrs = match get_allocated_lb_addrs(svc) {
         Some(a) => a,
@@ -303,7 +312,7 @@ async fn cleanup(
         name = svc.name_any(),
         namespace = ns,
         lb_addrs=?released,
-        "Update service status by the release lb address"
+        "update service status by the release lb address"
     );
 
     Ok(Action::await_change())
@@ -316,7 +325,7 @@ pub async fn run(state: State, interval: u64, allocator_set: Arc<AllocatorSet>) 
 
     let services = Api::<Service>::all(client.clone());
 
-    tracing::info!("Start Service watcher");
+    tracing::info!("start Service watcher");
 
     Controller::new(services, Config::default().any_semantic())
         .shutdown_on_signal()
@@ -514,7 +523,7 @@ fn release_lb_addrs(
                     name = svc.name_any(),
                     namespace = ns,
                     desired_pool = pool,
-                    "Desired AddressBlock doesn't exist"
+                    "desired AddressBlock doesn't exist"
                 );
                 continue;
             }
@@ -531,7 +540,7 @@ fn release_lb_addrs(
                         namespace = ns,
                         pool = block.pool_name,
                         address = a.to_string(),
-                        "Relaese address from address pool"
+                        "release the address from address pool"
                     )
                 }
                 Err(e) => {
@@ -614,25 +623,6 @@ fn clear_svc_lb_addrs(svc: &Service, released: &[IpAddr]) -> Service {
     }
     new_svc
 }
-
-// fn get_diff(prev: &[String], now: &[String]) -> (Vec<String>, Vec<String>, Vec<String>) {
-//     let removed = prev
-//         .iter()
-//         .filter(|p| !now.contains(p))
-//         .cloned()
-//         .collect::<Vec<String>>();
-//     let added = now
-//         .iter()
-//         .filter(|n| !prev.contains(n) && !removed.contains(n))
-//         .cloned()
-//         .collect::<Vec<String>>();
-//     let shared = prev
-//         .iter()
-//         .filter(|p| now.contains(p))
-//         .cloned()
-//         .collect::<Vec<String>>();
-//     (added, shared, removed)
-// }
 
 fn merge_marked_allocation(
     actual_allocation: HashMap<String, Vec<MarkedAllocation>>,

@@ -11,6 +11,7 @@ use kube::{
 };
 
 use sartd_ipam::manager::{AllocatorSet, Block, BlockAllocator};
+use tracing::{field, Span};
 
 use crate::{
     context::{error_policy, ContextWith, Ctx, State},
@@ -46,7 +47,7 @@ pub async fn reconciler(
     .map_err(|e| Error::Finalizer(Box::new(e)))
 }
 
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(skip_all, fields(trace_id))]
 async fn reconcile(
     api: &Api<AddressBlock>,
     ab: &AddressBlock,
@@ -78,7 +79,8 @@ async fn reconcile_service(
     if ab.spec.r#type.ne(&AddressType::Service) {
         return Ok(Action::await_change());
     }
-    tracing::info!(name = ab.name_any(), "Reconcile AddressBlock");
+    let trace_id = sartd_trace::telemetry::get_trace_id();
+    Span::current().record("trace_id", &field::display(&trace_id));
 
     let component = ctx.component.allocator_set.clone();
     let mut alloc_set = component.inner.lock().map_err(|_| Error::FailedToGetLock)?;
@@ -95,21 +97,21 @@ async fn reconcile_service(
                             if ab.name_any().ne(name) {
                                 tracing::warn!(
                                     name = ab.name_any(),
-                                    "Auto assignable block already exists."
+                                    "auto assignable block already exists."
                                 );
                                 return Err(Error::AutoAssignMustBeOne);
                             }
                         }
                         None => {
                             alloc_set.auto_assign = Some(ab.name_any());
-                            tracing::info!(name = ab.name_any(), "Enable auto assign.");
+                            tracing::info!(name = ab.name_any(), "enable auto assign.");
                         }
                     }
                 }
                 false => {
                     if let Some(name) = &alloc_set.auto_assign {
                         if ab.name_any().eq(name) {
-                            tracing::info!(name = ab.name_any(), "Disable auto assign.");
+                            tracing::info!(name = ab.name_any(), "disable auto assign.");
                             alloc_set.auto_assign = None;
                         }
                     }
@@ -118,7 +120,7 @@ async fn reconcile_service(
             if let Some(auto_assign_name) = &alloc_set.auto_assign {
                 // If disable auto assign
                 if !ab.spec.auto_assign && auto_assign_name.eq(&ab.name_any()) {
-                    tracing::info!(name = ab.name_any(), "Disable auto assign");
+                    tracing::info!(name = ab.name_any(), "disable auto assign");
                 }
             }
         }
@@ -128,7 +130,7 @@ async fn reconcile_service(
             if ab.spec.auto_assign {
                 match &alloc_set.auto_assign {
                     Some(_a) => {
-                        tracing::warn!(name = ab.name_any(), "Cannot override auto assign.");
+                        tracing::warn!(name = ab.name_any(), "cannot override auto assign.");
                         return Err(Error::FailedToEnableAutoAssign);
                     }
                     None => {
@@ -142,7 +144,7 @@ async fn reconcile_service(
     Ok(Action::await_change())
 }
 
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(skip_all, fields(trace_id))]
 async fn cleanup(
     api: &Api<AddressBlock>,
     ab: &AddressBlock,
@@ -183,7 +185,8 @@ async fn cleanup_service(
     ab: &AddressBlock,
     ctx: Arc<ContextWith<ControllerAddressBlockContext>>,
 ) -> Result<Action, Error> {
-    tracing::info!(name = ab.name_any(), "clean up AddressBlock");
+    let trace_id = sartd_trace::telemetry::get_trace_id();
+    Span::current().record("trace_id", &field::display(&trace_id));
 
     let component = ctx.component.allocator_set.clone();
     let mut alloc_set = component.inner.lock().map_err(|_| Error::FailedToGetLock)?;
