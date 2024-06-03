@@ -1,5 +1,4 @@
-use std::sync::Arc;
-
+use std::sync::{Arc, Mutex};
 
 use common::{cleanup_kind, setup_kind};
 
@@ -9,8 +8,11 @@ use kube::{
 };
 use sartd_ipam::manager::BlockAllocator;
 use sartd_kubernetes::{
-    context::{State, Ctx},
-    controller,
+    controller::{
+        self,
+        context::{Ctx, State},
+        metrics::Metrics,
+    },
     crd::{
         address_block::AddressBlock,
         address_pool::{AddressPool, ADDRESS_POOL_ANNOTATION},
@@ -35,7 +37,12 @@ async fn test_address_pool_pod_handling_request() {
     tracing::info!("Getting kube client");
     let client = Client::try_default().await.unwrap();
     let block_allocator = Arc::new(BlockAllocator::default());
-    let ctx = State::default().to_context_with(client.clone(), 30, block_allocator);
+    let ctx = State::default().to_context_with(
+        client.clone(),
+        30,
+        block_allocator,
+        Arc::new(Mutex::new(Metrics::default())),
+    );
 
     let ap = test_address_pool_pod();
 
@@ -70,7 +77,6 @@ async fn test_address_pool_pod_handling_request() {
         .unwrap();
 
     let ab_api = Api::<AddressBlock>::all(ctx.client().clone());
-
 
     tracing::info!("Changing auto assign to false");
     applied_ap.spec.auto_assign = Some(false);

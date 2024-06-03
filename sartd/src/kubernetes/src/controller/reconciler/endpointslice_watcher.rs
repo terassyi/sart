@@ -1,7 +1,7 @@
 use std::{
     collections::{BTreeMap, HashMap},
     net::IpAddr,
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -22,9 +22,10 @@ use kube::{
 use tracing::{field, Span};
 
 use crate::{
-    context::{error_policy, Context, Ctx, State},
     controller::{
+        context::{error_policy, Context, Ctx, State},
         error::Error,
+        metrics::Metrics,
         reconciler::service_watcher::{get_allocated_lb_addrs, is_loadbalancer},
     },
     crd::{
@@ -46,6 +47,9 @@ pub const ENDPOINTSLICE_TRIGGER: &str = "endpointslice.sart.terassyi.net/trigger
 
 #[tracing::instrument(skip_all, fields(trace_id))]
 pub async fn reconciler(eps: Arc<EndpointSlice>, ctx: Arc<Context>) -> Result<Action, Error> {
+    let metrics = ctx.metrics();
+    metrics.lock().map_err(|_| Error::FailedToGetLock)?.reconciliation(eps.as_ref());
+
     let ns = get_namespace::<EndpointSlice>(&eps).map_err(Error::KubeLibrary)?;
 
     let endpointslices = Api::<EndpointSlice>::namespaced(ctx.client().clone(), &ns);
@@ -253,12 +257,10 @@ async fn reconcile(eps: &EndpointSlice, ctx: Arc<Context>) -> Result<Action, Err
 
 #[tracing::instrument(skip_all, fields(trace_id))]
 async fn cleanup(eps: &EndpointSlice, _ctx: Arc<Context>) -> Result<Action, Error> {
-    let ns = get_namespace::<EndpointSlice>(eps).map_err(Error::KubeLibrary)?;
-
     Ok(Action::await_change())
 }
 
-pub async fn run(state: State, interval: u64) {
+pub async fn run(state: State, interval: u64, metrics: Arc<Mutex<Metrics>>) {
     let client = Client::try_default()
         .await
         .expect("Failed to create kube client");
@@ -272,7 +274,7 @@ pub async fn run(state: State, interval: u64) {
         .run(
             reconciler,
             error_policy::<EndpointSlice, Error, Context>,
-            state.to_context(client, interval),
+            state.to_context(client, interval, metrics),
         )
         .filter_map(|x| async move { std::result::Result::ok(x) })
         .for_each(|_| futures::future::ready(()))

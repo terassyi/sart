@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use futures::StreamExt;
 use kube::{
@@ -14,8 +14,11 @@ use kube::{
 use tracing::{field, Span};
 
 use crate::{
-    context::{error_policy, Context, State},
-    controller::error::Error,
+    controller::{
+        context::{error_policy, Context, Ctx, State},
+        error::Error,
+        metrics::Metrics,
+    },
     crd::bgp_advertisement::{AdvertiseStatus, BGPAdvertisement, BGP_ADVERTISEMENT_FINALIZER},
     util::get_namespace,
 };
@@ -24,6 +27,11 @@ use crate::{
 pub async fn reconciler(ba: Arc<BGPAdvertisement>, ctx: Arc<Context>) -> Result<Action, Error> {
     let ns = get_namespace::<BGPAdvertisement>(&ba).map_err(Error::KubeLibrary)?;
     let bgp_advertisements = Api::<BGPAdvertisement>::namespaced(ctx.client.clone(), &ns);
+    let metrics = ctx.metrics();
+    metrics
+        .lock()
+        .map_err(|_| Error::FailedToGetLock)?
+        .reconciliation(ba.as_ref());
 
     finalizer(
         &bgp_advertisements,
@@ -42,10 +50,58 @@ pub async fn reconciler(ba: Arc<BGPAdvertisement>, ctx: Arc<Context>) -> Result<
 
 #[tracing::instrument(skip_all, fields(trace_id))]
 async fn reconcile(
-    _api: &Api<BGPAdvertisement>,
+    api: &Api<BGPAdvertisement>,
     ba: &BGPAdvertisement,
-    _ctx: Arc<Context>,
+    ctx: Arc<Context>,
 ) -> Result<Action, Error> {
+    let mut advertised = 0;
+    let mut not_advertised = 0;
+    let mut withdwraw = 0;
+    if let Some(status) = ba.status.as_ref() {
+        if let Some(peers) = status.peers.as_ref() {
+            for (_peer, adv_status) in peers.iter() {
+                match adv_status {
+                    AdvertiseStatus::Advertised => advertised += 1,
+                    AdvertiseStatus::NotAdvertised => not_advertised += 1,
+                    AdvertiseStatus::Withdraw => withdwraw += 1,
+                }
+            }
+        }
+    }
+    {
+        let metrics = ctx.metrics();
+        let metrics = metrics.lock().map_err(|_| Error::FailedToGetLock)?;
+        metrics.bgp_advertisement_status_set(
+            &ba.name_any(),
+            &format!("{}", AdvertiseStatus::Advertised),
+            advertised,
+        );
+        metrics.bgp_advertisement_status_set(
+            &ba.name_any(),
+            &format!("{}", AdvertiseStatus::NotAdvertised),
+            not_advertised,
+        );
+        metrics.bgp_advertisement_status_set(
+            &ba.name_any(),
+            &format!("{}", AdvertiseStatus::Withdraw),
+            withdwraw,
+        );
+    }
+
+    let ba_list = api
+        .list(&ListParams::default())
+        .await
+        .map_err(Error::Kube)?;
+    let mut counter = 0;
+    for b in ba_list.iter() {
+        if b.spec.r#type.eq(&ba.spec.r#type) {
+            counter += 1;
+        }
+    }
+    ctx.metrics()
+        .lock()
+        .map_err(|_| Error::FailedToGetLock)?
+        .bgp_advertisements_set(&format!("{}", ba.spec.r#type), counter as i64);
     Ok(Action::await_change())
 }
 
@@ -53,7 +109,7 @@ async fn reconcile(
 async fn cleanup(
     api: &Api<BGPAdvertisement>,
     ba: &BGPAdvertisement,
-    _ctx: Arc<Context>,
+    ctx: Arc<Context>,
 ) -> Result<Action, Error> {
     let trace_id = sartd_trace::telemetry::get_trace_id();
     Span::current().record("trace_id", &field::display(&trace_id));
@@ -73,6 +129,10 @@ async fn cleanup(
                 namespace = ns,
                 "successfully delete BGPAdvertisement"
             );
+            ctx.metrics()
+                .lock()
+                .map_err(|_| Error::FailedToGetLock)?
+                .bgp_advertisements_dec(&format!("{}", ba.spec.r#type));
             return Ok(Action::await_change());
         }
         for (_p, s) in peers.iter_mut() {
@@ -87,6 +147,10 @@ async fn cleanup(
             namespace = ns,
             "successfully delete BGPAdvertisement"
         );
+        ctx.metrics()
+            .lock()
+            .map_err(|_| Error::FailedToGetLock)?
+            .bgp_advertisements_dec(&format!("{}", ba.spec.r#type));
         return Ok(Action::await_change());
     }
 
@@ -112,7 +176,7 @@ async fn cleanup(
 }
 
 #[tracing::instrument(skip_all, fields(trace_id))]
-pub async fn run(state: State, interval: u64) {
+pub async fn run(state: State, interval: u64, metrics: Arc<Mutex<Metrics>>) {
     let client = Client::try_default()
         .await
         .expect("Failed to create kube client");
@@ -139,7 +203,7 @@ pub async fn run(state: State, interval: u64) {
         .run(
             reconciler,
             error_policy::<BGPAdvertisement, Error, Context>,
-            state.to_context(client, interval),
+            state.to_context(client, interval, metrics),
         )
         .filter_map(|x| async move { std::result::Result::ok(x) })
         .for_each(|_| futures::future::ready(()))
@@ -158,8 +222,7 @@ mod tests {
     use kube::core::ObjectMeta;
 
     use crate::{
-        context::Context,
-        controller::error::Error,
+        controller::{context::Context, error::Error},
         crd::{
             address_pool::AddressType,
             bgp_advertisement::{

@@ -1,7 +1,7 @@
 use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
     str::FromStr,
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
 use futures::StreamExt;
@@ -22,8 +22,11 @@ use sartd_ipam::manager::{BlockAllocator, Pool};
 use tracing::{field, Span};
 
 use crate::{
-    context::{error_policy, ContextWith, Ctx, State},
-    controller::error::Error,
+    controller::{
+        context::{error_policy, ContextWith, Ctx, State},
+        error::Error,
+        metrics::Metrics,
+    },
     crd::{
         address_block::{AddressBlock, AddressBlockSpec},
         address_pool::{AddressPool, AddressType, ADDRESS_POOL_ANNOTATION, ADDRESS_POOL_FINALIZER},
@@ -37,6 +40,11 @@ pub async fn reconciler(
     ctx: Arc<ContextWith<Arc<BlockAllocator>>>,
 ) -> Result<Action, Error> {
     let address_pools = Api::<AddressPool>::all(ctx.client().clone());
+    let metrics = ctx.inner.metrics();
+    metrics
+        .lock()
+        .map_err(|_| Error::FailedToGetLock)?
+        .reconciliation(ap.as_ref());
 
     finalizer(&address_pools, ADDRESS_POOL_FINALIZER, ap, |event| async {
         match event {
@@ -73,6 +81,11 @@ async fn reconcile_service_pool(
 
     let cidr = IpNet::from_str(&ap.spec.cidr).map_err(|_| Error::InvalidCIDR)?;
     let block_size = ap.spec.block_size.unwrap_or(cidr.prefix_len() as u32);
+
+    ctx.metrics()
+        .lock()
+        .map_err(|_| Error::FailedToGetLock)?
+        .max_blocks(&ap.name_any(), &format!("{}", AddressType::Service), 1);
 
     match address_blocks
         .get_opt(&ap.name_any())
@@ -132,6 +145,16 @@ async fn reconcile_pod_pool(
     tracing::info!(name = ap.name_any(), "Reconcile AddressPool");
     let cidr = IpNet::from_str(&ap.spec.cidr).map_err(|_| Error::InvalidCIDR)?;
     let block_size = ap.spec.block_size.unwrap_or(cidr.prefix_len() as u32);
+    let max_blocks = block_size - cidr.prefix_len() as u32;
+    ctx.metrics()
+        .lock()
+        .map_err(|_| Error::FailedToGetLock)?
+        .max_blocks(
+            &ap.name_any(),
+            &format!("{}", AddressType::Pod),
+            max_blocks as i64,
+        );
+
     {
         let tmp = ctx.component.clone();
         let mut block_allocator = tmp.inner.lock().map_err(|_| Error::FailedToGetLock)?;
@@ -159,14 +182,19 @@ async fn cleanup(
         .list(&list_params)
         .await
         .map_err(Error::Kube)?;
-    if ab_list.items.len() != 0 {
+    if !ab_list.items.is_empty() {
         return Err(Error::AddressPoolNotEmpty);
     }
 
     Ok(Action::await_change())
 }
 
-pub async fn run(state: State, interval: u64, block_allocator: Arc<BlockAllocator>) {
+pub async fn run(
+    state: State,
+    interval: u64,
+    block_allocator: Arc<BlockAllocator>,
+    metrics: Arc<Mutex<Metrics>>,
+) {
     let client = Client::try_default()
         .await
         .expect("Failed to create kube client");
@@ -185,7 +213,7 @@ pub async fn run(state: State, interval: u64, block_allocator: Arc<BlockAllocato
         .run(
             reconciler,
             error_policy::<AddressPool, Error, ContextWith<Arc<BlockAllocator>>>,
-            state.to_context_with(client, interval, block_allocator),
+            state.to_context_with(client, interval, block_allocator, metrics),
         )
         .filter_map(|x| async move { std::result::Result::ok(x) })
         .for_each(|_| futures::future::ready(()))

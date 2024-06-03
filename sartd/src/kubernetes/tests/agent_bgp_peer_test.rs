@@ -9,8 +9,7 @@ use kube::{
     Api, Client, ResourceExt,
 };
 use sartd_kubernetes::{
-    agent,
-    context::State,
+    agent::{self, context::State, metrics::Metrics},
     crd::{
         bgp_peer::{BGPPeer, BGPPeerConditionStatus},
         node_bgp::NodeBGP,
@@ -43,7 +42,7 @@ async fn integration_test_agent_bgp_peer() {
 
     tracing::info!("Getting kube client");
     let client = Client::try_default().await.unwrap();
-    let ctx = State::default().to_context(client.clone(), 30);
+    let ctx = State::default().to_context(client.clone(), 30, Arc::new(Mutex::new(Metrics::default())));
 
     tracing::info!("Preraring NodeBGP resource");
     let nb = test_node_bgp();

@@ -1,5 +1,5 @@
-use std::net::IpAddr;
 use std::sync::Arc;
+use std::{net::IpAddr, sync::Mutex};
 
 use actix_web::{
     get, middleware, web::Data, App, HttpRequest, HttpResponse, HttpServer, Responder,
@@ -13,9 +13,16 @@ use sartd_ipam::manager::AllocatorSet;
 use sartd_trace::init::{prepare_tracing, TraceConfig};
 use tokio::sync::mpsc::unbounded_channel;
 
-use crate::agent::{cni::{self, server::{CNIServer, CNI_ROUTE_TABLE_ID}}, reconciler::address_block::PodAllocator};
+use crate::agent::{
+    cni::{
+        self,
+        server::{CNIServer, CNI_ROUTE_TABLE_ID},
+    },
+    context::State,
+    metrics::Metrics,
+    reconciler::address_block::PodAllocator,
+};
 use crate::config::Mode;
-use crate::context::State;
 use crate::crd::address_block::AddressBlock;
 
 use super::config::Config;
@@ -80,23 +87,32 @@ async fn run(a: Agent, trace_config: TraceConfig) {
 
     tracing::info!("Start Agent Reconcilers");
 
+    let metrics = Arc::new(Mutex::new(
+        Metrics::default().register(&state.registry).unwrap(),
+    ));
+
     let node_bgp_state = state.clone();
+    let nb_metrics = metrics.clone();
     tokio::spawn(async move {
-        reconciler::node_bgp::run(node_bgp_state, a.requeue_interval).await;
+        reconciler::node_bgp::run(node_bgp_state, a.requeue_interval, nb_metrics).await;
     });
 
     let bgp_peer_state = state.clone();
+    let bp_metrics = metrics.clone();
     tokio::spawn(async move {
-        reconciler::bgp_peer::run(bgp_peer_state, a.requeue_interval).await;
+        reconciler::bgp_peer::run(bgp_peer_state, a.requeue_interval, bp_metrics).await;
     });
 
     let bgp_advertisement_state = state.clone();
+    let ba_metrics = metrics.clone();
     tokio::spawn(async move {
-        reconciler::bgp_advertisement::run(bgp_advertisement_state, a.requeue_interval).await;
+        reconciler::bgp_advertisement::run(bgp_advertisement_state, a.requeue_interval, ba_metrics)
+            .await;
     });
 
+    let pw_metrics = metrics.clone();
     tokio::spawn(async move {
-        reconciler::bgp_peer_watcher::run(&a.peer_state_watcher).await;
+        reconciler::bgp_peer_watcher::run(&a.peer_state_watcher, pw_metrics).await;
     });
 
     if a.mode.eq(&Mode::CNI) || a.mode.eq(&Mode::Dual) {
@@ -109,18 +125,21 @@ async fn run(a: Agent, trace_config: TraceConfig) {
         });
 
         let address_block_state = state.clone();
+        let ab_metrics = metrics.clone();
         let ab_pod_allocator = pod_allocator.clone();
         tokio::spawn(async move {
             reconciler::address_block::run(
                 address_block_state,
                 a.requeue_interval,
                 ab_pod_allocator,
+                ab_metrics,
             )
             .await;
         });
 
         let node_name = std::env::var("HOSTNAME").unwrap();
         // get node internal ip
+        let cni_metrics = metrics.clone();
         let node_addr = get_node_addr(&node_name).await;
         let kube_client = Client::try_default().await.unwrap();
         let cni_server = CNIServer::new(
@@ -130,6 +149,7 @@ async fn run(a: Agent, trace_config: TraceConfig) {
             node_addr,
             CNI_ROUTE_TABLE_ID,
             receiver,
+            cni_metrics,
         );
 
         let cni_endpoint = a.cni_endpoint.expect("cni endpoint must be given");

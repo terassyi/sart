@@ -14,7 +14,7 @@ use tokio::sync::RwLock;
 
 use sartd_trace::error::TraceableError;
 
-use crate::metrics::Metrics;
+use super::metrics::Metrics;
 
 pub trait Ctx {
     fn metrics(&self) -> Arc<Mutex<Metrics>>;

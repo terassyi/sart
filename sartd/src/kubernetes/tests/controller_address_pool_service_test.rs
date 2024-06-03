@@ -1,5 +1,4 @@
-use std::sync::Arc;
-use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use common::{cleanup_kind, setup_kind};
 
@@ -9,8 +8,11 @@ use kube::{
 };
 use sartd_ipam::manager::BlockAllocator;
 use sartd_kubernetes::{
-    context::{State, Ctx},
-    controller,
+    controller::{
+        self,
+        context::{Ctx, State},
+        metrics::Metrics,
+    },
     crd::{address_block::AddressBlock, address_pool::AddressPool},
     fixture::{reconciler::test_address_pool_lb, test_trace},
 };
@@ -28,7 +30,12 @@ async fn integration_test_address_pool() {
     tracing::info!("Getting kube client");
     let client = Client::try_default().await.unwrap();
     let block_allocator = Arc::new(BlockAllocator::default());
-    let ctx = State::default().to_context_with(client.clone(), 30, block_allocator);
+    let ctx = State::default().to_context_with(
+        client.clone(),
+        30,
+        block_allocator,
+        Arc::new(Mutex::new(Metrics::default())),
+    );
 
     let ap = test_address_pool_lb();
 

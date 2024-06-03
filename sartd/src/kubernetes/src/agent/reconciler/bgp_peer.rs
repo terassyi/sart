@@ -1,9 +1,12 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use futures::StreamExt;
 use k8s_openapi::api::discovery::v1::EndpointSlice;
 use kube::{
-    api::{ListParams, PostParams},
+    api::{ListParams, Patch, PatchParams, PostParams},
     runtime::{
         controller::Action,
         finalizer::{finalizer, Event},
@@ -15,8 +18,12 @@ use kube::{
 use tracing::{field, Span};
 
 use crate::{
-    agent::{bgp::speaker, error::Error},
-    context::{error_policy, Context, State},
+    agent::{
+        bgp::speaker,
+        context::{error_policy, Context, Ctx, State},
+        error::Error,
+        metrics::Metrics,
+    },
     controller::reconciler::endpointslice_watcher::ENDPOINTSLICE_TRIGGER,
     crd::{
         bgp_advertisement::{AdvertiseStatus, BGPAdvertisement},
@@ -34,6 +41,11 @@ use super::node_bgp::{DEFAULT_SPEAKER_TIMEOUT, ENV_HOSTNAME};
 #[tracing::instrument(skip_all, fields(trace_id))]
 pub async fn reconciler(bp: Arc<BGPPeer>, ctx: Arc<Context>) -> Result<Action, Error> {
     let bgp_peers = Api::<BGPPeer>::all(ctx.client.clone());
+
+    ctx.metrics()
+        .lock()
+        .map_err(|_| Error::FailedToGetLock)?
+        .reconciliation(bp.as_ref());
 
     finalizer(&bgp_peers, BGP_PEER_FINALIZER, bp, |event| async {
         match event {
@@ -113,6 +125,21 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
                                             new_state = ?new_state,
                                             "peer state is changed"
                                         );
+                                        // update metrics
+                                        {
+                                            let metrics = ctx.metrics();
+                                            let metrics = metrics
+                                                .lock()
+                                                .map_err(|_| Error::FailedToGetLock)?;
+                                            metrics.bgp_peer_status_down(
+                                                &bp.name_any(),
+                                                &format!("{}", cond.status),
+                                            );
+                                            metrics.bgp_peer_status_up(
+                                                &bp.name_any(),
+                                                &format!("{new_state}"),
+                                            );
+                                        }
                                         conditions.push(BGPPeerCondition {
                                             status: BGPPeerConditionStatus::try_from(status as i32)
                                                 .map_err(Error::CRD)?,
@@ -153,6 +180,10 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
                                     status: state,
                                     reason: "Synchronized by BGPPeer reconciler".to_string(),
                                 }]);
+                                ctx.metrics()
+                                    .lock()
+                                    .map_err(|_| Error::FailedToGetLock)?
+                                    .bgp_peer_status_up(&bp.name_any(), &format!("{state}"));
                                 need_status_update = true;
                             }
                         },
@@ -173,6 +204,10 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
                                     reason: "Synchronized by BGPPeer reconciler".to_string(),
                                 }]),
                             });
+                            ctx.metrics()
+                                .lock()
+                                .map_err(|_| Error::FailedToGetLock)?
+                                .bgp_peer_status_up(&bp.name_any(), &format!("{state}"));
                             need_status_update = true;
                         }
                     }
@@ -416,7 +451,7 @@ async fn cleanup(_api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Result
 }
 
 #[tracing::instrument(skip_all, fields(trace_id))]
-pub async fn run(state: State, interval: u64) {
+pub async fn run(state: State, interval: u64, metrics: Arc<Mutex<Metrics>>) {
     let client = Client::try_default()
         .await
         .expect("Failed to create kube client");
@@ -439,7 +474,7 @@ pub async fn run(state: State, interval: u64) {
         .run(
             reconciler,
             error_policy::<BGPPeer, Error, Context>,
-            state.to_context(client, interval),
+            state.to_context(client, interval, metrics),
         )
         .filter_map(|x| async move { std::result::Result::ok(x) })
         .for_each(|_| futures::future::ready(()))

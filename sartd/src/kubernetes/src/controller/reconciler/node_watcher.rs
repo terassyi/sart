@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use futures::StreamExt;
 use k8s_openapi::api::core::v1::Node;
@@ -15,8 +15,11 @@ use kube::{
 use tracing::{field, Span};
 
 use crate::{
-    context::{error_policy, Context, State},
-    controller::error::Error,
+    controller::{
+        context::{error_policy, Context, State, Ctx},
+        error::Error,
+        metrics::Metrics,
+    },
     crd::{
         cluster_bgp::{ClusterBGP, ClusterBGPStatus},
         node_bgp::NodeBGP,
@@ -28,6 +31,9 @@ pub const NODE_FINALIZER: &str = "node.sart.terassyi.net/finalizer";
 #[tracing::instrument(skip_all, fields(trace_id))]
 pub async fn reconciler(node: Arc<Node>, ctx: Arc<Context>) -> Result<Action, Error> {
     let nodes = Api::<Node>::all(ctx.client.clone());
+    let metrics = ctx.metrics();
+    metrics.lock().map_err(|_| Error::FailedToGetLock)?.reconciliation(node.as_ref());
+
     finalizer(&nodes, NODE_FINALIZER, node, |event| async {
         match event {
             Event::Apply(node) => reconcile(&nodes, &node, ctx.clone()).await,
@@ -106,7 +112,7 @@ async fn cleanup(_api: &Api<Node>, node: &Node, ctx: Arc<Context>) -> Result<Act
     Ok(Action::await_change())
 }
 
-pub async fn run(state: State, interval: u64) {
+pub async fn run(state: State, interval: u64, metrics: Arc<Mutex<Metrics>>) {
     let client = Client::try_default()
         .await
         .expect("Failed to create kube client");
@@ -118,7 +124,7 @@ pub async fn run(state: State, interval: u64) {
         .run(
             reconciler,
             error_policy::<Node, Error, Context>,
-            state.to_context(client, interval),
+            state.to_context(client, interval, metrics),
         )
         .filter_map(|x| async move { std::result::Result::ok(x) })
         .for_each(|_| futures::future::ready(()))

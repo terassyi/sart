@@ -30,10 +30,13 @@ use tokio_stream::wrappers::UnixListenerStream;
 use tonic::{async_trait, transport::Server, Request, Response, Status};
 
 use crate::{
-    agent::cni::{
-        netlink::{self, ContainerLinkInfo},
-        netns::{self, get_current_netns, NetNS},
-        pod::{cleanup_links, setup_links},
+    agent::{
+        cni::{
+            netlink::{self, ContainerLinkInfo},
+            netns::{self, get_current_netns, NetNS},
+            pod::{cleanup_links, setup_links},
+        },
+        metrics::Metrics,
     },
     crd::{
         address_block::{AddressBlock, ADDRESS_BLOCK_NODE_LABEL},
@@ -66,6 +69,7 @@ struct CNIServerInner {
 pub struct CNIServer {
     // consider some better type.
     inner: Arc<Mutex<CNIServerInner>>,
+    metrics: Arc<std::sync::Mutex<Metrics>>,
 }
 
 impl CNIServer {
@@ -76,11 +80,13 @@ impl CNIServer {
         node_addr: IpAddr,
         table: u32,
         receiver: UnboundedReceiver<AddressBlock>,
+        metrics: Arc<std::sync::Mutex<Metrics>>,
     ) -> CNIServer {
         CNIServer {
             inner: Arc::new(Mutex::new(CNIServerInner::new(
                 client, allocator, node, node_addr, table, receiver,
             ))),
+            metrics,
         }
     }
 
@@ -135,7 +141,7 @@ impl CNIServerInner {
         let pod = pod_api.get(&pod_info.name).await.map_err(Error::Kube)?;
         let pool = self.get_pool(&pod_info, &pod).await?;
 
-        if self.allocation.get(&pod_key).is_some() {
+        if self.allocation.contains_key(&pod_key) {
             return Err(Error::AlreadyConfigured(pod_key));
         }
 
@@ -791,7 +797,12 @@ impl CniApi for CNIServer {
         let args = req.get_ref();
         let mut inner = self.inner.lock().await;
         match inner.add(args).await {
-            Ok(res) => Ok(Response::new(res)),
+            Ok(res) => {
+                if let Ok(metrics) = self.metrics.lock() {
+                    metrics.cni_call("add");
+                }
+                Ok(Response::new(res))
+            }
             Err(e) => {
                 tracing::error!(error=?e, "Failed to add");
                 let cni_err = rscni::error::Error::from(e);
@@ -800,6 +811,9 @@ impl CniApi for CNIServer {
                     msg: cni_err.to_string(),
                     details: cni_err.details(),
                 };
+                if let Ok(metrics) = self.metrics.lock() {
+                    metrics.cni_errors("add", &format!("{}", u32::from(&cni_err)));
+                }
                 let v = match serde_json::to_vec(&error_result) {
                     Ok(v) => v,
                     Err(e) => {
@@ -834,7 +848,12 @@ impl CniApi for CNIServer {
         let args = req.get_ref();
         let mut inner = self.inner.lock().await;
         match inner.del(args).await {
-            Ok(res) => Ok(Response::new(res)),
+            Ok(res) => {
+                if let Ok(metrics) = self.metrics.lock() {
+                    metrics.cni_call("del");
+                }
+                Ok(Response::new(res))
+            }
             Err(e) => {
                 tracing::error!(error=?e, "Failed to delete");
                 let cni_err = rscni::error::Error::from(e);
@@ -843,6 +862,9 @@ impl CniApi for CNIServer {
                     msg: cni_err.to_string(),
                     details: cni_err.details(),
                 };
+                if let Ok(metrics) = self.metrics.lock() {
+                    metrics.cni_errors("del", &format!("{}", u32::from(&cni_err)));
+                }
                 let v = match serde_json::to_vec(&error_result) {
                     Ok(v) => v,
                     Err(e) => {
@@ -877,7 +899,12 @@ impl CniApi for CNIServer {
         let args = req.get_ref();
         let inner = self.inner.lock().await;
         match inner.check(args).await {
-            Ok(res) => Ok(Response::new(res)),
+            Ok(res) => {
+                if let Ok(metrics) = self.metrics.lock() {
+                    metrics.cni_call("check");
+                }
+                Ok(Response::new(res))
+            }
             Err(e) => {
                 tracing::error!(error=?e, "Failed to check");
                 let cni_err = rscni::error::Error::from(e);
@@ -886,6 +913,9 @@ impl CniApi for CNIServer {
                     msg: cni_err.to_string(),
                     details: cni_err.details(),
                 };
+                if let Ok(metrics) = self.metrics.lock() {
+                    metrics.cni_errors("check", &format!("{}", u32::from(&cni_err)));
+                }
                 let v = match serde_json::to_vec(&error_result) {
                     Ok(v) => v,
                     Err(e) => {
@@ -1033,16 +1063,23 @@ impl From<Error> for rscni::error::Error {
 
 #[cfg(test)]
 mod tests {
-    use std::{net::IpAddr, str::FromStr, sync::Arc};
+    use std::{
+        net::IpAddr,
+        str::FromStr,
+        sync::{Arc, Mutex},
+    };
 
     use ipnet::IpNet;
     use kube::Client;
     use sartd_ipam::manager::{AllocatorSet, Block};
     use tokio::sync::mpsc::unbounded_channel;
 
-    use crate::agent::cni::{
-        pod::{PodAllocation, PodInfo},
-        server::{CNIServerInner, CNI_ROUTE_TABLE_ID},
+    use crate::agent::{
+        cni::{
+            pod::{PodAllocation, PodInfo},
+            server::{CNIServerInner, CNI_ROUTE_TABLE_ID},
+        },
+        metrics::Metrics,
     };
 
     #[tokio::test]

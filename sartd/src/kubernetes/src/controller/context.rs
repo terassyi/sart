@@ -1,20 +1,25 @@
 use std::{sync::{Arc, Mutex}, time::Duration};
 
 use chrono::{DateTime, Utc};
+use http::{Request, Response};
+use hyper::Body;
 pub use kube::{
-    core::{DynamicResourceScope, ObjectMeta},
+    core::DynamicResourceScope,
     runtime::{
         controller::Action,
         events::{Recorder, Reporter},
     },
     Client, Resource,
 };
+use prometheus::Registry;
 use serde::Serialize;
 use tokio::sync::RwLock;
 
 use sartd_trace::error::TraceableError;
 
-use crate::metrics::Metrics;
+use crate::fixture::reconciler::ApiServerVerifier;
+
+use super::metrics::Metrics;
 
 pub trait Ctx {
     fn metrics(&self) -> Arc<Mutex<Metrics>>;
@@ -156,4 +161,38 @@ pub fn error_policy<T: Resource<DynamicType = ()>, E: TraceableError, C: Ctx>(
     let metrics = ctx.metrics();
     metrics.lock().unwrap().reconcile_failure(resource.as_ref());
     Action::requeue(Duration::from_secs(10))
+}
+
+impl Context {
+    pub fn test() -> (Arc<Self>, ApiServerVerifier, Registry) {
+        let (mock_service, handle) = tower_test::mock::pair::<Request<Body>, Response<Body>>();
+        let mock_client = Client::new(mock_service, "default");
+        let registry = Registry::default();
+        let ctx = Self {
+            client: mock_client,
+            metrics: Arc::new(Mutex::new(Metrics::default().register(&registry).unwrap())),
+            diagnostics: Arc::default(),
+            interval: 30,
+        };
+        (Arc::new(ctx), ApiServerVerifier(handle), registry)
+    }
+}
+
+impl<T: Clone> ContextWith<T> {
+    pub fn test(component: T) -> (Arc<Self>, ApiServerVerifier, Registry) {
+        let (mock_service, handle) = tower_test::mock::pair::<Request<Body>, Response<Body>>();
+        let mock_client = Client::new(mock_service, "default");
+        let registry = Registry::default();
+        let ctx = Context {
+            client: mock_client,
+            metrics: Arc::new(Mutex::new(Metrics::default().register(&registry).unwrap())),
+            diagnostics: Arc::default(),
+            interval: 30,
+        };
+        let ctx_with = Self {
+            inner: ctx,
+            component,
+        };
+        (Arc::new(ctx_with), ApiServerVerifier(handle), registry)
+    }
 }

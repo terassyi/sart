@@ -1,9 +1,9 @@
-use std::{collections::BTreeMap, str::FromStr, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, str::FromStr, sync::{Arc, Mutex}, time::Duration};
 
 use futures::StreamExt;
 use ipnet::IpNet;
 use kube::{
-    api::{DeleteParams, ListParams, PatchParams, PostParams},
+    api::{DeleteParams, ListParams, PostParams},
     core::ObjectMeta,
     runtime::{
         controller::Action,
@@ -17,8 +17,12 @@ use sartd_ipam::manager::{AllocatorSet, Block};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
-    agent::{error::Error, reconciler::node_bgp::ENV_HOSTNAME},
-    context::{error_policy, ContextWith, Ctx, State},
+    agent::{
+        context::{error_policy, ContextWith, Ctx, State},
+        error::Error,
+        metrics::Metrics,
+        reconciler::node_bgp::ENV_HOSTNAME,
+    },
     crd::{
         address_block::{AddressBlock, ADDRESS_BLOCK_FINALIZER_AGENT, ADDRESS_BLOCK_NODE_LABEL},
         address_pool::{AddressType, ADDRESS_POOL_ANNOTATION},
@@ -41,6 +45,8 @@ pub async fn reconciler(
     ab: Arc<AddressBlock>,
     ctx: Arc<ContextWith<Arc<PodAllocator>>>,
 ) -> Result<Action, Error> {
+
+    ctx.metrics().lock().map_err(|_| Error::FailedToGetLock)?.reconciliation(ab.as_ref());
     // handle only Pod type
     if ab.spec.r#type.ne(&AddressType::Pod) {
         return Ok(Action::await_change());
@@ -282,7 +288,12 @@ async fn cleanup(
     Ok(Action::await_change())
 }
 
-pub async fn run(state: State, interval: u64, pod_allocator: Arc<PodAllocator>) {
+pub async fn run(
+    state: State,
+    interval: u64,
+    pod_allocator: Arc<PodAllocator>,
+    metrics: Arc<Mutex<Metrics>>,
+) {
     let client = Client::try_default()
         .await
         .expect("Failed to create kube client");
@@ -304,7 +315,7 @@ pub async fn run(state: State, interval: u64, pod_allocator: Arc<PodAllocator>) 
         .run(
             reconciler,
             error_policy::<AddressBlock, Error, ContextWith<Arc<PodAllocator>>>,
-            state.to_context_with::<Arc<PodAllocator>>(client, interval, pod_allocator),
+            state.to_context_with::<Arc<PodAllocator>>(client, interval, pod_allocator, metrics),
         )
         .filter_map(|x| async move { std::result::Result::ok(x) })
         .for_each(|_| futures::future::ready(()))

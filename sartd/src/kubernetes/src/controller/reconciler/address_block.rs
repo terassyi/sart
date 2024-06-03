@@ -1,4 +1,7 @@
-use std::{str::FromStr, sync::Arc};
+use std::{
+    str::FromStr,
+    sync::{Arc, Mutex},
+};
 
 use futures::StreamExt;
 use ipnet::IpNet;
@@ -16,8 +19,11 @@ use sartd_ipam::manager::{AllocatorSet, Block, BlockAllocator};
 use tracing::{field, Span};
 
 use crate::{
-    context::{error_policy, ContextWith, Ctx, State},
-    controller::error::Error,
+    controller::{
+        context::{error_policy, ContextWith, Ctx, State},
+        error::Error,
+        metrics::Metrics,
+    },
     crd::{
         address_block::{AddressBlock, ADDRESS_BLOCK_FINALIZER_CONTROLLER},
         address_pool::AddressType,
@@ -36,6 +42,11 @@ pub async fn reconciler(
     ctx: Arc<ContextWith<ControllerAddressBlockContext>>,
 ) -> Result<Action, Error> {
     let address_blocks = Api::<AddressBlock>::all(ctx.client().clone());
+    let metrics = ctx.inner.metrics();
+    metrics
+        .lock()
+        .map_err(|_| Error::FailedToGetLock)?
+        .reconciliation(ab.as_ref());
 
     finalizer(
         &address_blocks,
@@ -67,8 +78,8 @@ async fn reconcile(
 #[tracing::instrument(skip_all)]
 async fn reconcile_pod(
     _api: &Api<AddressBlock>,
-    _ab: &AddressBlock,
-    _ctx: Arc<ContextWith<ControllerAddressBlockContext>>,
+    ab: &AddressBlock,
+    ctx: Arc<ContextWith<ControllerAddressBlockContext>>,
 ) -> Result<Action, Error> {
     Ok(Action::await_change())
 }
@@ -133,6 +144,11 @@ async fn reconcile_service(
         None => {
             let block = Block::new(ab.name_any(), ab.name_any(), cidr).map_err(Error::Ipam)?;
             alloc_set.blocks.insert(ab.name_any(), block);
+
+            ctx.metrics()
+                .lock()
+                .map_err(|_| Error::FailedToGetLock)?
+                .allocated_blocks_inc(&ab.spec.pool_ref, &format!("{}", ab.spec.r#type));
             if ab.spec.auto_assign {
                 match &alloc_set.auto_assign {
                     Some(_a) => {
@@ -179,6 +195,11 @@ async fn cleanup_pod(
         if let Some(pool) = block_allocator.get_mut(&ab.spec.pool_ref) {
             tracing::info!(pool=ab.spec.pool_ref, cidr=?pool.cidr, block_size=pool.block_size,"Remove the pool from the block allocator");
             pool.release(index).map_err(Error::Ipam)?;
+
+            ctx.metrics()
+                .lock()
+                .map_err(|_| Error::FailedToGetLock)?
+                .allocated_blocks_dec(&ab.spec.pool_ref, &format!("{}", ab.spec.r#type));
         }
     }
     Ok(Action::await_change())
@@ -218,12 +239,22 @@ async fn cleanup_service(
     if deletable {
         tracing::warn!(name = ab.name_any(), "delete block");
         alloc_set.remove(&ab.name_any());
+
+        ctx.metrics()
+            .lock()
+            .map_err(|_| Error::FailedToGetLock)?
+            .allocated_blocks_dec(&ab.spec.pool_ref, &format!("{}", ab.spec.r#type));
     }
 
     Ok(Action::await_change())
 }
 
-pub async fn run(state: State, interval: u64, ctx: ControllerAddressBlockContext) {
+pub async fn run(
+    state: State,
+    interval: u64,
+    ctx: ControllerAddressBlockContext,
+    metrics: Arc<Mutex<Metrics>>,
+) {
     let client = Client::try_default()
         .await
         .expect("Failed to create kube client");
@@ -242,7 +273,7 @@ pub async fn run(state: State, interval: u64, ctx: ControllerAddressBlockContext
         .run(
             reconciler,
             error_policy::<AddressBlock, Error, ContextWith<ControllerAddressBlockContext>>,
-            state.to_context_with::<ControllerAddressBlockContext>(client, interval, ctx),
+            state.to_context_with::<ControllerAddressBlockContext>(client, interval, ctx, metrics),
         )
         .filter_map(|x| async move { std::result::Result::ok(x) })
         .for_each(|_| futures::future::ready(()))
@@ -258,8 +289,11 @@ mod tests {
     use sartd_ipam::manager::{AllocatorSet, Block, BlockAllocator};
 
     use crate::{
-        context::{ContextWith, Ctx},
-        controller::{error::Error, reconciler::address_block::ControllerAddressBlockContext},
+        controller::{
+            context::{ContextWith, Ctx},
+            error::Error,
+            reconciler::address_block::ControllerAddressBlockContext,
+        },
         crd::address_block::{AddressBlock, AddressBlockSpec},
         fixture::reconciler::{timeout_after_1s, ApiServerVerifier},
     };

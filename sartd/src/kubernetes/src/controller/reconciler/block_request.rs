@@ -2,7 +2,7 @@ use std::{
     collections::BTreeMap,
     net::{Ipv4Addr, Ipv6Addr},
     str::FromStr,
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
 use futures::StreamExt;
@@ -20,8 +20,11 @@ use kube::{
 use sartd_ipam::manager::BlockAllocator;
 
 use crate::{
-    context::{error_policy, ContextWith, Ctx, State},
-    controller::error::Error,
+    controller::{
+        context::{error_policy, ContextWith, Ctx, State},
+        error::Error,
+        metrics::Metrics,
+    },
     crd::{
         address_block::{AddressBlock, AddressBlockSpec, AddressBlockStatus},
         address_pool::{AddressPool, AddressType, ADDRESS_POOL_ANNOTATION},
@@ -35,6 +38,11 @@ pub async fn reconciler(
     ctx: Arc<ContextWith<Arc<BlockAllocator>>>,
 ) -> Result<Action, Error> {
     let block_request_api = Api::<BlockRequest>::all(ctx.client().clone());
+    let metrics = ctx.inner.metrics();
+    metrics
+        .lock()
+        .map_err(|_| Error::FailedToGetLock)?
+        .reconciliation(br.as_ref());
 
     finalizer(
         &block_request_api,
@@ -153,6 +161,11 @@ async fn reconcile(
                 .patch_status(&ab.name_any(), &ssapply, &ab_patch)
                 .await
                 .map_err(Error::Kube)?;
+
+            ctx.metrics()
+                .lock()
+                .map_err(|_| Error::FailedToGetLock)?
+                .allocated_blocks_inc(&ab.spec.pool_ref, &format!("{}", ab.spec.r#type));
         }
     }
 
@@ -169,7 +182,12 @@ async fn cleanup(
     Ok(Action::await_change())
 }
 
-pub async fn run(state: State, interval: u64, block_allocator: Arc<BlockAllocator>) {
+pub async fn run(
+    state: State,
+    interval: u64,
+    block_allocator: Arc<BlockAllocator>,
+    metrics: Arc<Mutex<Metrics>>,
+) {
     let client = Client::try_default()
         .await
         .expect("Failed to create kube client");
@@ -191,7 +209,7 @@ pub async fn run(state: State, interval: u64, block_allocator: Arc<BlockAllocato
         .run(
             reconciler,
             error_policy::<BlockRequest, Error, ContextWith<Arc<BlockAllocator>>>,
-            state.to_context_with(client, interval, block_allocator),
+            state.to_context_with(client, interval, block_allocator, metrics),
         )
         .filter_map(|x| async move { std::result::Result::ok(x) })
         .for_each(|_| futures::future::ready(()))

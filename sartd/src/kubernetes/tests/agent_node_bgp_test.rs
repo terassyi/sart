@@ -1,12 +1,11 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use kube::{
     api::{DeleteParams, Patch, PatchParams},
     Api, Client, ResourceExt,
 };
 use sartd_kubernetes::{
-    agent,
-    context::State,
+    agent::{self, context::State, metrics::Metrics},
     crd::{
         bgp_peer::BGPPeer,
         node_bgp::{NodeBGP, NodeBGPCondition, NodeBGPConditionReason, NodeBGPConditionStatus},
@@ -33,7 +32,7 @@ async fn integration_test_agent_node_bgp() {
 
     tracing::info!("Getting kube client");
     let client = Client::try_default().await.unwrap();
-    let ctx = State::default().to_context(client.clone(), 30);
+    let ctx = State::default().to_context(client.clone(), 30, Arc::new(Mutex::new(Metrics::default())));
 
     let nb = test_node_bgp();
     let nb_api = Api::<NodeBGP>::all(ctx.client.clone());

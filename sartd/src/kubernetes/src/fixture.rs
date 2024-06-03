@@ -1,6 +1,6 @@
 // #[cfg(test)]
 pub mod reconciler {
-    use std::{collections::BTreeMap, sync::Arc};
+    use std::{collections::BTreeMap, sync::{Arc, Mutex}};
 
     use http::{Request, Response};
     use hyper::Body;
@@ -20,7 +20,6 @@ pub mod reconciler {
         Client, Resource, ResourceExt,
     };
     use prometheus::Registry;
-    use sartd_trace::metrics::Metrics;
     use serde::Serialize;
 
     use crate::{
@@ -29,7 +28,10 @@ pub mod reconciler {
             endpointslice_watcher::ENDPOINTSLICE_FINALIZER, service_watcher::SERVICE_FINALIZER,
         },
         crd::{
-            address_block::{AddressBlock, AddressBlockSpec, ADDRESS_BLOCK_FINALIZER_AGENT, ADDRESS_BLOCK_FINALIZER_CONTROLLER},
+            address_block::{
+                AddressBlock, AddressBlockSpec, ADDRESS_BLOCK_FINALIZER_AGENT,
+                ADDRESS_BLOCK_FINALIZER_CONTROLLER,
+            },
             address_pool::{
                 AddressPool, AddressPoolSpec, AddressType, AllocationType, ADDRESS_POOL_FINALIZER,
             },
@@ -45,6 +47,7 @@ pub mod reconciler {
             },
             node_bgp::{NodeBGP, NodeBGPSpec},
         },
+        metrics::Metrics,
     };
 
     pub type ApiServerHandle = tower_test::mock::Handle<Request<Body>, Response<Body>>;
@@ -64,7 +67,7 @@ pub mod reconciler {
             let registry = Registry::default();
             let ctx = Self {
                 client: mock_client,
-                metrics: Metrics::default().register(&registry).unwrap(),
+                metrics: Arc::new(Mutex::new(Metrics::default().register(&registry).unwrap())),
                 diagnostics: Arc::default(),
                 interval: 30,
             };
@@ -79,7 +82,7 @@ pub mod reconciler {
             let registry = Registry::default();
             let ctx = Context {
                 client: mock_client,
-                metrics: Metrics::default().register(&registry).unwrap(),
+                metrics: Arc::new(Mutex::new(Metrics::default().register(&registry).unwrap())),
                 diagnostics: Arc::default(),
                 interval: 30,
             };
@@ -287,7 +290,10 @@ pub mod reconciler {
     pub fn test_address_block_lb() -> AddressBlock {
         AddressBlock {
             metadata: ObjectMeta {
-                finalizers: Some(vec![ADDRESS_BLOCK_FINALIZER_CONTROLLER.to_string(), ADDRESS_BLOCK_FINALIZER_AGENT.to_string()]),
+                finalizers: Some(vec![
+                    ADDRESS_BLOCK_FINALIZER_CONTROLLER.to_string(),
+                    ADDRESS_BLOCK_FINALIZER_AGENT.to_string(),
+                ]),
                 name: Some("test-pool".to_string()),
                 ..Default::default()
             },
@@ -305,7 +311,10 @@ pub mod reconciler {
     pub fn test_address_block_lb_non_default() -> AddressBlock {
         AddressBlock {
             metadata: ObjectMeta {
-                finalizers: Some(vec![ADDRESS_BLOCK_FINALIZER_CONTROLLER.to_string(), ADDRESS_BLOCK_FINALIZER_AGENT.to_string()]),
+                finalizers: Some(vec![
+                    ADDRESS_BLOCK_FINALIZER_CONTROLLER.to_string(),
+                    ADDRESS_BLOCK_FINALIZER_AGENT.to_string(),
+                ]),
                 name: Some("test-pool-non-default".to_string()),
                 ..Default::default()
             },
@@ -359,7 +368,10 @@ pub mod reconciler {
     pub fn test_address_block_pod() -> AddressBlock {
         AddressBlock {
             metadata: ObjectMeta {
-                finalizers: Some(vec![ADDRESS_BLOCK_FINALIZER_CONTROLLER.to_string(), ADDRESS_BLOCK_FINALIZER_AGENT.to_string()]),
+                finalizers: Some(vec![
+                    ADDRESS_BLOCK_FINALIZER_CONTROLLER.to_string(),
+                    ADDRESS_BLOCK_FINALIZER_AGENT.to_string(),
+                ]),
                 name: Some("test-pool-sart-integration-control-plane-10.0.0.0".to_string()),
                 ..Default::default()
             },
@@ -377,7 +389,10 @@ pub mod reconciler {
     pub fn test_address_block_pod2() -> AddressBlock {
         AddressBlock {
             metadata: ObjectMeta {
-                finalizers: Some(vec![ADDRESS_BLOCK_FINALIZER_CONTROLLER.to_string(), ADDRESS_BLOCK_FINALIZER_AGENT.to_string()]),
+                finalizers: Some(vec![
+                    ADDRESS_BLOCK_FINALIZER_CONTROLLER.to_string(),
+                    ADDRESS_BLOCK_FINALIZER_AGENT.to_string(),
+                ]),
                 name: Some("test-pool-sart-integration-control-plane-10.0.0.32".to_string()),
                 ..Default::default()
             },
@@ -395,7 +410,10 @@ pub mod reconciler {
     pub fn test_address_block_pod_non_default() -> AddressBlock {
         AddressBlock {
             metadata: ObjectMeta {
-                finalizers: Some(vec![ADDRESS_BLOCK_FINALIZER_CONTROLLER.to_string(), ADDRESS_BLOCK_FINALIZER_AGENT.to_string()]),
+                finalizers: Some(vec![
+                    ADDRESS_BLOCK_FINALIZER_CONTROLLER.to_string(),
+                    ADDRESS_BLOCK_FINALIZER_AGENT.to_string(),
+                ]),
                 name: Some("test-pool-non-default-sart-integration-10.1.0.0".to_string()),
                 ..Default::default()
             },

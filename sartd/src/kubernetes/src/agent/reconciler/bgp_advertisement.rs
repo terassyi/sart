@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{sync::{Arc, Mutex}, time::Duration};
 
 use futures::StreamExt;
 use kube::{
@@ -9,8 +9,12 @@ use kube::{
 use tracing::{field, Span};
 
 use crate::{
-    agent::{bgp::speaker, error::Error},
-    context::{error_policy, Context, State},
+    agent::{
+        bgp::speaker,
+        context::{error_policy, Context, State, Ctx},
+        error::Error,
+        metrics::Metrics,
+    },
     crd::{
         bgp_advertisement::{AdvertiseStatus, BGPAdvertisement, Protocol},
         bgp_peer::{BGPPeer, BGPPeerConditionStatus},
@@ -22,7 +26,7 @@ use crate::{
 use super::node_bgp::{DEFAULT_SPEAKER_TIMEOUT, ENV_HOSTNAME};
 
 #[tracing::instrument(skip_all, fields(trace_id))]
-pub async fn run(state: State, interval: u64) {
+pub async fn run(state: State, interval: u64, metrics: Arc<Mutex<Metrics>>) {
     let client = Client::try_default()
         .await
         .expect("Failed to create kube client");
@@ -47,7 +51,7 @@ pub async fn run(state: State, interval: u64) {
         .run(
             reconciler,
             error_policy::<BGPAdvertisement, Error, Context>,
-            state.to_context(client, interval),
+            state.to_context(client, interval, metrics),
         )
         .filter_map(|x| async move { std::result::Result::ok(x) })
         .for_each(|_| futures::future::ready(()))
@@ -57,6 +61,8 @@ pub async fn run(state: State, interval: u64) {
 #[tracing::instrument(skip_all, fields(trace_id))]
 pub async fn reconciler(ba: Arc<BGPAdvertisement>, ctx: Arc<Context>) -> Result<Action, Error> {
     let ns = get_namespace::<BGPAdvertisement>(&ba).map_err(Error::KubeLibrary)?;
+
+    ctx.metrics().lock().map_err(|_| Error::FailedToGetLock)?.reconciliation(ba.as_ref());
 
     let bgp_advertisements = Api::<BGPAdvertisement>::namespaced(ctx.client.clone(), &ns);
 

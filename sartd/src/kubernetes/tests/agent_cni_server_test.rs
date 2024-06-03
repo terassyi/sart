@@ -1,4 +1,4 @@
-use std::{net::IpAddr, str::FromStr, sync::Arc, time::Duration};
+use std::{net::IpAddr, str::FromStr, sync::{Arc, Mutex}, time::Duration};
 
 use crate::common::{setup_kind, TestContainer, TestRoutingRule};
 

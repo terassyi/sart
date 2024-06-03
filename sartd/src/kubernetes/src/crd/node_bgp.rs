@@ -1,3 +1,5 @@
+use core::fmt;
+
 use kube::CustomResource;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -46,6 +48,15 @@ pub enum NodeBGPConditionStatus {
     Available,
     #[default]
     Unavailable,
+}
+
+impl std::fmt::Display for NodeBGPConditionStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Available => write!(f, "available"),
+            Self::Unavailable => write!(f, "unavailable"),
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize, Clone, Default, Debug, JsonSchema, PartialEq, Eq)]

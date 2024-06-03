@@ -1,4 +1,4 @@
-use std::{collections::HashMap, str::FromStr, sync::Arc};
+use std::{collections::HashMap, str::FromStr, sync::{Arc, Mutex}};
 
 use actix_web::{
     get, middleware, post,
@@ -15,10 +15,14 @@ use sartd_ipam::manager::{AllocatorSet, BlockAllocator, Pool};
 use sartd_trace::init::{prepare_tracing, TraceConfig};
 
 use crate::{
-    config::Mode, context::State, controller::reconciler::address_block::ControllerAddressBlockContext, crd::{
+    config::Mode,
+    controller::{
+        context::State, metrics::Metrics, reconciler::address_block::ControllerAddressBlockContext,
+    },
+    crd::{
         address_block::AddressBlock, address_pool::AddressPool,
         bgp_advertisement::BGPAdvertisement, bgp_peer::BGPPeer,
-    }
+    },
 };
 
 use super::{error::Error, reconciler, webhook};
@@ -90,11 +94,14 @@ async fn run(c: Controller, trace_config: TraceConfig) {
 
     let allocator_set = Arc::new(AllocatorSet::new());
 
+    let metrics = Arc::new(Mutex::new(Metrics::default().register(&state.registry).unwrap()));
+
     // Start reconcilers
     tracing::info!("Start ClusterBGP reconciler");
     let cluster_bgp_state = state.clone();
+    let cb_metrics = metrics.clone();
     tokio::spawn(async move {
-        reconciler::cluster_bgp::run(cluster_bgp_state, c.requeue_interval).await;
+        reconciler::cluster_bgp::run(cluster_bgp_state, c.requeue_interval, cb_metrics).await;
     });
 
     let client = Client::try_default()
@@ -110,12 +117,14 @@ async fn run(c: Controller, trace_config: TraceConfig) {
 
     tracing::info!("Start AddressPool reconciler");
     let address_pool_state = state.clone();
+    let ap_metrics = metrics.clone();
     let block_allocator_cloned = block_allocator.clone();
     tokio::spawn(async move {
         reconciler::address_pool::run(
             address_pool_state,
             c.requeue_interval,
             block_allocator_cloned,
+            ap_metrics,
         )
         .await;
     });
@@ -124,23 +133,26 @@ async fn run(c: Controller, trace_config: TraceConfig) {
     let address_block_state = state.clone();
     let ab_allocator_set = allocator_set.clone();
     let ab_block_allocator = block_allocator.clone();
-    let ab_ctx = ControllerAddressBlockContext{
+    let ab_ctx = ControllerAddressBlockContext {
         allocator_set: ab_allocator_set,
         block_allocator: ab_block_allocator,
     };
+    let ab_metrics = metrics.clone();
     tokio::spawn(async move {
-        reconciler::address_block::run(address_block_state, c.requeue_interval, ab_ctx)
+        reconciler::address_block::run(address_block_state, c.requeue_interval, ab_ctx, ab_metrics)
             .await;
     });
 
     if c.mode.eq(&Mode::CNI) || c.mode.eq(&Mode::Dual) {
         tracing::info!("Start BlockRequest reconciler");
         let block_request_state = state.clone();
+        let br_metrics = metrics.clone();
         tokio::spawn(async move {
             reconciler::block_request::run(
                 block_request_state,
                 c.requeue_interval,
                 block_allocator.clone(),
+                br_metrics,
             )
             .await;
         });
@@ -148,30 +160,45 @@ async fn run(c: Controller, trace_config: TraceConfig) {
 
     tracing::info!("Start Node watcher");
     let node_state = state.clone();
+    let m_metrics = metrics.clone();
     tokio::spawn(async move {
-        reconciler::node_watcher::run(node_state, c.requeue_interval).await;
+        reconciler::node_watcher::run(node_state, c.requeue_interval, m_metrics).await;
     });
 
     if c.mode.eq(&Mode::LB) || c.mode.eq(&Mode::Dual) {
         tracing::info!("Start Service watcher");
         let service_state = state.clone();
         let svc_allocator_set = allocator_set.clone();
+        let svc_metrics = metrics.clone();
         tokio::spawn(async move {
-            reconciler::service_watcher::run(service_state, c.requeue_interval, svc_allocator_set)
-                .await;
+            reconciler::service_watcher::run(
+                service_state,
+                c.requeue_interval,
+                svc_allocator_set,
+                svc_metrics,
+            )
+            .await;
         });
 
         tracing::info!("Start Endpointslice watcher");
         let endpointslice_state = state.clone();
+        let eps_metrics = metrics.clone();
         tokio::spawn(async move {
-            reconciler::endpointslice_watcher::run(endpointslice_state, c.requeue_interval).await;
+            reconciler::endpointslice_watcher::run(
+                endpointslice_state,
+                c.requeue_interval,
+                eps_metrics,
+            )
+            .await;
         });
     }
 
     tracing::info!("Start BGPAdvertisement reconciler");
     let bgp_advertisement_state = state.clone();
+    let ba_metrics = metrics.clone();
     tokio::spawn(async move {
-        reconciler::bgp_advertisement::run(bgp_advertisement_state, c.requeue_interval).await;
+        reconciler::bgp_advertisement::run(bgp_advertisement_state, c.requeue_interval, ba_metrics)
+            .await;
     });
 
     server.run().await.unwrap()
@@ -215,6 +242,7 @@ async fn metrics_(c: Data<State>, _req: HttpRequest) -> impl Responder {
     let encoder = TextEncoder::new();
     let mut buffer = vec![];
     encoder.encode(&metrics, &mut buffer).unwrap();
+    tracing::info!(data=?buffer);
     HttpResponse::Ok().body(buffer)
 }
 

@@ -1,4 +1,7 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use futures::StreamExt;
 
@@ -14,8 +17,12 @@ use kube::{
 use tracing::{field, Span};
 
 use crate::{
-    agent::{bgp::speaker, error::Error},
-    context::{error_policy, Context, State},
+    agent::{
+        bgp::speaker,
+        context::{error_policy, Context, Ctx, State},
+        error::Error,
+        metrics::Metrics,
+    },
     crd::{
         bgp_advertisement::{AdvertiseStatus, BGPAdvertisement},
         bgp_peer::{BGPPeer, BGPPeerCondition, BGPPeerConditionStatus},
@@ -33,6 +40,11 @@ pub const DEFAULT_SPEAKER_TIMEOUT: u64 = 10;
 #[tracing::instrument(skip_all, fields(trace_id))]
 pub async fn reconciler(nb: Arc<NodeBGP>, ctx: Arc<Context>) -> Result<Action, Error> {
     let node_bgps = Api::<NodeBGP>::all(ctx.client.clone());
+
+    ctx.metrics()
+        .lock()
+        .map_err(|_| Error::FailedToGetLock)?
+        .reconciliation(nb.as_ref());
 
     finalizer(&node_bgps, NODE_BGP_FINALIZER, nb, |event| async {
         match event {
@@ -78,6 +90,19 @@ async fn reconcile(api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Resul
                     )
                     .await
                     .map_err(Error::Kube)?;
+                    {
+                        let metrics = ctx.metrics();
+                        let metrics = metrics.lock().map_err(|_| Error::FailedToGetLock)?;
+                        metrics.node_bgp_status_up(
+                            &nb.name_any(),
+                            &format!("{}", NodeBGPConditionStatus::Unavailable),
+                        );
+                        metrics.node_bgp_status_down(
+                            &nb.name_any(),
+                            &format!("{}", NodeBGPConditionStatus::Available),
+                        );
+                        metrics.node_bgp_backoff_count(&nb.name_any());
+                    }
                 }
                 tracing::warn!(
                     name = nb.name_any(),
@@ -111,6 +136,19 @@ async fn reconcile(api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Resul
                     router_id = nb.spec.router_id,
                     "backoff NodeBGP"
                 );
+                {
+                    let metrics = ctx.metrics();
+                    let metrics = metrics.lock().map_err(|_| Error::FailedToGetLock)?;
+                    metrics.node_bgp_status_up(
+                        &nb.name_any(),
+                        &format!("{}", NodeBGPConditionStatus::Unavailable),
+                    );
+                    metrics.node_bgp_status_down(
+                        &nb.name_any(),
+                        &format!("{}", NodeBGPConditionStatus::Available),
+                    );
+                    metrics.node_bgp_backoff_count(&nb.name_any());
+                }
                 backoff_advertisements(nb, &ctx.client.clone()).await?;
                 tracing::warn!(
                     name = nb.name_any(),
@@ -198,6 +236,18 @@ async fn reconcile(api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Resul
         )
         .await
         .map_err(Error::Kube)?;
+        {
+            let metrics = ctx.metrics();
+            let metrics = metrics.lock().map_err(|_| Error::FailedToGetLock)?;
+            metrics.node_bgp_status_down(
+                &nb.name_any(),
+                &format!("{}", NodeBGPConditionStatus::Unavailable),
+            );
+            metrics.node_bgp_status_up(
+                &nb.name_any(),
+                &format!("{}", NodeBGPConditionStatus::Available),
+            );
+        }
 
         // add peer's backoff count
         let bgp_peer_api = Api::<BGPPeer>::all(ctx.client.clone());
@@ -267,6 +317,26 @@ async fn reconcile(api: &Api<NodeBGP>, nb: &NodeBGP, ctx: Arc<Context>) -> Resul
             reason: NodeBGPConditionReason::InvalidConfiguration,
         }
     };
+    {
+        let metrics = ctx.metrics();
+        let metrics = metrics.lock().map_err(|_| Error::FailedToGetLock)?;
+        match cond.status {
+            NodeBGPConditionStatus::Available => {
+                metrics.node_bgp_status_up(&nb.name_any(), &format!("{}", cond.status));
+                metrics.node_bgp_status_down(
+                    &nb.name_any(),
+                    &format!("{}", NodeBGPConditionStatus::Unavailable),
+                );
+            }
+            NodeBGPConditionStatus::Unavailable => {
+                metrics.node_bgp_status_up(&nb.name_any(), &format!("{}", cond.status));
+                metrics.node_bgp_status_down(
+                    &nb.name_any(),
+                    &format!("{}", NodeBGPConditionStatus::Available),
+                );
+            }
+        }
+    }
 
     let mut need_status_update = true;
     let mut new_nb = nb.clone();
@@ -400,7 +470,7 @@ async fn cleanup(_api: &Api<NodeBGP>, nb: &NodeBGP, _ctx: Arc<Context>) -> Resul
 }
 
 #[tracing::instrument(skip_all)]
-pub async fn run(state: State, interval: u64) {
+pub async fn run(state: State, interval: u64, metrics: Arc<Mutex<Metrics>>) {
     let client = Client::try_default()
         .await
         .expect("Failed to create kube client");
@@ -425,7 +495,7 @@ pub async fn run(state: State, interval: u64) {
         .run(
             reconciler,
             error_policy::<NodeBGP, Error, Context>,
-            state.to_context(client, interval),
+            state.to_context(client, interval, metrics),
         )
         .filter_map(|x| async move { std::result::Result::ok(x) })
         .for_each(|_| futures::future::ready(()))

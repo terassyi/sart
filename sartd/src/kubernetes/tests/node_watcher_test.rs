@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, sync::{Arc, Mutex}};
 
 use k8s_openapi::api::core::v1::Node;
 use kube::{
@@ -6,8 +6,9 @@ use kube::{
     Api, Client, ResourceExt,
 };
 use sartd_kubernetes::{
-    context::State,
-    controller::{self, reconciler::node_watcher::NODE_FINALIZER},
+    controller::{
+        self, context::State, metrics::Metrics, reconciler::node_watcher::NODE_FINALIZER,
+    },
     crd::{
         bgp_peer_template::BGPPeerTemplate,
         cluster_bgp::{ClusterBGP, ClusterBGPStatus},
@@ -35,7 +36,7 @@ async fn integration_test_controller_node_watcher() {
 
     tracing::info!("Getting kube client");
     let client = Client::try_default().await.unwrap();
-    let ctx = State::default().to_context(client.clone(), 30);
+    let ctx = State::default().to_context(client.clone(), 30, Arc::new(Mutex::new(Metrics::default())));
 
     let mut cb = test_cluster_bgp();
     cb.spec.node_selector = Some(BTreeMap::from([("bgp".to_string(), "a".to_string())]));

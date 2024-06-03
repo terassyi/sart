@@ -1,4 +1,4 @@
-use std::{collections::HashMap, net::IpAddr, str::FromStr, sync::Arc};
+use std::{collections::HashMap, net::IpAddr, str::FromStr, sync::{Arc, Mutex}};
 
 use common::{cleanup_kind, setup_kind};
 
@@ -10,9 +10,10 @@ use kube::{
 };
 use sartd_ipam::manager::{AllocatorSet, Block};
 use sartd_kubernetes::{
-    context::{Ctx, State},
     controller::{
         self,
+        context::{Ctx, State},
+        metrics::Metrics,
         reconciler::service_watcher::{get_allocated_lb_addrs, RELEASE_ANNOTATION},
     },
     crd::address_pool::{ADDRESS_POOL_ANNOTATION, LOADBALANCER_ADDRESS_ANNOTATION},
@@ -40,6 +41,7 @@ async fn integration_test_service_watcher() {
         client.clone(),
         30,
         allocator_set.clone(),
+        Arc::new(Mutex::new(Metrics::default())),
     );
 
     let pool_name = "test-pool";

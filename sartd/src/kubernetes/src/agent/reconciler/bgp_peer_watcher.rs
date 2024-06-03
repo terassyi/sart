@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use k8s_openapi::api::discovery::v1::EndpointSlice;
 use kube::{
     api::{ListParams, Patch, PatchParams, PostParams},
@@ -10,7 +12,7 @@ use sartd_proto::sart::{
 use tonic::{transport::Server, Request, Response, Status};
 
 use crate::{
-    agent::error::Error,
+    agent::{error::Error, metrics::Metrics},
     controller::reconciler::endpointslice_watcher::ENDPOINTSLICE_TRIGGER,
     crd::{
         bgp_advertisement::{AdvertiseStatus, BGPAdvertisement},
@@ -22,12 +24,17 @@ use crate::{
 pub struct BGPPeerStateWatcher {
     pub client: Client,
     pub api: Api<BGPPeer>,
+    pub metrics: Arc<Mutex<Metrics>>,
 }
 
 impl BGPPeerStateWatcher {
-    pub fn new(client: Client) -> Self {
+    pub fn new(client: Client, metrics: Arc<Mutex<Metrics>>) -> Self {
         let api = Api::<BGPPeer>::all(client.clone());
-        Self { client, api }
+        Self {
+            client,
+            api,
+            metrics,
+        }
     }
 }
 
@@ -71,6 +78,14 @@ impl BgpExporterApi for BGPPeerStateWatcher {
                                 status: state,
                                 reason: "Synchronized by watcher".to_string(),
                             });
+                            if let Ok(metrics) = self.metrics.lock() {
+                                metrics.bgp_peer_status_down(
+                                    &new_bp.name_any(),
+                                    &format!("{}", old_status),
+                                );
+                                metrics
+                                    .bgp_peer_status_up(&new_bp.name_any(), &format!("{}", state));
+                            }
                             if state.eq(&BGPPeerConditionStatus::Established) {
                                 established = true;
                             }
@@ -87,6 +102,9 @@ impl BgpExporterApi for BGPPeerStateWatcher {
                             status: state,
                             reason: "Synchronized by watcher".to_string(),
                         });
+                        if let Ok(metrics) = self.metrics.lock() {
+                            metrics.bgp_peer_status_up(&new_bp.name_any(), &format!("{}", state));
+                        }
                         if state.eq(&BGPPeerConditionStatus::Established) {
                             established = true;
                         }
@@ -97,6 +115,9 @@ impl BgpExporterApi for BGPPeerStateWatcher {
                         status: state,
                         reason: "Synchronized by watcher".to_string(),
                     }]);
+                    if let Ok(metrics) = self.metrics.lock() {
+                        metrics.bgp_peer_status_up(&new_bp.name_any(), &format!("{}", state));
+                    }
                     if state.eq(&BGPPeerConditionStatus::Established) {
                         established = true;
                     }
@@ -110,6 +131,9 @@ impl BgpExporterApi for BGPPeerStateWatcher {
                         reason: "Synchronized by watcher".to_string(),
                     }]),
                 });
+                if let Ok(metrics) = self.metrics.lock() {
+                    metrics.bgp_peer_status_up(&new_bp.name_any(), &format!("{}", state));
+                }
                 if state.eq(&BGPPeerConditionStatus::Established) {
                     established = true;
                 }
@@ -235,7 +259,7 @@ impl BgpExporterApi for BGPPeerStateWatcher {
 }
 
 #[tracing::instrument()]
-pub async fn run(endpoint: &str) {
+pub async fn run(endpoint: &str, metrics: Arc<Mutex<Metrics>>) {
     let client = Client::try_default()
         .await
         .expect("Failed to create kube config");
@@ -245,7 +269,9 @@ pub async fn run(endpoint: &str) {
     tracing::info!("Peer state watcher is started at {}", endpoint);
 
     Server::builder()
-        .add_service(BgpExporterApiServer::new(BGPPeerStateWatcher::new(client)))
+        .add_service(BgpExporterApiServer::new(BGPPeerStateWatcher::new(
+            client, metrics,
+        )))
         .serve(sock_addr)
         .await
         .unwrap();

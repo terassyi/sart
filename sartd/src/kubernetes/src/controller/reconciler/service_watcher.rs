@@ -1,4 +1,4 @@
-use std::{collections::HashMap, net::IpAddr, str::FromStr, sync::Arc};
+use std::{collections::HashMap, net::IpAddr, str::FromStr, sync::{Arc, Mutex}};
 
 use futures::StreamExt;
 use k8s_openapi::api::{
@@ -18,8 +18,11 @@ use kube::{
 use tracing::{field, Span};
 
 use crate::{
-    context::{error_policy, ContextWith, Ctx, State},
-    controller::error::Error,
+    controller::{
+        context::{error_policy, ContextWith, Ctx, State},
+        error::Error,
+        metrics::Metrics,
+    },
     crd::address_pool::{ADDRESS_POOL_ANNOTATION, LOADBALANCER_ADDRESS_ANNOTATION},
     util::{diff, get_namespace},
 };
@@ -39,6 +42,9 @@ pub async fn reconciler(
     ctx: Arc<ContextWith<Arc<AllocatorSet>>>,
 ) -> Result<Action, Error> {
     let ns = get_namespace::<Service>(&svc).map_err(Error::KubeLibrary)?;
+
+    let metrics = ctx.inner.metrics();
+    metrics.lock().map_err(|_| Error::FailedToGetLock)?.reconciliation(svc.as_ref());
 
     let services = Api::<Service>::namespaced(ctx.client().clone(), &ns);
 
@@ -318,7 +324,12 @@ async fn cleanup(
     Ok(Action::await_change())
 }
 
-pub async fn run(state: State, interval: u64, allocator_set: Arc<AllocatorSet>) {
+pub async fn run(
+    state: State,
+    interval: u64,
+    allocator_set: Arc<AllocatorSet>,
+    metrics: Arc<Mutex<Metrics>>,
+) {
     let client = Client::try_default()
         .await
         .expect("Failed to create kube client");
@@ -332,7 +343,7 @@ pub async fn run(state: State, interval: u64, allocator_set: Arc<AllocatorSet>) 
         .run(
             reconciler,
             error_policy::<Service, Error, ContextWith<Arc<AllocatorSet>>>,
-            state.to_context_with(client, interval, allocator_set),
+            state.to_context_with(client, interval, allocator_set, metrics),
         )
         .filter_map(|x| async move { std::result::Result::ok(x) })
         .for_each(|_| futures::future::ready(()))

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use kube::{
     api::{Patch, PatchParams},
@@ -6,8 +6,11 @@ use kube::{
 };
 use sartd_ipam::manager::BlockAllocator;
 use sartd_kubernetes::{
-    context::{Ctx, State},
-    controller,
+    controller::{
+        self,
+        context::{Ctx, State},
+        metrics::Metrics,
+    },
     crd::{address_pool::AddressPool, block_request::BlockRequest},
     fixture::{
         reconciler::{test_address_pool_pod, test_block_request},
@@ -32,7 +35,12 @@ async fn integration_test_block_request() {
 
     let block_allocator = Arc::new(BlockAllocator::default());
 
-    let ctx = State::default().to_context_with(client.clone(), 30, block_allocator);
+    let ctx = State::default().to_context_with(
+        client.clone(),
+        30,
+        block_allocator,
+        Arc::new(Mutex::new(Metrics::default())),
+    );
 
     tracing::info!("Creating AddressPool");
     let ap = test_address_pool_pod();
