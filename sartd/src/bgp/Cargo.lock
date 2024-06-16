@@ -1441,6 +1441,7 @@ dependencies = [
  "kube",
  "opentelemetry",
  "prometheus",
+ "rand",
  "tokio",
  "tracing",
  "tracing-opentelemetry",

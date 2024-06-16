@@ -1,4 +1,4 @@
-use std::{net::IpAddr, str::FromStr, sync::Arc};
+use std::{net::IpAddr, str::FromStr, sync::{Arc, Mutex}};
 
 use kube::{
     api::{DeleteParams, Patch, PatchParams},
@@ -6,8 +6,12 @@ use kube::{
 };
 use sartd_ipam::manager::{AllocatorSet, BlockAllocator};
 use sartd_kubernetes::{
-    context::{Ctx, State},
-    controller::{self, reconciler::address_block::ControllerAddressBlockContext},
+    controller::{
+        self,
+        context::{Ctx, State},
+        metrics::Metrics,
+        reconciler::address_block::ControllerAddressBlockContext,
+    },
     crd::address_block::AddressBlock,
     fixture::{
         reconciler::{test_address_block_lb, test_address_block_lb_non_default},
@@ -32,7 +36,7 @@ async fn integration_test_address_block() {
 
     let allocator_set = Arc::new(AllocatorSet::new());
     let block_allocator = Arc::new(BlockAllocator::default());
-    let ab_ctx = ControllerAddressBlockContext{
+    let ab_ctx = ControllerAddressBlockContext {
         allocator_set: allocator_set.clone(),
         block_allocator: block_allocator.clone(),
     };
@@ -40,6 +44,7 @@ async fn integration_test_address_block() {
         client.clone(),
         30,
         ab_ctx,
+        Arc::new(Mutex::new(Metrics::default())),
     );
 
     tracing::info!("Creating an AddressBlock resource");

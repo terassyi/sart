@@ -1,4 +1,4 @@
-use std::{net::IpAddr, str::FromStr, sync::Arc};
+use std::{net::IpAddr, str::FromStr, sync::{Arc, Mutex}};
 
 use kube::{
     api::{DeleteParams, Patch, PatchParams},
@@ -6,8 +6,12 @@ use kube::{
 };
 use sartd_ipam::manager::AllocatorSet;
 use sartd_kubernetes::{
-    agent::{self, reconciler::address_block::PodAllocator},
-    context::{Ctx, State},
+    agent::{
+        self,
+        context::{Ctx, State},
+        metrics::Metrics,
+        reconciler::address_block::PodAllocator,
+    },
     crd::{address_block::AddressBlock, bgp_advertisement::BGPAdvertisement},
     fixture::{
         reconciler::{test_address_block_pod, test_address_block_pod2},
@@ -39,7 +43,12 @@ async fn integration_test_address_block() {
         notifier: sender,
     });
 
-    let ctx = State::default().to_context_with(client.clone(), 30, pod_allocator.clone());
+    let ctx = State::default().to_context_with(
+        client.clone(),
+        30,
+        pod_allocator.clone(),
+        Arc::new(Mutex::new(Metrics::default())),
+    );
 
     tracing::info!("Creating an AddressBlock resource");
     let ab = test_address_block_pod();

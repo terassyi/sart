@@ -8,6 +8,7 @@ k8s-openapi = { version = "0.20.0", features = ["v1_28"] }
 kube = { version = "0.87.2", features = [] }
 opentelemetry = { version = "0.21.0", features = ["trace"] }
 prometheus = "0.13.3"
+rand = "0.8.5"
 tokio = { version = "1.35.1", features = ["time"] }
 tracing = "0.1.40"
 tracing-opentelemetry = "0.22.0"

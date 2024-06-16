@@ -5,8 +5,7 @@ use kube::{
     Api, Client, ResourceExt,
 };
 use sartd_kubernetes::{
-    agent::{self, reconciler::node_bgp::ENV_HOSTNAME},
-    context::State,
+    agent::{self, context::State, metrics::Metrics, reconciler::node_bgp::ENV_HOSTNAME},
     crd::{
         bgp_advertisement::{AdvertiseStatus, BGPAdvertisement},
         bgp_peer::{BGPPeer, BGPPeerCondition, BGPPeerConditionStatus, BGPPeerStatus},
@@ -46,7 +45,7 @@ async fn integration_test_agent_bgp_advertisement() {
 
     tracing::info!("Getting kube client");
     let client = Client::try_default().await.unwrap();
-    let ctx = State::default().to_context(client.clone(), 30);
+    let ctx = State::default().to_context(client.clone(), 30, Arc::new(Mutex::new(Metrics::default())));
 
     tracing::info!("Creating NodeBGP");
     let nb = test_node_bgp();

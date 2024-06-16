@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use k8s_openapi::api::{
     core::v1::Service,
@@ -9,8 +9,12 @@ use kube::{
     Api, Client, ResourceExt,
 };
 use sartd_kubernetes::{
-    context::{Context, State},
-    controller::{self, reconciler::service_watcher::SERVICE_ETP_ANNOTATION},
+    controller::{
+        self,
+        context::{Context, State},
+        metrics::Metrics,
+        reconciler::service_watcher::SERVICE_ETP_ANNOTATION,
+    },
     crd::{
         bgp_advertisement::{AdvertiseStatus, BGPAdvertisement},
         bgp_peer::BGPPeer,
@@ -37,7 +41,7 @@ async fn integration_test_endpointslice_watcher() {
 
     tracing::info!("Getting kube client");
     let client = Client::try_default().await.unwrap();
-    let ctx = State::default().to_context(client.clone(), 30);
+    let ctx = State::default().to_context(client.clone(), 30, Arc::new(Mutex::new(Metrics::default())));
 
     let eps = test_eps();
 

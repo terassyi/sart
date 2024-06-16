@@ -1,12 +1,11 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, sync::{Arc, Mutex}};
 
 use kube::{
     api::{DeleteParams, Patch, PatchParams},
     Api, Client, ResourceExt,
 };
 use sartd_kubernetes::{
-    context::State,
-    controller,
+    controller::{self, context::State, metrics::Metrics},
     crd::bgp_advertisement::{AdvertiseStatus, BGPAdvertisement, BGPAdvertisementStatus},
     fixture::{reconciler::test_bgp_advertisement_svc, test_trace},
     util::get_namespace,
@@ -26,7 +25,7 @@ async fn integration_test_controller_bgp_advertisement() {
 
     tracing::info!("Getting kube client");
     let client = Client::try_default().await.unwrap();
-    let ctx = State::default().to_context(client.clone(), 30);
+    let ctx = State::default().to_context(client.clone(), 30, Arc::new(Mutex::new(Metrics::default())));
 
     let mut ba = test_bgp_advertisement_svc();
     ba.status = Some(BGPAdvertisementStatus {

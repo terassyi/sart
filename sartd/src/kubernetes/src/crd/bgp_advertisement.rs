@@ -45,6 +45,16 @@ pub enum AdvertiseStatus {
     Withdraw,
 }
 
+impl std::fmt::Display for AdvertiseStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AdvertiseStatus::Advertised => write!(f, "advertised"),
+            AdvertiseStatus::NotAdvertised => write!(f, "notadvertised"),
+            AdvertiseStatus::Withdraw => write!(f, "withdraw"),
+        }
+    }
+}
+
 #[derive(Deserialize, Serialize, Clone, Default, Debug, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum Protocol {

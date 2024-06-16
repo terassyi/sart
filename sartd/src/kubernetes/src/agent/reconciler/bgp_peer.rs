@@ -1,4 +1,7 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use futures::StreamExt;
 use k8s_openapi::api::discovery::v1::EndpointSlice;
@@ -12,10 +15,15 @@ use kube::{
     },
     Api, Client, ResourceExt,
 };
+use tracing::{field, Span};
 
 use crate::{
-    agent::{bgp::speaker, error::Error},
-    context::{error_policy, Context, State},
+    agent::{
+        bgp::speaker,
+        context::{error_policy, Context, Ctx, State},
+        error::Error,
+        metrics::Metrics,
+    },
     controller::reconciler::endpointslice_watcher::ENDPOINTSLICE_TRIGGER,
     crd::{
         bgp_advertisement::{AdvertiseStatus, BGPAdvertisement},
@@ -34,6 +42,11 @@ use super::node_bgp::{DEFAULT_SPEAKER_TIMEOUT, ENV_HOSTNAME};
 pub async fn reconciler(bp: Arc<BGPPeer>, ctx: Arc<Context>) -> Result<Action, Error> {
     let bgp_peers = Api::<BGPPeer>::all(ctx.client.clone());
 
+    ctx.metrics()
+        .lock()
+        .map_err(|_| Error::FailedToGetLock)?
+        .reconciliation(bp.as_ref());
+
     finalizer(&bgp_peers, BGP_PEER_FINALIZER, bp, |event| async {
         match event {
             Event::Apply(bp) => reconcile(&bgp_peers, &bp, ctx).await,
@@ -46,7 +59,8 @@ pub async fn reconciler(bp: Arc<BGPPeer>, ctx: Arc<Context>) -> Result<Action, E
 
 #[tracing::instrument(skip_all, fields(trace_id))]
 async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Result<Action, Error> {
-    tracing::info!(name = bp.name_any(), "Reconcile BGPPeer");
+    let trace_id = sartd_trace::telemetry::get_trace_id();
+    Span::current().record("trace_id", &field::display(&trace_id));
 
     let timeout = match bp.spec.speaker.timeout {
         Some(t) => t,
@@ -64,7 +78,7 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
     if info.asn == 0 {
         tracing::warn!(
             node_bgp = bp.spec.node_bgp_ref,
-            "Local BGP speaker is not configured"
+            "local BGP speaker is not configured"
         );
         return Ok(Action::requeue(Duration::from_secs(1)));
     }
@@ -88,6 +102,11 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
             let mut need_status_update = false;
             match &peer.get_ref().peer {
                 Some(peer) => {
+                    tracing::info!(
+                        asn = bp.spec.asn,
+                        addr = bp.spec.addr,
+                        "peer already exists"
+                    );
                     // update status
                     match new_bp.status.as_mut() {
                         Some(status) => match status.conditions.as_mut() {
@@ -104,8 +123,23 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
                                             addr = bp.spec.addr,
                                             old_state = ?cond.status,
                                             new_state = ?new_state,
-                                            "Peer state is changed"
+                                            "peer state is changed"
                                         );
+                                        // update metrics
+                                        {
+                                            let metrics = ctx.metrics();
+                                            let metrics = metrics
+                                                .lock()
+                                                .map_err(|_| Error::FailedToGetLock)?;
+                                            metrics.bgp_peer_status_down(
+                                                &bp.name_any(),
+                                                &format!("{}", cond.status),
+                                            );
+                                            metrics.bgp_peer_status_up(
+                                                &bp.name_any(),
+                                                &format!("{new_state}"),
+                                            );
+                                        }
                                         conditions.push(BGPPeerCondition {
                                             status: BGPPeerConditionStatus::try_from(status as i32)
                                                 .map_err(Error::CRD)?,
@@ -140,12 +174,16 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
                                     asn = bp.spec.asn,
                                     addr = bp.spec.addr,
                                     state = ?state,
-                                    "Peer state is initialized"
+                                    "peer state is initialized"
                                 );
                                 status.conditions = Some(vec![BGPPeerCondition {
                                     status: state,
                                     reason: "Synchronized by BGPPeer reconciler".to_string(),
                                 }]);
+                                ctx.metrics()
+                                    .lock()
+                                    .map_err(|_| Error::FailedToGetLock)?
+                                    .bgp_peer_status_up(&bp.name_any(), &format!("{state}"));
                                 need_status_update = true;
                             }
                         },
@@ -157,7 +195,7 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
                                 asn = bp.spec.asn,
                                 addr = bp.spec.addr,
                                 state = ?state,
-                                "Peer state is initialized"
+                                "peer state is initialized"
                             );
                             new_bp.status = Some(BGPPeerStatus {
                                 backoff: 0,
@@ -166,6 +204,10 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
                                     reason: "Synchronized by BGPPeer reconciler".to_string(),
                                 }]),
                             });
+                            ctx.metrics()
+                                .lock()
+                                .map_err(|_| Error::FailedToGetLock)?
+                                .bgp_peer_status_up(&bp.name_any(), &format!("{state}"));
                             need_status_update = true;
                         }
                     }
@@ -182,7 +224,7 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
                     name = bp.name_any(),
                     asn = bp.spec.asn,
                     addr = bp.spec.addr,
-                    "Update BGPPeer status"
+                    "update BGPPeer status"
                 );
                 let patch = Patch::Merge(&new_bp);
                 if let Err(e) = api
@@ -203,7 +245,7 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
             tracing::info!(
                 asn = bp.spec.asn,
                 addr = bp.spec.addr,
-                "Peer doesn't exist yet"
+                "peer doesn't exist yet"
             );
 
             speaker_client
@@ -263,7 +305,7 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
             name = bp.name_any(),
             asn = bp.spec.asn,
             addr = bp.spec.addr,
-            "Reflect the newly established peer to existing BGPAdvertisements"
+            "reflect the newly established peer to existing BGPAdvertisements"
         );
         let eps_api = Api::<EndpointSlice>::all(ctx.client.clone());
         let mut eps_list = eps_api
@@ -290,7 +332,7 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
             name = bp.name_any(),
             asn = bp.spec.asn,
             addr = bp.spec.addr,
-            "Reset BGPAdvertisements"
+            "reset BGPAdvertisements"
         );
         let ba_api = Api::<BGPAdvertisement>::all(ctx.client.clone());
         let mut ba_list = ba_api
@@ -325,7 +367,8 @@ async fn reconcile(api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Resul
 
 #[tracing::instrument(skip_all, fields(trace_id))]
 async fn cleanup(_api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Result<Action, Error> {
-    tracing::info!(name = bp.name_any(), "Cleanup BGPPeer");
+    let trace_id = sartd_trace::telemetry::get_trace_id();
+    Span::current().record("trace_id", &field::display(&trace_id));
 
     let timeout = match bp.spec.speaker.timeout {
         Some(t) => t,
@@ -342,7 +385,7 @@ async fn cleanup(_api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Result
         .await
     {
         Ok(_peer) => {
-            tracing::info!(name = bp.name_any(), addr = bp.spec.addr, "Delete peer");
+            tracing::info!(name = bp.name_any(), addr = bp.spec.addr, "delete peer");
             speaker_client
                 .delete_peer(sartd_proto::sart::DeletePeerRequest {
                     addr: bp.spec.addr.clone(),
@@ -377,7 +420,7 @@ async fn cleanup(_api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Result
         name = bp.name_any(),
         asn = bp.spec.asn,
         addr = bp.spec.addr,
-        "Clean up the peer from BGPAdvertisements"
+        "clean up the peer from BGPAdvertisements"
     );
     let ba_api = Api::<BGPAdvertisement>::all(ctx.client.clone());
     let mut ba_list = ba_api
@@ -408,7 +451,7 @@ async fn cleanup(_api: &Api<BGPPeer>, bp: &BGPPeer, ctx: Arc<Context>) -> Result
 }
 
 #[tracing::instrument(skip_all, fields(trace_id))]
-pub async fn run(state: State, interval: u64) {
+pub async fn run(state: State, interval: u64, metrics: Arc<Mutex<Metrics>>) {
     let client = Client::try_default()
         .await
         .expect("Failed to create kube client");
@@ -431,7 +474,7 @@ pub async fn run(state: State, interval: u64) {
         .run(
             reconciler,
             error_policy::<BGPPeer, Error, Context>,
-            state.to_context(client, interval),
+            state.to_context(client, interval, metrics),
         )
         .filter_map(|x| async move { std::result::Result::ok(x) })
         .for_each(|_| futures::future::ready(()))

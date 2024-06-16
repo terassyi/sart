@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use futures::StreamExt;
 use k8s_openapi::api::core::v1::Node;
@@ -12,10 +12,14 @@ use kube::{
     },
     Api, Client, ResourceExt,
 };
+use tracing::{field, Span};
 
 use crate::{
-    context::{error_policy, Context, State},
-    controller::error::Error,
+    controller::{
+        context::{error_policy, Context, State, Ctx},
+        error::Error,
+        metrics::Metrics,
+    },
     crd::{
         cluster_bgp::{ClusterBGP, ClusterBGPStatus},
         node_bgp::NodeBGP,
@@ -27,6 +31,9 @@ pub const NODE_FINALIZER: &str = "node.sart.terassyi.net/finalizer";
 #[tracing::instrument(skip_all, fields(trace_id))]
 pub async fn reconciler(node: Arc<Node>, ctx: Arc<Context>) -> Result<Action, Error> {
     let nodes = Api::<Node>::all(ctx.client.clone());
+    let metrics = ctx.metrics();
+    metrics.lock().map_err(|_| Error::FailedToGetLock)?.reconciliation(node.as_ref());
+
     finalizer(&nodes, NODE_FINALIZER, node, |event| async {
         match event {
             Event::Apply(node) => reconcile(&nodes, &node, ctx.clone()).await,
@@ -39,7 +46,8 @@ pub async fn reconciler(node: Arc<Node>, ctx: Arc<Context>) -> Result<Action, Er
 
 #[tracing::instrument(skip_all, fields(trace_id))]
 async fn reconcile(_api: &Api<Node>, node: &Node, ctx: Arc<Context>) -> Result<Action, Error> {
-    tracing::info!(name = node.name_any(), "Reconcile Node");
+    let trace_id = sartd_trace::telemetry::get_trace_id();
+    Span::current().record("trace_id", &field::display(&trace_id));
 
     // sync node labels
     let node_bgp_api = Api::<NodeBGP>::all(ctx.client.clone());
@@ -71,7 +79,7 @@ async fn reconcile(_api: &Api<Node>, node: &Node, ctx: Arc<Context>) -> Result<A
                 node = node.name_any(),
                 cluster_bgp = cb.name_any(),
                 nodes =? new_cb.status,
-                "Update ClusterBGP's status by node_watcher"
+                "update ClusterBGP's status by node_watcher"
             );
             cluster_bgp_api
                 .replace_status(
@@ -89,7 +97,12 @@ async fn reconcile(_api: &Api<Node>, node: &Node, ctx: Arc<Context>) -> Result<A
 
 #[tracing::instrument(skip_all, fields(trace_id))]
 async fn cleanup(_api: &Api<Node>, node: &Node, ctx: Arc<Context>) -> Result<Action, Error> {
+    let trace_id = sartd_trace::telemetry::get_trace_id();
+    Span::current().record("trace_id", &field::display(&trace_id));
+
     let node_bgp_api = Api::<Node>::all(ctx.client.clone());
+
+    tracing::info!(node = node.name_any(), "delete the NodeBGP");
 
     node_bgp_api
         .delete(&node.name_any(), &DeleteParams::default())
@@ -99,7 +112,7 @@ async fn cleanup(_api: &Api<Node>, node: &Node, ctx: Arc<Context>) -> Result<Act
     Ok(Action::await_change())
 }
 
-pub async fn run(state: State, interval: u64) {
+pub async fn run(state: State, interval: u64, metrics: Arc<Mutex<Metrics>>) {
     let client = Client::try_default()
         .await
         .expect("Failed to create kube client");
@@ -111,7 +124,7 @@ pub async fn run(state: State, interval: u64) {
         .run(
             reconciler,
             error_policy::<Node, Error, Context>,
-            state.to_context(client, interval),
+            state.to_context(client, interval, metrics),
         )
         .filter_map(|x| async move { std::result::Result::ok(x) })
         .for_each(|_| futures::future::ready(()))

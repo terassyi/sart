@@ -1,21 +1,33 @@
-use std::{str::FromStr, sync::Arc};
+use std::{
+    str::FromStr,
+    sync::{Arc, Mutex},
+};
 
 use futures::StreamExt;
 use ipnet::IpNet;
 use kube::{
-    api::ListParams, runtime::{
+    api::ListParams,
+    runtime::{
         controller::{Action, Controller},
         finalizer::{finalizer, Event},
         watcher::Config,
-    }, Api, Client, ResourceExt
+    },
+    Api, Client, ResourceExt,
 };
 
 use sartd_ipam::manager::{AllocatorSet, Block, BlockAllocator};
+use tracing::{field, Span};
 
 use crate::{
-    context::{error_policy, ContextWith, Ctx, State},
-    controller::error::Error,
-    crd::{address_block::{AddressBlock, ADDRESS_BLOCK_FINALIZER_CONTROLLER}, address_pool::AddressType},
+    controller::{
+        context::{error_policy, ContextWith, Ctx, State},
+        error::Error,
+        metrics::Metrics,
+    },
+    crd::{
+        address_block::{AddressBlock, ADDRESS_BLOCK_FINALIZER_CONTROLLER},
+        address_pool::AddressType,
+    },
 };
 
 #[derive(Debug, Clone)]
@@ -30,6 +42,11 @@ pub async fn reconciler(
     ctx: Arc<ContextWith<ControllerAddressBlockContext>>,
 ) -> Result<Action, Error> {
     let address_blocks = Api::<AddressBlock>::all(ctx.client().clone());
+    let metrics = ctx.inner.metrics();
+    metrics
+        .lock()
+        .map_err(|_| Error::FailedToGetLock)?
+        .reconciliation(ab.as_ref());
 
     finalizer(
         &address_blocks,
@@ -46,7 +63,7 @@ pub async fn reconciler(
     .map_err(|e| Error::Finalizer(Box::new(e)))
 }
 
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(skip_all, fields(trace_id))]
 async fn reconcile(
     api: &Api<AddressBlock>,
     ab: &AddressBlock,
@@ -54,19 +71,18 @@ async fn reconcile(
 ) -> Result<Action, Error> {
     match ab.spec.r#type {
         AddressType::Pod => reconcile_pod(api, ab, ctx).await,
-        AddressType::Service => reconcile_service(api, ab, ctx).await
+        AddressType::Service => reconcile_service(api, ab, ctx).await,
     }
 }
 
 #[tracing::instrument(skip_all)]
 async fn reconcile_pod(
     _api: &Api<AddressBlock>,
-    _ab: &AddressBlock,
-    _ctx: Arc<ContextWith<ControllerAddressBlockContext>>,
+    ab: &AddressBlock,
+    ctx: Arc<ContextWith<ControllerAddressBlockContext>>,
 ) -> Result<Action, Error> {
     Ok(Action::await_change())
 }
-
 
 #[tracing::instrument(skip_all)]
 async fn reconcile_service(
@@ -79,6 +95,8 @@ async fn reconcile_service(
         return Ok(Action::await_change());
     }
     tracing::info!(name = ab.name_any(), "Reconcile AddressBlock");
+    let trace_id = sartd_trace::telemetry::get_trace_id();
+    Span::current().record("trace_id", &field::display(&trace_id));
 
     let component = ctx.component.allocator_set.clone();
     let mut alloc_set = component.inner.lock().map_err(|_| Error::FailedToGetLock)?;
@@ -87,6 +105,7 @@ async fn reconcile_service(
 
     match alloc_set.blocks.get(&ab.name_any()) {
         Some(_a) => {
+            tracing::info!(name = ab.name_any(), "address block already exists");
             match ab.spec.auto_assign {
                 true => {
                     // Check if already set
@@ -95,21 +114,21 @@ async fn reconcile_service(
                             if ab.name_any().ne(name) {
                                 tracing::warn!(
                                     name = ab.name_any(),
-                                    "Auto assignable block already exists."
+                                    "auto assignable block already exists."
                                 );
                                 return Err(Error::AutoAssignMustBeOne);
                             }
                         }
                         None => {
                             alloc_set.auto_assign = Some(ab.name_any());
-                            tracing::info!(name = ab.name_any(), "Enable auto assign.");
+                            tracing::info!(name = ab.name_any(), "enable auto assign.");
                         }
                     }
                 }
                 false => {
                     if let Some(name) = &alloc_set.auto_assign {
                         if ab.name_any().eq(name) {
-                            tracing::info!(name = ab.name_any(), "Disable auto assign.");
+                            tracing::info!(name = ab.name_any(), "disable auto assign.");
                             alloc_set.auto_assign = None;
                         }
                     }
@@ -118,17 +137,22 @@ async fn reconcile_service(
             if let Some(auto_assign_name) = &alloc_set.auto_assign {
                 // If disable auto assign
                 if !ab.spec.auto_assign && auto_assign_name.eq(&ab.name_any()) {
-                    tracing::info!(name = ab.name_any(), "Disable auto assign");
+                    tracing::info!(name = ab.name_any(), "disable auto assign");
                 }
             }
         }
         None => {
             let block = Block::new(ab.name_any(), ab.name_any(), cidr).map_err(Error::Ipam)?;
             alloc_set.blocks.insert(ab.name_any(), block);
+
+            ctx.metrics()
+                .lock()
+                .map_err(|_| Error::FailedToGetLock)?
+                .allocated_blocks_inc(&ab.spec.pool_ref, &format!("{}", ab.spec.r#type));
             if ab.spec.auto_assign {
                 match &alloc_set.auto_assign {
                     Some(_a) => {
-                        tracing::warn!(name = ab.name_any(), "Cannot override auto assign.");
+                        tracing::warn!(name = ab.name_any(), "cannot override auto assign.");
                         return Err(Error::FailedToEnableAutoAssign);
                     }
                     None => {
@@ -142,7 +166,7 @@ async fn reconcile_service(
     Ok(Action::await_change())
 }
 
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(skip_all, fields(trace_id))]
 async fn cleanup(
     api: &Api<AddressBlock>,
     ab: &AddressBlock,
@@ -160,10 +184,9 @@ async fn cleanup_pod(
     ab: &AddressBlock,
     ctx: Arc<ContextWith<ControllerAddressBlockContext>>,
 ) -> Result<Action, Error> {
-
     let index = match &ab.status {
         Some(status) => status.index,
-        None => return Err(Error::AddressBlockIndexNotSet)
+        None => return Err(Error::AddressBlockIndexNotSet),
     };
 
     {
@@ -172,6 +195,11 @@ async fn cleanup_pod(
         if let Some(pool) = block_allocator.get_mut(&ab.spec.pool_ref) {
             tracing::info!(pool=ab.spec.pool_ref, cidr=?pool.cidr, block_size=pool.block_size,"Remove the pool from the block allocator");
             pool.release(index).map_err(Error::Ipam)?;
+
+            ctx.metrics()
+                .lock()
+                .map_err(|_| Error::FailedToGetLock)?
+                .allocated_blocks_dec(&ab.spec.pool_ref, &format!("{}", ab.spec.r#type));
         }
     }
     Ok(Action::await_change())
@@ -183,7 +211,8 @@ async fn cleanup_service(
     ab: &AddressBlock,
     ctx: Arc<ContextWith<ControllerAddressBlockContext>>,
 ) -> Result<Action, Error> {
-    tracing::info!(name = ab.name_any(), "clean up AddressBlock");
+    let trace_id = sartd_trace::telemetry::get_trace_id();
+    Span::current().record("trace_id", &field::display(&trace_id));
 
     let component = ctx.component.allocator_set.clone();
     let mut alloc_set = component.inner.lock().map_err(|_| Error::FailedToGetLock)?;
@@ -210,12 +239,22 @@ async fn cleanup_service(
     if deletable {
         tracing::warn!(name = ab.name_any(), "delete block");
         alloc_set.remove(&ab.name_any());
+
+        ctx.metrics()
+            .lock()
+            .map_err(|_| Error::FailedToGetLock)?
+            .allocated_blocks_dec(&ab.spec.pool_ref, &format!("{}", ab.spec.r#type));
     }
 
     Ok(Action::await_change())
 }
 
-pub async fn run(state: State, interval: u64, ctx: ControllerAddressBlockContext) {
+pub async fn run(
+    state: State,
+    interval: u64,
+    ctx: ControllerAddressBlockContext,
+    metrics: Arc<Mutex<Metrics>>,
+) {
     let client = Client::try_default()
         .await
         .expect("Failed to create kube client");
@@ -234,7 +273,7 @@ pub async fn run(state: State, interval: u64, ctx: ControllerAddressBlockContext
         .run(
             reconciler,
             error_policy::<AddressBlock, Error, ContextWith<ControllerAddressBlockContext>>,
-            state.to_context_with::<ControllerAddressBlockContext>(client, interval, ctx),
+            state.to_context_with::<ControllerAddressBlockContext>(client, interval, ctx, metrics),
         )
         .filter_map(|x| async move { std::result::Result::ok(x) })
         .for_each(|_| futures::future::ready(()))
@@ -250,8 +289,11 @@ mod tests {
     use sartd_ipam::manager::{AllocatorSet, Block, BlockAllocator};
 
     use crate::{
-        context::{ContextWith, Ctx},
-        controller::{error::Error, reconciler::address_block::ControllerAddressBlockContext},
+        controller::{
+            context::{ContextWith, Ctx},
+            error::Error,
+            reconciler::address_block::ControllerAddressBlockContext,
+        },
         crd::address_block::{AddressBlock, AddressBlockSpec},
         fixture::reconciler::{timeout_after_1s, ApiServerVerifier},
     };

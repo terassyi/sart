@@ -1,3 +1,4 @@
+use core::fmt;
 use std::collections::BTreeMap;
 
 use kube::core::ObjectMeta;
@@ -68,6 +69,20 @@ pub enum BGPPeerConditionStatus {
     OpenSent = 4,
     OpenConfirm = 5,
     Established = 6,
+}
+
+impl fmt::Display for BGPPeerConditionStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unknown => write!(f, "unknown"),
+            Self::Idle => write!(f, "idle"),
+            Self::Active => write!(f, "active"),
+            Self::Connect => write!(f, "connect"),
+            Self::OpenSent => write!(f, "opensent"),
+            Self::OpenConfirm => write!(f, "openconfirm"),
+            Self::Established => write!(f, "established"),
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize, Clone, Default, Debug, JsonSchema)]

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use common::{cleanup_kind, setup_kind};
 use k8s_openapi::api::core::v1::Node;
@@ -9,11 +9,12 @@ use kube::{
     Api, Client,
 };
 use sartd_kubernetes::controller;
+use sartd_kubernetes::controller::context::State;
+use sartd_kubernetes::controller::metrics::Metrics;
 use sartd_kubernetes::crd::cluster_bgp::{AsnSelectionType, AsnSelector, ASN_LABEL};
 use sartd_kubernetes::crd::node_bgp::NodeBGP;
 use sartd_kubernetes::fixture::test_trace;
 use sartd_kubernetes::{
-    context::State,
     crd::{bgp_peer_template::BGPPeerTemplate, cluster_bgp::ClusterBGP},
     fixture::reconciler::{test_bgp_peer_tmpl, test_cluster_bgp},
 };
@@ -30,7 +31,7 @@ async fn integration_test_cluster_bgp_asn() {
 
     tracing::info!("Getting kube client");
     let client = Client::try_default().await.unwrap();
-    let ctx = State::default().to_context(client.clone(), 30);
+    let ctx = State::default().to_context(client.clone(), 30, Arc::new(Mutex::new(Metrics::default())));
 
     let cb = test_cluster_bgp();
     let cb_api = Api::<ClusterBGP>::all(ctx.client.clone());
@@ -82,7 +83,7 @@ async fn integration_test_cluster_bgp_asn() {
 
     tracing::info!("Getting kube client");
     let client = Client::try_default().await.unwrap();
-    let ctx = State::default().to_context(client.clone(), 30);
+    let ctx = State::default().to_context(client.clone(), 30, Arc::new(Mutex::new(Metrics::default())));
 
     let mut cb = test_cluster_bgp();
     cb.spec.asn_selector = AsnSelector {
