@@ -50,4 +50,3 @@ COPY --from=builder /usr/local/bin/sart /usr/local/bin/sart
 COPY --from=builder /usr/local/bin/cni-installer /usr/local/bin/cni-installer
 
 COPY --from=builder /usr/local/bin/sart-cni /host/opt/cni/bin/sart-cni
-COPY netconf.json /host/etc/cni/net.d/10-sart.conflist

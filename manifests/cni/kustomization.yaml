@@ -6,3 +6,11 @@ patchesStrategicMerge:
   - agent-patch.yaml
   - controller-patch.yaml
   - speaker-patch.yaml
+
+configMapGenerator:
+- name: cni-conf
+  files:
+    - ./netconf.json
+  namespace: kube-system
+  options:
+    disableNameSuffixHash: true

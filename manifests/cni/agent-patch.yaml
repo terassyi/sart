@@ -25,6 +25,12 @@ spec:
           command: ["cni-installer"]
           securityContext:
             privileged: true
+          env:
+          - name: CNI_NETCONF
+            valueFrom:
+              configMapKeyRef:
+                name: cni-conf
+                key: netconf.json
           volumeMounts:
             - mountPath: /opt/cni/bin
               name: cni-bin
