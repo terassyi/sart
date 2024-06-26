@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use std::path::Path;
+use std::{io::Write, path::Path};
 
 #[derive(Debug, Parser)]
 struct Args {
@@ -27,6 +27,8 @@ const DEFAULT_SRC_CONF_DIR: &str = "/host/etc/cni/net.d";
 
 const DEFAULT_BIN_DIR: &str = "/opt/cni/bin";
 const DEFAULT_CONF_DIR: &str = "/etc/cni/net.d";
+const CNI_CONF_ENV_KEY: &str = "CNI_NETCONF";
+const CNI_CONF_NAME: &str = "10-netconf.conflist";
 
 fn main() -> Result<()> {
     println!("Install CNI binary and configuration file");
@@ -38,7 +40,11 @@ fn main() -> Result<()> {
     };
 
     install_cni_binaries(&binaries, &arg.src_bin_dir, &arg.bin_dir)?;
-    install_cni_conf(&arg.src_conf_dir, &arg.conf_dir)?;
+    if std::env::var(CNI_CONF_ENV_KEY).is_ok() {
+        install_cni_conf_from_env(CNI_CONF_ENV_KEY, &arg.conf_dir)?;
+    } else {
+        install_cni_conf(&arg.src_conf_dir, &arg.conf_dir)?;
+    }
 
     Ok(())
 }
@@ -72,6 +78,24 @@ fn install_cni_conf(src: &str, dst: &str) -> Result<()> {
         let file = file?;
         std::fs::copy(file.path(), dst_dir.join(file.file_name()))?;
     }
+
+    Ok(())
+}
+
+fn install_cni_conf_from_env(key: &str, dst: &str) -> Result<()> {
+    std::fs::create_dir_all(dst)?;
+    // clean up existing conf
+    let files = std::fs::read_dir(dst)?;
+    for file in files.into_iter() {
+        let file = file?;
+        std::fs::remove_file(file.path())?;
+    }
+
+    let dst_dir = Path::new(dst);
+    let conf = std::env::var(key)?;
+
+    let mut file = std::fs::File::create(dst_dir.join(CNI_CONF_NAME))?;
+    file.write_all(conf.as_bytes())?;
 
     Ok(())
 }
